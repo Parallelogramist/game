@@ -110,6 +110,28 @@ export class ShrineManager {
     this.shrines.push({ type, graphics, x, y });
   }
 
+  /**
+   * Whether an altar is still standing at exactly this point. Exact equality is the identity
+   * here: a shrine never moves, and a restored altar is re-added from the same coordinates
+   * `serialize()` wrote, so the live and the saved doubles are the same value.
+   */
+  hasShrineAt(x: number, y: number): boolean {
+    return this.shrines.some(shrine => shrine.x === x && shrine.y === y);
+  }
+
+  /**
+   * Removes an untouched altar WITHOUT triggering it: the expedition's POI retire pass hands a
+   * departed room's altar back to the generator. Deliberately does not touch `spawnTimer`, so
+   * the timed spawner resumes from where the cap froze it rather than paying an extra altar.
+   */
+  removeShrineAt(x: number, y: number): boolean {
+    const index = this.shrines.findIndex(shrine => shrine.x === x && shrine.y === y);
+    if (index === -1) return false;
+    this.shrines[index].graphics.destroy();
+    this.shrines.splice(index, 1);
+    return true;
+  }
+
   clear(): void {
     for (const shrine of this.shrines) shrine.graphics.destroy();
     this.shrines = [];

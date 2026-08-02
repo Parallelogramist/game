@@ -345,7 +345,11 @@ interface ActiveChestRecord {
 type PoiSlotObject =
   | { kind: 'chest'; chest: ActiveChestRecord }
   | { kind: 'crate'; entityId: number }
-  | { kind: 'boost'; entityId: number; consumable: ConsumableKind };
+  | { kind: 'boost'; entityId: number; consumable: ConsumableKind }
+  /** An altar owned by ShrineManager rather than by the ECS, so its handle is its point: the
+   *  manager splices a shrine the moment the ship touches it, which is exactly the liveness
+   *  test the retire pass needs. */
+  | { kind: 'shrine'; shrineType: ShrineType; x: number; y: number };
 
 interface PoiSlotRecord {
   sectorKey: string;
@@ -3653,6 +3657,16 @@ export class GameScene extends Phaser.Scene {
           unclaimedChests.splice(index, 1);
         } else if (saved.kind === 'crate') {
           objects.push({ kind: 'crate', entityId: this.addDestructible(saved.x, saved.y) });
+        } else if (saved.kind === 'shrine') {
+          // The altar is already back: shrineManager.restore ran at the top of restoreGameState,
+          // long before this pass. Re-adding it here would stand two altars on the same tile.
+          if (!this.shrineManager.hasShrineAt(saved.x, saved.y)) { missingHandle = true; continue; }
+          objects.push({
+            kind: 'shrine',
+            shrineType: saved.shrineType as ShrineType,
+            x: saved.x,
+            y: saved.y,
+          });
         } else if (saved.kind === 'boost') {
           const index = unclaimedBoosts.findIndex(entityId =>
             Consumable.kind[entityId] === saved.consumable
@@ -5232,6 +5246,8 @@ export class GameScene extends Phaser.Scene {
         // onto a different pickup after this one was collected.
         return hasComponent(this.world, ConsumablePickupTag, object.entityId)
           && Consumable.kind[object.entityId] === object.consumable;
+      case 'shrine':
+        return this.shrineManager.hasShrineAt(object.x, object.y);
     }
   }
 
@@ -5246,6 +5262,14 @@ export class GameScene extends Phaser.Scene {
         return;
       case 'boost':
         this.destroyRetiredPickup(object.entityId);
+        return;
+      case 'shrine':
+        this.shrineManager.removeShrineAt(object.x, object.y);
+        // The once-per-run cap is one market TAKEN, not one drawn. This runs only while
+        // destroying an untouched market, so at most one is ever alive; a market the player
+        // walked into fails the every-alive test above and is never retired, so the flag it
+        // set stays true for the rest of the run.
+        if (object.shrineType === 'market') this.poiOncePerRunSpawned = false;
         return;
     }
   }
@@ -5274,7 +5298,7 @@ export class GameScene extends Phaser.Scene {
     const protectedIds = new Set<number>();
     for (const record of this.poiSlotObjects.values()) {
       for (const object of record.objects) {
-        if (object.kind !== 'chest') protectedIds.add(object.entityId);
+        if (object.kind === 'crate' || object.kind === 'boost') protectedIds.add(object.entityId);
       }
     }
     return protectedIds;
@@ -5297,6 +5321,13 @@ export class GameScene extends Phaser.Scene {
           kind: 'crate' as const,
           x: Transform.x[object.entityId],
           y: Transform.y[object.entityId],
+        });
+      } else if (object.kind === 'shrine') {
+        serialized.push({
+          kind: 'shrine' as const,
+          x: object.x,
+          y: object.y,
+          shrineType: object.shrineType,
         });
       } else {
         serialized.push({
@@ -5387,25 +5418,33 @@ export class GameScene extends Phaser.Scene {
         ];
       }
       case 'poi_black_market':
-        this.shrineManager.addShrine('market', x, y);
         this.poiOncePerRunSpawned = true;
-        return [];
+        return [this.addPoiShrine('market', x, y)];
+      // A dormant hive and a dormant den are charted destinations, not furniture:
+      // dormantHazardSectors derives the map's hazard markers live from these arrays, so
+      // retiring one would delete a place the game told the player to come back to.
       case 'poi_ambush_nest':
         this.addAmbushNest(x, y, depth);
         return [];
       case 'poi_nemesis_lair':
         this.addNemesisLair(x, y, false);
         return [];
-      case 'poi_shrine_cleanse':   this.shrineManager.addShrine('cleanse', x, y); return [];
-      case 'poi_shrine_power':     this.shrineManager.addShrine('power', x, y); return [];
-      case 'poi_shrine_fortune':   this.shrineManager.addShrine('fortune', x, y); return [];
-      case 'poi_shrine_sacrifice': this.shrineManager.addShrine('sacrifice', x, y); return [];
+      case 'poi_shrine_cleanse':   return [this.addPoiShrine('cleanse', x, y)];
+      case 'poi_shrine_power':     return [this.addPoiShrine('power', x, y)];
+      case 'poi_shrine_fortune':   return [this.addPoiShrine('fortune', x, y)];
+      case 'poi_shrine_sacrifice': return [this.addPoiShrine('sacrifice', x, y)];
       default: {
         const unhandled: never = contentId;
         console.warn(`Unhandled POI content id: ${String(unhandled)}`);
         return [];
       }
     }
+  }
+
+  /** Places a slot's altar and hands back the record that lets the retire pass put it away. */
+  private addPoiShrine(shrineType: ShrineType, x: number, y: number): PoiSlotObject {
+    this.shrineManager.addShrine(shrineType, x, y);
+    return { kind: 'shrine', shrineType, x, y };
   }
 
   /** A dormant hive on a Treasure slot. Alpha and a pulse only: nothing is added to physics and

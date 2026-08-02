@@ -273,7 +273,12 @@ interface SerializedNemesisLair {
 export type SerializedPoiSlotObject =
   | { kind: 'chest'; x: number; y: number; isSpecial: boolean }
   | { kind: 'crate'; x: number; y: number }
-  | { kind: 'boost'; x: number; y: number; consumable: number };
+  | { kind: 'boost'; x: number; y: number; consumable: number }
+  /** Absent on saves written before FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES. The altar itself
+   *  round-trips through `shrineState`; this only records which slot owns it, so the restore can
+   *  retire it. `shrineType` is a plain string, the shape `ShrineSaveState.shrines[].type`
+   *  already uses, so the save module stays free of a ShrineManager import. */
+  | { kind: 'shrine'; x: number; y: number; shrineType: string };
 
 /**
  * One stocked POI slot and what is still standing in it. `intact` is the pay-twice guard:
