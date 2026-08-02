@@ -76,6 +76,9 @@ import type { PoiHazardKind } from '../../expedition/sectorDetail';
 import { rollPoiContents } from '../../world/poiRoll';
 import { rollSecretReward } from '../../world/secretRewards';
 import type { SecretRewardDefinition } from '../../world/secretRewards';
+import { collectPhaseBleedTiles } from '../../world/phaseBleed';
+import type { PhaseBleedTile } from '../../world/phaseBleed';
+import { PhaseBleedRenderer } from '../../visual/PhaseBleedRenderer';
 import type { PoiContentId } from '../../data/PoiCatalog';
 import { AMBUSH_NEST_WAVES, ambushWaveTier } from '../../data/PoiCatalog';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
@@ -379,6 +382,12 @@ const ENEMY_COLLISION_RADIUS = 12;
 const BOSS_KNOCKBACK_AI_TYPE_FLOOR = 100;
 const knockbackCollisionResult = createCollisionResult();
 const wraithSnapSpot = { x: 0, y: 0 };
+/** Per-frame scratch for the phased-Wraith wall tell. Refilled from zero every frame and
+ *  cleared in shutdown(), so it carries nothing between runs and needs no reset function. */
+const phaseBleedTiles: PhaseBleedTile[] = [];
+const phaseBleedSeenTileKeys = new Set<number>();
+/** ~1 Hz at 60fps: slow enough to read as a warning rather than a strobe. */
+const PHASE_BLEED_PULSE_RATE = 0.006;
 const enemySpawnSpot = { x: 0, y: 0 };
 const apertureSpawnSpot = { x: 0, y: 0 };
 const blinkCollisionResult = createCollisionResult();
@@ -932,6 +941,7 @@ export class GameScene extends Phaser.Scene {
    *  serialized: a reload cancels the channel, it never lands the jump for you. */
   private recallChannelRemaining = 0;
   private recallRing: Phaser.GameObjects.Graphics | null = null;
+  private phaseBleedRenderer: PhaseBleedRenderer | null = null;
   private hazardDamageMultiplier: number = 1.0;
 
   // Post-processing pipelines (WebGL only)
@@ -7524,12 +7534,20 @@ export class GameScene extends Phaser.Scene {
     // got there, and retrying every frame costs one tile read and self-heals a knockback or a
     // door that closed on it.
     const wraithWorldMap = this.worldMode.worldMap();
+    phaseBleedSeenTileKeys.clear();
+    let phaseBleedCount = 0;
     const wraithCheckEnemies = getFrameCacheEnemyIds();
     for (const enemyId of wraithCheckEnemies) {
       if (EnemyAI.aiType[enemyId] !== EnemyAIType.Wraith) continue;
       const wraithSprite = getSprite(enemyId);
       if (wraithSprite) {
         wraithSprite.alpha = EnemyAI.state[enemyId] === 1 ? 0.2 : 1.0;
+      }
+      if (wraithWorldMap && EnemyAI.state[enemyId] === 1) {
+        phaseBleedCount = collectPhaseBleedTiles(
+          wraithWorldMap, Transform.x[enemyId], Transform.y[enemyId],
+          ENEMY_COLLISION_RADIUS, phaseBleedSeenTileKeys, phaseBleedTiles, phaseBleedCount,
+        );
       }
       if (!wraithWorldMap || EnemyAI.state[enemyId] !== 0) continue;
       const wraithX = Transform.x[enemyId];
@@ -7547,6 +7565,16 @@ export class GameScene extends Phaser.Scene {
         EnemyAI.state[enemyId] = 1;
         EnemyAI.timer[enemyId] = 0;
       }
+    }
+
+    // Expedition-only without a mode branch: arena's worldMap() is null, so an arena run
+    // never allocates the layer and never draws.
+    if (wraithWorldMap) {
+      if (!this.phaseBleedRenderer) this.phaseBleedRenderer = new PhaseBleedRenderer(this);
+      const pulse = getSettingsManager().isReducedMotionEnabled()
+        ? 1
+        : 0.5 + 0.5 * Math.sin(this.time.now * PHASE_BLEED_PULSE_RATE);
+      this.phaseBleedRenderer.draw(phaseBleedTiles, phaseBleedCount, pulse);
     }
 
     movementSystem(this.world, deltaSeconds, this.syncPlayerWallCollision());
@@ -13051,6 +13079,13 @@ export class GameScene extends Phaser.Scene {
       this.recallRing = null;
     }
     this.recallChannelRemaining = 0;
+
+    if (this.phaseBleedRenderer) {
+      this.phaseBleedRenderer.destroy();
+      this.phaseBleedRenderer = null;
+    }
+    phaseBleedTiles.length = 0;
+    phaseBleedSeenTileKeys.clear();
 
     // Remove auto-buy toggle key listener
     if (this.autoBuyKeyHandler) {

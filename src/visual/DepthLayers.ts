@@ -19,6 +19,7 @@ export const DepthLayers = {
   AURA: 1,
   WORLD_GEOMETRY: 2,
   GROUND_SPIKE_WARNING: 2,
+  WRAITH_BLEED: 3,
   ORBIT_RING: 3,
   FROST_INDICATOR: 3,
   TRAIL: 4,
