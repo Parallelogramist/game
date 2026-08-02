@@ -1103,7 +1103,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   page, which costs one array of ~50 small objects at run start and nothing per frame). No
   save/restore slice: nothing about the radar is persisted, and the item did not ask for one.
   No `POLISH-*` item is filed — nothing visible or feel-related changed.
-- [ ] **ARCH-POI-MANAGERS** (chunk 5, two sessions allowed). Value: the expedition
+- [x] **ARCH-POI-MANAGERS** (chunk 5, done in two sessions: `f796c44` + `fd25e87`). Value: the expedition
   field-POI layer is ~2,470 lines inside GameScene (`:4889-7355`), the single
   largest and highest-churn cluster; every new POI kind hand-copies a 6-method
   family plus save/restore plus sector-retire wiring (the CLAUDE.md "parallel code
@@ -1133,16 +1133,43 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   at 177 files / 2077 tests with no new tests written (all of it is Phaser-coupled, which
   `CLAUDE.md` says is verified by play).
 
-  **Still open — 5a-ii (next session):** the other two static families. **Shrines**
-  (`updateShrines` / `spawnShrine` / `addShrine` / `drawShrine` / `triggerShrine`) do not fit
-  `sync(map, px, py)` at all — they are timer-paced into `worldMode.viewRect()` rather than
-  sector-synced, and they are the only static POI with run-save state (`addShrine` is shared
-  with `restoreGameState`), so they are what should force the `serialize()`/`restore()` decision.
-  **Secret caches** are the sync/update/clear family plus a ~250-line reward tail
-  (`updateSecretPuzzle`, `touchPuzzleNode`, `noticeSealedCache`, `claimSecretCache`,
-  `paySecretReward`, `grantMapFragment`, `secretRewardSpot`, and the adjacent
-  `grantSecretLead` / `announceHiddenSector` / `showSectorBanner`) whose ownership split is a
-  real design call, not a mechanical move. **5b** (actor POIs) is unchanged.
+  **Shipped (5a-ii, `fd25e87`):** `SecretCacheManager`, the third `FieldPoiManager`. The 11
+  cache methods, both fields, both static radii, the four puzzle constants and the two local
+  `ActivePuzzleNode` / `ActiveSecretPuzzle` interfaces left `GameScene` (~300 lines). Three
+  methods stayed in the scene on the precedent 5a-i set, each because a second caller needs it:
+  `paySecretReward` and `grantSecretLead` are both spent again by `announceHiddenSector` at the
+  richer hiddenSector tier, and `paySecretReward` drags its two private helpers `grantMapFragment`
+  and `secretRewardSpot` with it. Behaviour-preserving: no radius, alpha, shimmer, shake, toast or
+  puzzle rule changed, the raw `cameras.main.shake` at the claim and the settings-aware
+  `shakeCamera` at the fizzle stay asymmetric exactly as shipped, and the suite held at 177 files /
+  2077 tests with no new tests written.
+
+  **Shrines were removed from 5a as mis-grouped, not dropped.** They are refiled below as
+  `ARCH-SHRINE-MANAGER`. They are not a field POI: `updateShrines` is called from the
+  mode-agnostic main update under `// ═══ FIELD SHRINES ═══`, not from the expedition-only
+  `updateExpeditionAbilities` block, so arena runs spawn them; `spawnShrine` picks a point in
+  `worldMode.viewRect()` on a timer rather than from a sector's `poiSlots`, so `sync(map, px, py)`
+  would be a permanent no-op; expedition *additionally* seeds them through `spawnPoiContent`
+  (`poi_shrine_cleanse` / `_power` / `_fortune` / `_sacrifice` and the market), so a per-sector
+  rebuild would destroy placed ones; and they are the only static POI with run-save state, written
+  and read by the mode-agnostic save path. Filing them under `src/game/expeditionField/` would be
+  wrong. **5b** (actor POIs) is unchanged.
+- [ ] **ARCH-SHRINE-MANAGER** (chunk 5c, split out of ARCH-POI-MANAGERS 2026-08-02). Value: field
+  shrines are ~180 lines and 4 scene fields that no manager owns, and they are the last in-run
+  field feature still hand-rolled inside `GameScene` after chunk 5 closed. They are **not** a
+  `FieldPoiManager` (see the finding recorded on ARCH-POI-MANAGERS above), so this is a plain
+  `ShrineManager`, and `src/game/expeditionField/` is the wrong home for it (`src/game/field/`
+  or beside the treasure-chest family). Scope: `updateShrines` / `spawnShrine` / `addShrine` /
+  `drawShrine`, the `activeShrines` + `shrineSpawnTimer` fields, `SHRINE_INTERVAL` /
+  `MAX_SHRINES`, and a `serialize()` / `restore()` pair for the `shrineState` save payload
+  (`shrines[]` + `spawnTimer`), whose shape must stay byte-identical so existing
+  `GameStateManager` saves still load. **`triggerShrine` stays in the scene**, reached through a
+  `trigger(type, x, y)` dep: it spends `healPlayer`, `applyTimedStatBuff`, `grantRelicChoice`,
+  `spawnRandomConsumable`, `openMarket`, the ECS `Health` component and `syncStatsToPlayer`, so
+  moving it would pull a dozen scene systems into the manager for no gain. `addShrine` needs to
+  stay publicly reachable: `spawnPoiContent` places shrines at POI slots. Behaviour-preserving,
+  no retune. Guardrail: the existing `GameStateManager` shrine save/restore tests must pass
+  untouched.
 - [ ] **ARCH-RUNEND-SETTLEMENT** (chunk 6). Move the computation inside
   `gameOver`/`recordEarlyRunEnd`/`evaluateHiddenUnlocks`/`payDailyQuests`
   (`:10009-10533`) into pure `src/game/runend/runSettlement.ts`: inputs (kills, time,
