@@ -46,6 +46,9 @@ export interface ExpeditionProgressSummary {
   /** The id behind wardenName, so a caller can ask whether this guardian is already on the
    *  roster without re-deriving it from the seed. */
   wardenBossId: string;
+  /** So a caller can build this world's quest stamp without generating the world again. The
+   *  warden ids above are derived from the same value for the same reason. */
+  worldGenVersion: number;
   conquered: boolean;
 }
 
@@ -72,6 +75,7 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     secretsFound: discovery.getFoundSecretCount(),
     wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
     wardenBossId: wardenBossIdForWorld(seed, map.worldGenVersion),
+    worldGenVersion: map.worldGenVersion,
     conquered: isWorldConquered(seed, map.worldGenVersion),
   };
 }

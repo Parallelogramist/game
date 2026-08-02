@@ -74,6 +74,8 @@ import {
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
 import type { ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
+import { questWorldStamp } from '../../systems/QuestProgress';
+import { getWorldBoundStepProgress } from '../../meta/ExpeditionQuestManager';
 import {
   RETURN_WORLD_SORT_LABELS,
   nextReturnWorldSort,
@@ -381,6 +383,22 @@ export class BootScene extends Phaser.Scene {
       + (row.conquered ? '   ·   CONQUERED' : '')
     );
 
+    // The price the three world-change dialogs did not name. A distinct sweep's rooms are
+    // stamped to the world they were charted in and are dropped whole on a change, so the
+    // dialog that makes the change is where that has to be said.
+    const worldBoundObjectiveLines = (summary: ExpeditionProgressSummary): string[] => {
+      const stamp = questWorldStamp(summary);
+      const bound = getWorldBoundStepProgress().filter(row => row.worldStamp === stamp);
+      if (bound.length === 0) return [];
+      const lines = ['', bound.length === 1
+        ? 'One objective counts rooms in this world and restarts with it:'
+        : `${bound.length} objectives count rooms in this world and restart with it:`];
+      for (const row of bound) {
+        lines.push(`${row.questName}: ${row.roomsCounted} charted so far`);
+      }
+      return lines;
+    };
+
     // MORE walks the pages rather than a scrolling panel: the confirmation's button row fits
     // five, which is three worlds plus MORE plus BACK, and the page index wraps so one button
     // reaches every one of the 20 worlds the archive keeps. SORT re-orders that same list and
@@ -404,6 +422,7 @@ export class BootScene extends Phaser.Scene {
         'A world you return to is exactly as you left it: the same',
         'chart, the same broken walls, the same secrets found.',
       ];
+      lines.push(...worldBoundObjectiveLines(summary));
       if (hasSave) lines.push('', 'Your current run will be lost.');
       const order = RETURN_WORLD_SORT_LABELS[sort];
       lines.push('', pageCount > 1
@@ -472,6 +491,7 @@ export class BootScene extends Phaser.Scene {
       if (returning) {
         lines.push('', 'You have flown this world before: its chart comes back with it.');
       }
+      lines.push(...worldBoundObjectiveLines(summary));
       if (hasSave) lines.push('', 'Your current run will be lost.');
       this.showNewGameConfirmation(
         () => flyExpeditionWorld(summary, seed),
@@ -597,6 +617,7 @@ export class BootScene extends Phaser.Scene {
         'Traversal abilities and quest keys are kept, so doors you have',
         'already earned open on sight.',
       ];
+      lines.push(...worldBoundObjectiveLines(summary));
       if (hasSave) lines.push('', 'Your current run will be lost.');
       lines.push('', 'Choose the world you fly next:');
       for (const [index, preview] of previews.entries()) {

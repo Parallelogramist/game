@@ -23,6 +23,8 @@ import {
   reclaimQuestCargo,
   buildQuestCargoDropObjectives,
   buildQuestCargoStatus,
+  worldBoundStepProgress,
+  dropStaleWorldBoundProgress,
   type QuestBoardEntry,
   type QuestCargoDrop,
   type QuestCargoDropObjective,
@@ -38,6 +40,7 @@ import {
   type QuestProgressResult,
   type QuestStatus,
   type QuestStepView,
+  type WorldBoundStepProgress,
 } from '../systems/QuestProgress';
 import type { SectorSupplySnapshot } from '../world/sectorTags';
 import { buildSeasonQuests } from '../expedition/seasonQuests';
@@ -222,6 +225,30 @@ function save(state: ExpeditionQuestSaveState): void {
 
 export function getExpeditionQuestStates(): QuestInstanceState[] {
   return load().states;
+}
+
+export type { WorldBoundStepProgress } from '../systems/QuestProgress';
+
+export function getWorldBoundStepProgress(): WorldBoundStepProgress[] {
+  const defs = questCatalog();
+  return worldBoundStepProgress(load(defs).states, defs);
+}
+
+/** Called once as a run binds its world. Writes storage only when something actually dropped,
+ *  the rule `recordExpeditionQuestEvent` already follows. */
+export function dropStaleExpeditionQuestWorldProgress(
+  worldStamp: string,
+): WorldBoundStepProgress[] {
+  const defs = questCatalog();
+  const state = load(defs);
+  const result = dropStaleWorldBoundProgress(state.states, defs, worldStamp);
+  if (result.dropped.length === 0) return result.dropped;
+  save({
+    states: result.states,
+    pendingGold: state.pendingGold,
+    pendingRelicRolls: state.pendingRelicRolls,
+  });
+  return result.dropped;
 }
 
 /** The definition behind an id a fold just reported. Resolved against `questCatalog()` and

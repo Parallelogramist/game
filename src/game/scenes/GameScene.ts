@@ -164,6 +164,7 @@ import {
   reclaimExpeditionQuestCargo,
   dropExpeditionQuestCargo,
   getExpeditionQuestFromCatalog,
+  dropStaleExpeditionQuestWorldProgress,
 } from '../../meta/ExpeditionQuestManager';
 import { WARDEN_SEAL_KEY_ID, cargoLabelOf, droneLabelOf, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import type { ExpeditionQuestStep } from '../../data/ExpeditionQuests';
@@ -9987,7 +9988,8 @@ export class GameScene extends Phaser.Scene {
    * run-scope counters the player already earned.
    */
   private startExpeditionQuestRun(): void {
-    if (!this.worldMode.worldMap()) return;
+    const boundWorldMap = this.worldMode.worldMap();
+    if (!boundWorldMap) return;
     // A chain that finished at the victory frame banked its roll rather than losing it: the
     // draft queue is dead once hasWon is set. It arrives here, on the next flight out.
     const carriedRelicRolls = claimExpeditionQuestRelicRolls();
@@ -10001,6 +10003,22 @@ export class GameScene extends Phaser.Scene {
           : `${carriedRelicRolls} finished chains send relics with you`,
         icon: 'crown',
         color: 0xffe26a,
+        duration: 3600,
+      });
+    }
+    // A distinct sweep's rooms belong to the world they were charted in: a sector key names a
+    // different room in a regenerated map. Dropping them here rather than on the first room
+    // entry is what keeps the ticker from reading the world the player left.
+    for (const restarted of dropStaleExpeditionQuestWorldProgress(
+      questWorldStamp(boundWorldMap),
+    )) {
+      getDiscoveryManager().noteObjectiveUpdated(restarted.questId);
+      this.toastManager?.showToast({
+        tier: 'notable',
+        title: 'OBJECTIVE RESTARTED',
+        description: `${restarted.questName}: ${restarted.stepDescription}`,
+        icon: 'radar',
+        color: 0x9fe8a0,
         duration: 3600,
       });
     }

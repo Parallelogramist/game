@@ -512,6 +512,78 @@ export function buildQuestStepViews(
 }
 
 /**
+ * Every active step whose progress belongs to ONE world: a `reachSector` sweep that has counted
+ * at least one room. The stamp travels with the row so both consumers can ask their own
+ * question of it. The CHART dialog wants the rows whose stamp IS the world being traded away
+ * (those restart); a run binding a world wants the rows whose stamp is NOT it (those already
+ * have).
+ */
+export interface WorldBoundStepProgress {
+  questId: string;
+  questName: string;
+  stepDescription: string;
+  /** Rooms already counted. Never zero: an empty set is nothing to warn about or announce. */
+  roomsCounted: number;
+  worldStamp: string;
+}
+
+export function worldBoundStepProgress(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): WorldBoundStepProgress[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const rows: WorldBoundStepProgress[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const definition = byId.get(state.questId);
+    const step = definition?.steps[state.stepIndex];
+    if (!definition || !step) continue;
+    if (step.trigger.kind !== 'reachSector') continue;
+    const roomsCounted = state.visitedSectorKeys?.length ?? 0;
+    const worldStamp = state.visitedWorldStamp;
+    if (worldStamp === undefined || roomsCounted === 0) continue;
+    rows.push({
+      questId: definition.id,
+      questName: definition.name,
+      // No supply snapshot: this is read from a menu with no world loaded, and the authored
+      // target is the honest number there. The live clamp stays buildQuestStepViews' job.
+      stepDescription: renderStepDescription(step, effectiveStepTarget(step, undefined)),
+      roomsCounted,
+      worldStamp,
+    });
+  }
+  return rows;
+}
+
+/**
+ * The eager form of a drop `foldQuestEvent` already performs lazily. Its `reachSector` branch
+ * discards a visited set collected under another stamp, but only when the next room-entry event
+ * arrives, so until the ship crosses a door the read model still renders the world the player
+ * left. Doing it when the world binds is what makes the ticker honest on the first frame; the
+ * outcome is identical, because a run cannot reach a `reachSector` event without entering a
+ * room first.
+ */
+export function dropStaleWorldBoundProgress(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  worldStamp: string,
+): { states: QuestInstanceState[]; dropped: WorldBoundStepProgress[] } {
+  const dropped = worldBoundStepProgress(states, defs)
+    .filter((row) => row.worldStamp !== worldStamp);
+  if (dropped.length === 0) return { states: [...states], dropped };
+  const staleQuestIds = new Set(dropped.map((row) => row.questId));
+  const next = states.map((state) => (staleQuestIds.has(state.questId)
+    ? {
+      ...state,
+      stepProgress: 0,
+      visitedSectorKeys: undefined,
+      visitedWorldStamp: undefined,
+    }
+    : state));
+  return { states: next, dropped };
+}
+
+/**
  * Doc 04 section 4's marker feed, the half `FEAT-QUEST-VIEW` cut for having no key and no
  * consumer. One entry per active quest whose CURRENT step names a place (`reachSector`,
  * `surviveInSector`, `conquerWorld`); a quest working a kill, depth, gate, ability or secret

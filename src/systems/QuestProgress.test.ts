@@ -18,6 +18,8 @@ import {
   buildQuestCargoStatus,
   effectiveStepTarget,
   renderStepDescription,
+  worldBoundStepProgress,
+  dropStaleWorldBoundProgress,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -853,5 +855,59 @@ describe('conquerWorld trigger', () => {
   test('a live conquest step pins the boss arena', () => {
     const markers = buildQuestMarkers(activeStates(), WARDEN_DEFS, '1:v1');
     expect(markers.map((marker) => marker.sectorTag)).toEqual(['boss-arena', 'boss-arena']);
+  });
+});
+
+describe('worldBoundStepProgress and dropStaleWorldBoundProgress', () => {
+  const SWEEP_DEFS: readonly ExpeditionQuestDefinition[] = [{
+    id: 'quest_cross',
+    name: 'Cross',
+    icon: 'radar',
+    steps: [{
+      id: 'q_cross.s1',
+      description: 'survey three rooms across expeditions',
+      trigger: { kind: 'reachSector' },
+      target: 3,
+      scope: 'persistent',
+      goldReward: 19,
+    }],
+    completionGoldReward: 70,
+  }];
+
+  const swept = (worldStamp: string, rooms: readonly string[]): QuestInstanceState[] => ([{
+    questId: 'quest_cross',
+    stepIndex: 0,
+    stepProgress: rooms.length,
+    status: 'active',
+    visitedSectorKeys: [...rooms],
+    visitedWorldStamp: worldStamp,
+  }]);
+
+  test('reports only an active room sweep that has counted something, with its world', () => {
+    expect(worldBoundStepProgress(swept('w1', ['1,0', '2,0']), SWEEP_DEFS)).toEqual([{
+      questId: 'quest_cross',
+      questName: 'Cross',
+      stepDescription: renderStepDescription(SWEEP_DEFS[0].steps[0], 3),
+      roomsCounted: 2,
+      worldStamp: 'w1',
+    }]);
+
+    expect(worldBoundStepProgress(swept('w1', []), SWEEP_DEFS)).toEqual([]);
+    const complete = swept('w1', ['1,0']);
+    complete[0].status = 'complete';
+    expect(worldBoundStepProgress(complete, SWEEP_DEFS)).toEqual([]);
+  });
+
+  test('drops a sweep counted in another world and leaves this world\'s alone', () => {
+    const stale = dropStaleWorldBoundProgress(swept('w1', ['1,0', '2,0']), SWEEP_DEFS, 'w2');
+    expect(stale.dropped.map((row) => row.roomsCounted)).toEqual([2]);
+    expect(stale.states[0].stepProgress).toBe(0);
+    expect(stale.states[0].visitedSectorKeys).toBeUndefined();
+    expect(stale.states[0].visitedWorldStamp).toBeUndefined();
+
+    const live = dropStaleWorldBoundProgress(swept('w1', ['1,0', '2,0']), SWEEP_DEFS, 'w1');
+    expect(live.dropped).toEqual([]);
+    expect(live.states[0].stepProgress).toBe(2);
+    expect(live.states[0].visitedSectorKeys).toEqual(['1,0', '2,0']);
   });
 });
