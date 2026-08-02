@@ -1558,8 +1558,10 @@ closed at `afd403c` and off the board. Of the three cuts they filed,
 `FEAT-SEASON-CODE-KEYBOARD-ENTRY` is now closed at `c4ca973` and off the board too, while
 `POLISH-SEED-CODE-BUTTON-COLOUR` and `BALANCE-CHART-ROW-SIX-BUTTONS` remain candidates (the latter
 pairs with `POLISH-CHART-DIALOG-PORTRAIT` and `POLISH-MAP-HEADER-PORTRAIT`: same surface, same
-question). The three cuts `c4ca973` filed are candidates in its place: `FEAT-CODE-ENTRY-GAMEPAD`,
-`FEAT-LOADOUT-CODE-ENTRY-BUTTON` and `POLISH-CODE-ENTRY-LIVE-VALIDATE`. The remainder of
+question). Of the three cuts `c4ca973` filed, `FEAT-CODE-ENTRY-GAMEPAD` is now **done (0afee01)** and
+should not be re-picked, leaving `FEAT-LOADOUT-CODE-ENTRY-BUTTON` and
+`POLISH-CODE-ENTRY-LIVE-VALIDATE` as candidates, plus the one cut it filed in its place,
+`FEAT-OVERLAY-PAD-FOCUS-REST`. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
 (shipped at b75822d), so the list stays accurate.
@@ -7489,12 +7491,67 @@ exploring pays is the end of Phase 5.
   chart stops pointing at solved problems. Deps: none, but it wants play data on how many marks a
   real profile carries.
 
-- [ ] **FEAT-CODE-ENTRY-GAMEPAD** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the field
+- [x] **FEAT-CODE-ENTRY-GAMEPAD** (done, 0afee01) (new 2026-08-01, from
+  FEAT-SEASON-CODE-KEYBOARD-ENTRY): the field
   is a DOM element and the scene's `MenuNavigator` is disabled while it is up, so a pad-only player
   can open `TYPE` but cannot reach the field, the `FLY IT` button or `CANCEL`. Every other overlay
   in `src/ui/` has the same shape and the same gap, so the honest fix is a shared on-screen keyboard
   or a pad-to-DOM focus bridge rather than a patch on this one field. Value: a pad-only player can
   enter a code. Deps: none.
+
+  **What shipped.** A hidden 5 x 10 on-screen keyboard inside `src/ui/CodeEntryOverlay.ts` that
+  reveals itself on the first pad input and then drives the field directly. Because one file already
+  serves every typed surface in the game, this reaches all three at once: the `WORLD CODE` `TYPE`
+  field, the `ENTER BUILD CODE` field and the map screen's sector note. The 50 cells are exactly
+  what the three consumers decode: `A-Z` and `0-9` and `-` for the base36 world code and its `PPW1-`
+  prefix, `+ / =` for the build code's base64, and sentence punctuation plus a `SPC` key for a
+  note's prose, with `SHIFT`, `DEL` and `GO` filling the row.
+
+  **The bindings.** D-pad or left stick moves the focus ring, wrapping on both axes with key repeat
+  (400 ms to the first repeat, 110 ms between). A types the focused key, X deletes the last
+  character, Y toggles SHIFT, START submits and B cancels. The keys are clickable too, on
+  `mousedown` with `preventDefault()` so the field keeps focus and a physical keyboard can pick up
+  mid-code.
+
+  **Hidden until a pad is used, and the revealing input is consumed.** Many desktop players have a
+  pad plugged in and never touch it, so "a pad is connected" would have been the wrong trigger: a
+  mouse or keyboard player sees the overlay byte-identical to before. The press that reveals the
+  panel does not also type, because a player pressing A to find out whether the pad does anything
+  here must not get a stray character in the middle of a code.
+
+  **SHIFT is a persistent toggle seeded from the option the overlay already carried.** It starts on
+  when `autocapitalize` is `characters` (the all-caps world code) and off for the mixed-case build
+  code, so no new parameter was needed and no caller had to be told about it.
+
+  **Honest scope.** A build code is base64 and a couple of hundred characters
+  (`src/meta/LoadoutCode.ts:10`), so nobody will hand-type one and this does not claim it. The real
+  win is the world code (`PPW1-` plus up to 8 characters, or a bare seed number) and the
+  60-character sector note, both of which a pad player could not enter at all before.
+
+  **The overlay polls `navigator.getGamepads()` itself** rather than borrowing the scene-bound
+  `GamepadManager`, which would have meant threading a `Phaser.Scene` into three call sites and
+  inventing a per-frame tick for a DOM element that owns no scene. The poll cannot fight a caller,
+  because all three already stand their own input down while the overlay is up:
+  `src/game/scenes/BootScene.ts:464` and `src/game/scenes/LoadoutScene.ts:313` disable their
+  `MenuNavigator`, and `src/game/scenes/MapScene.ts:762` returns early from `update` before every
+  pad read. The W3C button indices come from `GamepadManager`'s own exported constants rather than
+  being redefined. The `requestAnimationFrame` handle is cancelled in the existing idempotent
+  teardown.
+
+  **No storage key, no version bump, no caller change.** Nothing in `src/game/`, `src/input/`,
+  `src/expedition/` or `src/meta/` moved, and `SAVE_VERSION`, `WORLDGEN_VERSION`,
+  `DISCOVERY_VERSION` and `WORLD_PROFILE_VERSION` are all untouched, so every existing profile
+  lights it up the moment the build lands.
+
+- [ ] **FEAT-OVERLAY-PAD-FOCUS-REST** (new 2026-08-02, from FEAT-CODE-ENTRY-GAMEPAD): the on-screen
+  keyboard reaches every typed field, because there is only one, but the button-only overlays still
+  have no pad path: `showProfileExportOverlay`'s DOWNLOAD FILE / COPY / CLOSE, the backup nudge's
+  BACK UP NOW / NOT NOW, the import overlay's CHOOSE FILE / CONTINUE / CANCEL and its OVERWRITE
+  confirmation (`src/ui/ProfileTransferOverlay.ts`), and INSTALL / NOT NOW / GOT IT
+  (`src/ui/InstallHintOverlay.ts`). Each is a row of `buildButton`s with a click handler and no
+  focus model, so the fix is a shared focused-button ring over `buildButtonRow` driven by the same
+  poll this item added, not a second keyboard. Value: a pad-only player can back up and restore a
+  profile. Deps: none.
 
 - [ ] **FEAT-LOADOUT-CODE-ENTRY-BUTTON** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the
   build-code field is reachable only through `PASTE & LAUNCH CODE`'s failure path, so a player whose
@@ -10714,6 +10771,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-PAD-KEYBOARD-FEEL** (new 2026-08-02, from FEAT-CODE-ENTRY-GAMEPAD). Value: a
+  pad-only player can now type, but every number in the panel was chosen against the overlay's own
+  chrome and never against a thumb on a real stick. Questions only a playtest answers: (a) does the
+  keyboard appearing on the first pad input read as the game noticing the pad, or as a panel that
+  jumped out? (b) is 400 ms to first repeat and 110 ms between repeats right for crossing a 10-wide
+  row, or does reaching `0` from `1` feel like a chore? (c) at 420 px of panel a key cell is about
+  34 px wide: is that readable on a Steam Deck at arm's length, and is `SHIFT` legible at 10 px?
+  (d) is wrap on both axes what a player expects, or does the focus ring teleporting from the last
+  column to the first read as a slip? (e) the panel sits under the FLY IT / CANCEL row so the
+  layout is unchanged for mouse and keyboard players: does that leave the buttons stranded above
+  the keyboard for a pad player, who reaches them with START and B instead? Deps: playtest.
 
 - [ ] **POLISH-PUZZLE-RESUME-TELL** (new 2026-08-02, from CHORE-SECRET-PUZZLE-RESUME): a ring you
   half woke now comes back lit, and the SEALED CACHE toast no longer re-announces when you return
