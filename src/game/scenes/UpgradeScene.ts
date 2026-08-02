@@ -1337,6 +1337,13 @@ export class UpgradeScene extends Phaser.Scene {
       this.entranceComplete = true;
     });
 
+    if (getSettingsManager().isReducedMotionEnabled()) {
+      // Cards are already laid out at their resting pose, so there is nothing to
+      // animate: only the per-card arrival flags the click handlers gate on.
+      this.cardEntranceDone = this.cardEntries.map(() => true);
+      return;
+    }
+
     this.cardEntranceDone = this.cardEntries.map(() => false);
 
     this.cardEntries.forEach((entry, index) => {

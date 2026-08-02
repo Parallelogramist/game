@@ -8,6 +8,7 @@ import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, MENU_FONT, TEXT_COLORS } from '../../visual/MenuStyle';
+import { getSettingsManager } from '../../settings';
 
 /** Data passed to MarketScene by GameScene.openMarket(). */
 export interface MarketSceneData {
@@ -322,6 +323,15 @@ export class MarketScene extends Phaser.Scene {
     this.time.delayedCall(80, () => {
       this.entranceComplete = true;
     });
+
+    if (getSettingsManager().isReducedMotionEnabled()) {
+      // The entrance tween is also the only thing that dims a locked offer, so
+      // skipping it has to apply that alpha directly or locked reads as buyable.
+      for (const entry of this.cardEntries) {
+        if (entry.offer.locked) entry.card.container.alpha = LOCKED_CARD_ALPHA;
+      }
+      return;
+    }
 
     this.cardEntries.forEach((entry, index) => {
       const targetY = entry.card.container.y;

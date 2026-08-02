@@ -344,6 +344,8 @@ export class RelicDraftScene extends Phaser.Scene {
       this.entranceComplete = true;
     });
 
+    if (getSettingsManager().isReducedMotionEnabled()) return;
+
     this.cardEntries.forEach((entry, index) => {
       const targetY = entry.card.container.y;
       entry.card.container.y = this.scale.height + 200;

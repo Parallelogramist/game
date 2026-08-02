@@ -69,6 +69,19 @@ const DEFAULTS: GameSettings = {
   minimapUnderlayEnabled: true,
 };
 
+/**
+ * The OS accessibility preference, used as the SEED for the in-game toggle, never
+ * as an override: `loadBoolean` only falls back to this when the storage key is
+ * absent, so a player who has set the toggle either way keeps that choice forever.
+ * Guarded for the Node test environment, where there is no `window`.
+ */
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return DEFAULTS.reducedMotion;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 export class SettingsManager {
   private settings: GameSettings;
 
@@ -85,7 +98,7 @@ export class SettingsManager {
       statusTextEnabled: this.loadBoolean(STORAGE_KEY_STATUS_TEXT, DEFAULTS.statusTextEnabled),
       uiScale: this.loadBoundedNumber(STORAGE_KEY_UI_SCALE, DEFAULTS.uiScale, 0.5, 2.0, 10),
       tutorialSeen: this.loadBoolean(STORAGE_KEY_TUTORIAL_SEEN, DEFAULTS.tutorialSeen),
-      reducedMotion: this.loadBoolean(STORAGE_KEY_REDUCED_MOTION, DEFAULTS.reducedMotion),
+      reducedMotion: this.loadBoolean(STORAGE_KEY_REDUCED_MOTION, prefersReducedMotion()),
       directorDebugEnabled: this.loadBoolean(STORAGE_KEY_DIRECTOR_DEBUG, DEFAULTS.directorDebugEnabled),
       // Migrate from the legacy on/off shake toggle: if the player had shake off, start at 0 intensity.
       screenShakeIntensity: this.loadBoundedNumber(
@@ -414,7 +427,7 @@ export class SettingsManager {
     this.setStatusTextEnabled(DEFAULTS.statusTextEnabled);
     this.setUiScale(DEFAULTS.uiScale);
     this.setTutorialSeen(DEFAULTS.tutorialSeen);
-    this.setReducedMotion(DEFAULTS.reducedMotion);
+    this.setReducedMotion(prefersReducedMotion());
     this.setDirectorDebugEnabled(DEFAULTS.directorDebugEnabled);
     this.setScreenShakeIntensity(DEFAULTS.screenShakeIntensity);
     this.setColorblindMode(DEFAULTS.colorblindMode);
