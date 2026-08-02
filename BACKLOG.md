@@ -2911,6 +2911,55 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-WARDEN-IDENTITY** (done, ba625fa) (new 2026-08-02): every world gets its own Warden.
+  The world's climax used to be whichever boss the player's global rotation was on:
+  `wakeWardenThrone` calls `BossFightDirector.beginFight`, which read
+  `bossIdAtRotation(getBossRotationIndex())`, the persisted cursor in `survivor-boss-rotation`.
+  So the same world was guarded by a different boss on every expedition, and the one thing about
+  a persistent world that was not the world's own was its guardian. Value: George can read which
+  of the twelve bosses guards a world before he commits to it and again on its chart, and that
+  boss is that world's Warden forever.
+  1. **What shipped**: pure `src/expedition/wardenIdentity.ts` (`wardenBossIdForWorld`,
+     `wardenBossNameForWorld`), seeded exactly the way `challengeBossRotationIndex` seeds a
+     daily's boss (`mulberry32(hashStringToSeed('warden:<seed>:v<version>'))`) off its own key
+     namespace; one new `wardenBossTypeId` dep on `BossFightDeps` that `GameScene` answers from
+     `worldMode.worldMap()`; `upcomingBossTypeId` and `beginFight` preferring it over the
+     rotation; the throne row on the chart readout reading `Warden throne · <name> · dormant`;
+     `wardenName` on both `ExpeditionProgressSummary` and `ExpeditionWorldPreview`, so the CHART
+     dialog names the current world's Warden and every candidate row, plus a pasted seed's
+     preview, names the one that guards it; and the hero card's `NEXT BOSS` line naming the
+     Warden for an expedition, which needed `SaveInfo.runMode` (read straight off the existing
+     optional `runMode` on the save state, so no migration and no `SAVE_VERSION` bump).
+  2. **A Warden does not spend the arena rotation, and that is the point.**
+     `advanceBossRotation`'s own doc says it fires when a rotation-fed boss spawns, and a Warden
+     is not rotation-fed. The run-local variety cursor is set to `rotationIndex` rather than
+     `rotationIndex + 1` for the same reason: nothing was consumed. A player who flies only
+     expeditions therefore keeps the same skirmish `NEXT BOSS` and meets variety by flying
+     different worlds, which is what a per-world guardian is for.
+  3. **The patience window fields the Warden too.** The branch lives in `beginFight`, not at the
+     throne, so a player who lets the 10-minute boss arrive on its own still meets the world's
+     guardian rather than a second, different boss. One world, one Warden, however the fight
+     starts.
+  4. **Arena, daily, weekly, gauntlet and practice are unchanged by construction**: the dep
+     returns null whenever `worldMode.worldMap()` is null, the `decryptorOwned` guard shape.
+     The daily's own date-seeded boss line in `BootScene` is deliberately untouched.
+  5. **No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
+     `WORLD_PROFILE_VERSION` bump**: the Warden is a pure function of `(seed, worldGenVersion)`,
+     both already on `WorldMap`, so every existing profile gets it the moment the build lands.
+  6. **One new test file, three cases** (stability over 200 seeds, all twelve bosses reachable
+     over 400, and the name resolves). A wrong hash key still returns a valid boss id, so drift
+     here is otherwise silent. Nothing else got a test: the rest is Phaser-coupled wiring and
+     string joins, which this repo verifies by play. `BossFightDirector.test.ts` gained one line
+     (`wardenBossTypeId: vi.fn(() => null)` in its `makeDeps` literal) purely to keep compiling
+     against the new required dep, on the same "keep it compiling" footing as
+     `sectorDetail.test.ts`; no case was added there.
+  7. **Cut deliberately, do not re-derive**: the LOCKED OUT panel's `The Warden` row keeps
+     `WARDEN_SEAL_LABEL` rather than the boss name, because that row is about the seal rather
+     than the fight and `BALANCE-LOCKOUT-PANEL-ROWS` already contests that column; the victory
+     kicker keeps its clauses, because the trophy clause already names the boss that fell; and
+     `THE WARDEN RISES` stays unnamed, because `spawnBoss`'s own banner names it a beat later.
+  8. **Filed with it**: `POLISH-WARDEN-IDENTITY` under `## Human gates`.
+
 - [x] **FEAT-REGION-SIGNATURE-BANNER** (done, 10a396f) (new 2026-08-02): the third slice of
   README section 6's "biome mechanics, not just tints", and the one that makes the first two
   legible. `FEAT-BIOME-REGION-STAGE` (8c5ebb2) and `FEAT-BIOME-REGION-PACKS` (65b250a) gave a
@@ -11963,6 +12012,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-WARDEN-IDENTITY** (new 2026-08-02, from FEAT-WARDEN-IDENTITY). Every world now has
+  a fixed Warden, named in four places, and none of it has been seen in a browser. Questions for
+  the operator: (a) the CHART dialog's candidate rows gained a fifth clause
+  (`A   33 secrets   ·   61 caches   ·   13 sectors out   ·   Crystal Caves   ·   The Tessellator`):
+  does that still fit on a portrait phone, or should the region or the Warden clause move to its
+  own line? (b) difficulty now varies per world instead of cycling, so a seed can deal a guardian
+  that is a wall at the player's current build: is the world-choice preview enough of an answer,
+  or does a world want a difficulty tell beside the name? (c) an expedition kill no longer
+  advances the arena rotation, so a player who only flies expeditions sees a frozen `NEXT BOSS`
+  on the skirmish side: does that read as correct or as a bug? (d) the chart readout now says
+  `Warden throne · The Legion · dormant`: is naming the boss before the fight anticipation or
+  spoiler? Do not retune any of this blind.
 
 - [ ] **POLISH-WARDEN-SEAL** (new 2026-08-02, from FEAT-WORLDGEN-WARDEN-SEAL). Conquering a world
   now seals and later opens a region of it, and none of it has been seen in a browser. Questions
