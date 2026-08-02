@@ -66,6 +66,7 @@ import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
 import { buildSectorSupply, sectorTagsOf } from '../../world/sectorTags';
+import { SPINE_BIOME_ID } from '../../world/generateWorld';
 import type { SectorSupplySnapshot } from '../../world/sectorTags';
 import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import {
@@ -1062,6 +1063,9 @@ export class GameScene extends Phaser.Scene {
   private dailyDateString: string = '';
   private dailyChallengeType: 'daily' | 'weekly' = 'daily';
   private selectedStageId: string = 'stage_deep_void';
+  /** The stage whose palette and hazard bias are in force right now. Equals selectedStageId
+   *  in every arena-substrate mode; an expedition moves it as the ship crosses regions. */
+  private activeStageId: string = 'stage_deep_void';
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
   // Bound once: updateHazardSpawner takes it every frame and an inline arrow would allocate.
@@ -1125,6 +1129,7 @@ export class GameScene extends Phaser.Scene {
       // hold folds to nothing, which is why this is unconditional like the two above it.
       this.recordExpeditionQuest({ kind: 'deliverItem', sectorTags: tags });
     }
+    if (sector) this.applySectorStage(sector);
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);
     }
@@ -12848,11 +12853,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Applies the selected stage's visual palette to the grid background and
-   * adds an ambient color overlay. Safe to call after GridBackground is created.
+   * Applies a stage's visual palette to the grid background and adds its ambient color
+   * overlay. Safe to call after GridBackground is created, and safe to call repeatedly:
+   * an expedition re-applies it per region, so the previous overlay has to be destroyed
+   * first or every region border would stack another tinted rectangle over the run.
    */
-  private applyStageVisuals(): void {
-    const stage = getStageById(this.selectedStageId) ?? getDefaultStage();
+  private applyStageVisuals(stageId: string = this.selectedStageId): void {
+    const stage = getStageById(stageId) ?? getDefaultStage();
+    this.activeStageId = stage.id;
+    const previousOverlay = this.children.getByName('stageAmbientOverlay');
+    if (previousOverlay) previousOverlay.destroy();
     if (this.gridBackground) {
       this.gridBackground.setColorPalette(
         stage.gridLineColor,
@@ -12875,6 +12885,22 @@ export class GameScene extends Phaser.Scene {
         .setScrollFactor(0)
         .setName('stageAmbientOverlay');
     }
+  }
+
+  /**
+   * An expedition's named regions ARE stages: the room takes its palette, its ambient light
+   * and its hazard signature from the region it belongs to. The spine keeps whatever the
+   * player launched with, so a funnel stage pick still governs the world's home region
+   * instead of being overwritten a frame after launch.
+   */
+  private applySectorStage(sector: SectorDef): void {
+    const regionStageId = sector.biomeId === SPINE_BIOME_ID
+      ? this.selectedStageId
+      : sector.biomeId;
+    const stage = getStageById(regionStageId) ?? getDefaultStage();
+    if (stage.id === this.activeStageId) return;
+    setHazardZoneStage(stage.id);
+    this.applyStageVisuals(stage.id);
   }
 
   /**

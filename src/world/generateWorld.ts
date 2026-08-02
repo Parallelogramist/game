@@ -40,7 +40,7 @@ import type {
 } from './worldTypes';
 
 const START_KEY: SectorKey = '0,0';
-const SPINE_BIOME_ID = 'stage_deep_void';
+export const SPINE_BIOME_ID = 'stage_deep_void';
 const REGION_DEPTH_SPAN = 2;
 const APERTURE_AXIS_MARGIN = 3;
 const GATE_TIER_DANGER_STEP = 0.08;
