@@ -260,6 +260,121 @@ export function computeGridFit(input: GridFitInput): GridFit {
   };
 }
 
+export interface CardGridInBandInput {
+  count: number;
+  cardWidth: number;
+  cardHeight: number;
+  cardSpacing: number;
+  /** Column count the scene was composed around; the fitted branch may exceed it. */
+  maxColumns: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  /** Total horizontal margin the grid keeps off the two canvas edges. */
+  edgeMargin: number;
+  /** Design-space units the header occupies; the band starts here. */
+  topReserve: number;
+  /** Design-space units the footer occupies; the band ends here. */
+  bottomReserve: number;
+  menuScale: number;
+  /** The scene's own centring nudge, honored only while the composed grid still fits. */
+  anchorOffset: number;
+}
+
+export interface CardGridInBand {
+  columns: number;
+  rows: number;
+  scale: number;
+  /** Centre x of column 0. */
+  firstColumnX: number;
+  /** Centre y of row 0. */
+  firstRowY: number;
+  columnPitch: number;
+  rowPitch: number;
+}
+
+/**
+ * Fits a scene's card grid into the band between its header and its footer.
+ *
+ * Three scenes composed their grid as "centre it on the canvas", which paints outside the
+ * canvas as soon as the catalog grows: 24 ship paints are 980 units of grid in a 720-unit
+ * canvas, so the whole first row sat above y=0. An over-tall grid is answered the way
+ * computeMenuCardGrid answers it, by jointly picking the column count and the uniform
+ * scale that best fill the band.
+ */
+export function computeCardGridInBand(input: CardGridInBandInput): CardGridInBand {
+  const {
+    count, cardWidth, cardHeight, cardSpacing, maxColumns, canvasWidth, canvasHeight,
+    edgeMargin, topReserve, bottomReserve, menuScale, anchorOffset,
+  } = input;
+  const safeCount = Math.max(1, count);
+  const band = canvasHeight - (topReserve + bottomReserve) * menuScale;
+  const availableWidth = canvasWidth - edgeMargin;
+  const fitColumns = Math.max(1, Math.floor(
+    availableWidth / ((cardWidth + cardSpacing) * menuScale),
+  ));
+  const composedColumns = Math.max(1, Math.min(safeCount, maxColumns, fitColumns));
+  const composedRows = Math.ceil(safeCount / composedColumns);
+  const heightFit = computeRowStackFit(
+    composedRows, cardHeight * menuScale, cardSpacing * menuScale, band,
+  );
+
+  if (menuScale * heightFit >= 1) {
+    const scale = Math.max(Math.min(1, menuScale), menuScale * heightFit);
+    const scaledWidth = cardWidth * scale;
+    const scaledHeight = cardHeight * scale;
+    const scaledSpacing = cardSpacing * scale;
+    const gridWidth = composedColumns * scaledWidth + (composedColumns - 1) * scaledSpacing;
+    const gridHeight = composedRows * scaledHeight + (composedRows - 1) * scaledSpacing;
+    const composedFirstRowY = canvasHeight / 2 + anchorOffset * scale - gridHeight / 2;
+    // Fitting the band is not the same as being anchored inside it: the quest board centred
+    // one row of cards on top of its own ACCEPTED counter. Clamped top edge first, so a grid
+    // that cannot be placed keeps its first row reachable rather than its last.
+    const highestFirstRowY = topReserve * menuScale + scaledHeight / 2;
+    const lowestFirstRowY = canvasHeight - bottomReserve * menuScale
+      - gridHeight + scaledHeight / 2;
+    return {
+      columns: composedColumns,
+      rows: composedRows,
+      scale,
+      firstColumnX: canvasWidth / 2 - gridWidth / 2 + scaledWidth / 2,
+      firstRowY: Math.max(highestFirstRowY, Math.min(lowestFirstRowY, composedFirstRowY)),
+      columnPitch: scaledWidth + scaledSpacing,
+      rowPitch: scaledHeight + scaledSpacing,
+    };
+  }
+
+  const widestColumns = Math.floor(
+    (availableWidth + cardSpacing * MENU_GRID_MIN_SCALE)
+    / ((cardWidth + cardSpacing) * MENU_GRID_MIN_SCALE),
+  );
+  const fit = computeGridFit({
+    count: safeCount,
+    cardWidth,
+    cardHeight,
+    columnGap: cardSpacing,
+    rowGap: cardSpacing,
+    availableWidth,
+    availableHeight: band,
+    maxColumns: Math.max(maxColumns, widestColumns),
+    maxScale: menuScale,
+    minScale: MENU_GRID_MIN_SCALE,
+  });
+  const scaledWidth = cardWidth * fit.scale;
+  const scaledHeight = cardHeight * fit.scale;
+  const scaledSpacing = cardSpacing * fit.scale;
+  const gridWidth = fit.columns * scaledWidth + (fit.columns - 1) * scaledSpacing;
+  const gridHeight = fit.rows * scaledHeight + (fit.rows - 1) * scaledSpacing;
+  return {
+    columns: fit.columns,
+    rows: fit.rows,
+    scale: fit.scale,
+    firstColumnX: canvasWidth / 2 - gridWidth / 2 + scaledWidth / 2,
+    firstRowY: topReserve * menuScale + Math.max(0, (band - gridHeight) / 2) + scaledHeight / 2,
+    columnPitch: scaledWidth + scaledSpacing,
+    rowPitch: scaledHeight + scaledSpacing,
+  };
+}
+
 export interface MenuCardGridInput {
   count: number;
   cardWidth: number;
