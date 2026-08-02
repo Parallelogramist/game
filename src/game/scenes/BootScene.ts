@@ -59,7 +59,6 @@ import {
   getBankedSeasons,
   getCurrentExpeditionSeasonIndex,
   getNextExpeditionSeedChoices,
-  getReturnableWorldPage,
   switchExpeditionWorld,
 } from '../../expedition/ExpeditionSeasonStore';
 import {
@@ -70,6 +69,12 @@ import {
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
 import type { ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
+import {
+  RETURN_WORLD_SORT_LABELS,
+  nextReturnWorldSort,
+  returnWorldPage,
+} from '../../expedition/returnWorlds';
+import type { ReturnWorldSort } from '../../expedition/returnWorlds';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { decodeSeedCode, encodeSeedCode } from '../../expedition/seedCode';
 import { copyTextToClipboard } from '../../utils/Clipboard';
@@ -351,12 +356,17 @@ export class BootScene extends Phaser.Scene {
 
     // MORE walks the pages rather than a scrolling panel: the confirmation's button row fits
     // five, which is three worlds plus MORE plus BACK, and the page index wraps so one button
-    // reaches every one of the 20 worlds the archive keeps.
+    // reaches every one of the 20 worlds the archive keeps. SORT re-orders that same list and
+    // always returns to page 1, because a re-ordered page 3 would name worlds the player has
+    // not been shown. The order is dialog-local and threaded through the reopen exactly as the
+    // page is, so nothing about it is persisted.
     const openReturnToBankedWorld = (
-      summary: ExpeditionProgressSummary, requestedPage = 0,
+      summary: ExpeditionProgressSummary,
+      requestedPage = 0,
+      sort: ReturnWorldSort = 'recent',
     ): void => {
-      const { rows, page, pageCount } = getReturnableWorldPage(requestedPage);
-      const returnable = describeBankedWorlds(rows);
+      const allRows = describeBankedWorlds(getBankedSeasons());
+      const { rows: returnable, page, pageCount } = returnWorldPage(allRows, sort, requestedPage);
       const lines = [
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
@@ -368,15 +378,27 @@ export class BootScene extends Phaser.Scene {
         'chart, the same broken walls, the same secrets found.',
       ];
       if (hasSave) lines.push('', 'Your current run will be lost.');
+      const order = RETURN_WORLD_SORT_LABELS[sort];
       lines.push('', pageCount > 1
-        ? `Fly back to   (page ${page + 1} of ${pageCount}):`
-        : 'Fly back to:');
+        ? `Fly back to, ${order}   (page ${page + 1} of ${pageCount}):`
+        : `Fly back to, ${order}:`);
       for (const row of returnable) lines.push(describeBankedRow(row));
+
+      // Both trailing buttons are conditional, so their indexes are computed rather than being
+      // "past the last row": with one banked world there is neither, and the row is FLY + BACK.
+      const hasMore = pageCount > 1;
+      const hasSort = allRows.length > 1;
+      const moreIndex = hasMore ? returnable.length : -1;
+      const sortIndex = hasSort ? returnable.length + (hasMore ? 1 : 0) : -1;
+
       this.showNewGameConfirmation(
         (choiceIndex) => {
-          // Past the last row is MORE, which is only present when there is another page.
-          if (choiceIndex >= returnable.length) {
-            openReturnToBankedWorld(summary, page + 1);
+          if (choiceIndex === sortIndex) {
+            openReturnToBankedWorld(summary, 0, nextReturnWorldSort(sort));
+            return;
+          }
+          if (choiceIndex === moreIndex) {
+            openReturnToBankedWorld(summary, page + 1, sort);
             return;
           }
           flyExpeditionWorld(summary, returnable[choiceIndex]?.seed);
@@ -388,7 +410,8 @@ export class BootScene extends Phaser.Scene {
           cancelLabel: 'BACK',
           choiceLabels: [
             ...returnable.map(row => `FLY W${row.index}`),
-            ...(pageCount > 1 ? ['MORE'] : []),
+            ...(hasMore ? ['MORE'] : []),
+            ...(hasSort ? ['SORT'] : []),
           ],
         },
       );

@@ -196,35 +196,6 @@ export function bankSeasonAndSwitch(
   };
 }
 
-export interface ReturnableWorldPage {
-  /** The rows this page shows, most recently banked first. */
-  rows: readonly BankedSeason[];
-  /** The page actually shown: the requested one wrapped into range. */
-  page: number;
-  /** Never 0, so an empty history still reads as "page 1 of 1". */
-  pageCount: number;
-}
-
-/**
- * One page of the return list, most recently banked first: the world a player wants back is
- * usually the one just left. The page index WRAPS rather than clamping, because the dialog
- * has one MORE button and it has to reach the first page again from the last.
- */
-export function returnableWorldPage(
-  state: ExpeditionSeasonState, page: number,
-): ReturnableWorldPage {
-  const ordered = [...state.banked].reverse();
-  const pageCount = Math.max(1, Math.ceil(ordered.length / RETURN_WORLD_CHOICE_COUNT));
-  const requested = Number.isFinite(page) ? Math.trunc(page) : 0;
-  const safePage = ((requested % pageCount) + pageCount) % pageCount;
-  const start = safePage * RETURN_WORLD_CHOICE_COUNT;
-  return {
-    rows: ordered.slice(start, start + RETURN_WORLD_CHOICE_COUNT),
-    page: safePage,
-    pageCount,
-  };
-}
-
 export function loadExpeditionSeasons(): ExpeditionSeasonState {
   try {
     const stored = SecureStorage.getItem(STORAGE_KEY_SEASONS);
@@ -245,10 +216,6 @@ export function getCurrentExpeditionSeasonIndex(): number {
 
 export function getBankedSeasons(): readonly BankedSeason[] {
   return loadExpeditionSeasons().banked;
-}
-
-export function getReturnableWorldPage(page: number): ReturnableWorldPage {
-  return returnableWorldPage(loadExpeditionSeasons(), page);
 }
 
 export function getNextExpeditionSeedChoices(): number[] {
