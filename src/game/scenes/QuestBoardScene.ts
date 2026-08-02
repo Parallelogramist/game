@@ -18,6 +18,8 @@ import {
   setExpeditionQuestAside,
   type QuestBoardEntry,
 } from '../../meta/ExpeditionQuestManager';
+import { computeCardGridInBand, fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 /** Data passed to QuestBoardScene by GameScene.openQuestBoard(). */
 export interface QuestBoardSceneData {
@@ -30,6 +32,10 @@ const CARD_HEIGHT = 268;
 const CARD_SPACING = 20;
 const MAX_COLUMNS = 4;
 const COMPLETE_CARD_ALPHA = 0.45;
+/** Design-space units the title, subtitle and accepted counter occupy above the grid band. */
+const HEADER_RESERVE = 168;
+/** Design-space units the LEAVE button occupies below it. */
+const FOOTER_RESERVE = 80;
 
 /**
  * QuestBoardScene: the walk-in objective board (FEAT-QUEST-BOARD).
@@ -56,6 +62,8 @@ export class QuestBoardScene extends Phaser.Scene {
   private changed = false;
   private resolved = false;
   private focusedIndex = 0;
+  private menuScale = 1;
+  private gridScale = 1;
 
   constructor() {
     super({ key: 'QuestBoardScene' });
@@ -70,6 +78,9 @@ export class QuestBoardScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
     this.cards = [];
     this.activateHandlers = [];
     this.soundManager = new SoundManager(this);
@@ -82,22 +93,24 @@ export class QuestBoardScene extends Phaser.Scene {
     };
     this.events.on('update', this.overlayUpdateHandler);
 
-    makeDisplayText(this, this.scale.width / 2, 72, 'QUEST BOARD', {
-      fontSize: 44,
+    const title = makeDisplayText(this, this.scale.width / 2, scaledInt(this.menuScale, 72), 'QUEST BOARD', {
+      fontSize: scaledInt(this.menuScale, 44),
       color: ACCENT_COLORS_STR.teal,
-      strokeWidth: 6,
-      letterSpacing: 3,
-    }).setDepth(1);
+      strokeWidth: scaledInt(this.menuScale, 6),
+      letterSpacing: 3 * this.menuScale,
+    });
+    title.setDepth(1);
+    fitTextWidth(title, this.scale.width - 24);
 
-    this.subtitleText = makeBodyText(this, this.scale.width / 2, 118,
+    this.subtitleText = makeBodyText(this, this.scale.width / 2, scaledInt(this.menuScale, 118),
       'Take on a contract, or set one aside for later', {
-        fontSize: 20,
+        fontSize: scaledInt(this.menuScale, 20),
         color: TEXT_COLORS.muted,
       });
     this.subtitleText.setDepth(1);
 
-    this.statusText = makeBodyText(this, this.scale.width / 2, 150, '', {
-      fontSize: 18,
+    this.statusText = makeBodyText(this, this.scale.width / 2, scaledInt(this.menuScale, 150), '', {
+      fontSize: scaledInt(this.menuScale, 18),
       color: ACCENT_COLORS_STR.gold,
     });
     this.statusText.setDepth(1);
@@ -105,9 +118,9 @@ export class QuestBoardScene extends Phaser.Scene {
     this.leaveButton = createMenuButton({
       scene: this,
       x: this.scale.width / 2,
-      y: this.scale.height - 44,
-      width: 220,
-      height: 48,
+      y: this.scale.height - scaledInt(this.menuScale, 44),
+      width: scaledInt(this.menuScale, 220),
+      height: scaledInt(this.menuScale, 48),
       label: 'LEAVE',
       variant: 'neutral',
       onActivate: () => this.leave(),
@@ -163,6 +176,7 @@ export class QuestBoardScene extends Phaser.Scene {
     this.subtitleText?.setText(this.cargoNotice !== ''
       ? this.cargoNotice
       : 'Take on a contract, or set one aside for later');
+    if (this.subtitleText) fitTextWidth(this.subtitleText, this.scale.width - 24);
 
     this.entries = getQuestBoardEntries();
     const activeCount = this.entries.filter((entry) => entry.status === 'active').length;
@@ -170,8 +184,10 @@ export class QuestBoardScene extends Phaser.Scene {
       `ACCEPTED ${activeCount} / ${ACTIVE_EXPEDITION_QUEST_LIMIT}`
       + (activeCount >= ACTIVE_EXPEDITION_QUEST_LIMIT ? ' (set one aside to take another)' : ''),
     );
+    if (this.statusText) fitTextWidth(this.statusText, this.scale.width - 24);
 
     const layout = this.computeGridLayout(this.entries.length);
+    this.gridScale = layout.scale;
     this.entries.forEach((entry, index) => {
       const position = layout.positionAt(index);
       this.renderCard(entry, index, position.x, position.y);
@@ -204,19 +220,26 @@ export class QuestBoardScene extends Phaser.Scene {
   }
 
   private computeGridLayout(count: number) {
-    const centerX = this.scale.width / 2;
-    const fitColumns = Math.max(1, Math.floor((this.scale.width - 48) / (CARD_WIDTH + CARD_SPACING)));
-    const columns = Math.max(1, Math.min(count, MAX_COLUMNS, fitColumns));
-    const rows = Math.max(1, Math.ceil(count / columns));
-    const gridWidth = columns * CARD_WIDTH + (columns - 1) * CARD_SPACING;
-    const gridHeight = rows * CARD_HEIGHT + (rows - 1) * CARD_SPACING;
-    const startX = centerX - gridWidth / 2 + CARD_WIDTH / 2;
-    const startY = (this.scale.height + 96) / 2 - gridHeight / 2;
+    const grid = computeCardGridInBand({
+      count,
+      cardWidth: CARD_WIDTH,
+      cardHeight: CARD_HEIGHT,
+      cardSpacing: CARD_SPACING,
+      maxColumns: MAX_COLUMNS,
+      canvasWidth: this.scale.width,
+      canvasHeight: this.scale.height,
+      edgeMargin: 48,
+      topReserve: HEADER_RESERVE,
+      bottomReserve: FOOTER_RESERVE,
+      menuScale: this.menuScale,
+      anchorOffset: 48,
+    });
     return {
-      columns,
+      columns: grid.columns,
+      scale: grid.scale,
       positionAt: (index: number) => ({
-        x: startX + (index % columns) * (CARD_WIDTH + CARD_SPACING),
-        y: startY + Math.floor(index / columns) * (CARD_HEIGHT + CARD_SPACING),
+        x: grid.firstColumnX + (index % grid.columns) * grid.columnPitch,
+        y: grid.firstRowY + Math.floor(index / grid.columns) * grid.rowPitch,
       }),
     };
   }
@@ -240,6 +263,7 @@ export class QuestBoardScene extends Phaser.Scene {
       cornerRadius: 8,
       interactive: entry.status !== 'complete',
     });
+    card.container.setScale(this.gridScale);
     card.container.setDepth(2);
     if (entry.status === 'complete') card.container.setAlpha(COMPLETE_CARD_ALPHA);
     this.contentContainer!.add(card.container);
