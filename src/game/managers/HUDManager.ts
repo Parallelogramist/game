@@ -122,6 +122,7 @@ const HUD_DEPTH = OverlayDepths.HUD;
 const HUD_ALPHA = 0.75;
 const HUD_EDGE_PADDING = 16;
 const HUD_ELEMENT_SPACING = 8;
+const HP_DAMAGE_FLASH_MS = 80;
 const WORLD_LEVEL_TEXT_HEIGHT = 18;
 
 // Module-level constants to avoid per-frame allocation
@@ -200,6 +201,7 @@ export class HUDManager {
   private hpGlowGraphics!: Phaser.GameObjects.Graphics;
   private lastHPThreshold: HPThreshold = 'green';
   private lastPlayerHP: number = -1;
+  private hpDamageFlashUntilMs: number = 0;
 
   // Ultimate ("Overdrive") charge meter — below the XP bar.
   private ultBarBackground: Phaser.GameObjects.Rectangle | null = null;
@@ -262,6 +264,7 @@ export class HUDManager {
   private eventIndicatorBarFill: Phaser.GameObjects.Rectangle | null = null;
   private eventIndicatorTimeText: Phaser.GameObjects.Text | null = null;
   private eventIndicatorTotalDuration: number = 0;
+  private eventIndicatorBarWidth: number = 0;
 
   // Relic/modifier strip — persistent icon row for active run modifiers and
   // equipped relics. Tooltip shows on hover/tap. Rebuilt on pickup.
@@ -1172,11 +1175,7 @@ export class HUDManager {
 
     // HP damage flash: brief white pulse when player takes damage
     if (this.lastPlayerHP >= 0 && state.currentHP < this.lastPlayerHP) {
-      this.hpBarFill.setFillStyle(0xffffff);
-      this.scene.time.delayedCall(80, () => {
-        // Restore threshold color (will be set below on next frame)
-        this.hpBarFill.setFillStyle(HP_THRESHOLD_COLORS[getHPThreshold(hpProgress)]);
-      });
+      this.hpDamageFlashUntilMs = this.scene.time.now + HP_DAMAGE_FLASH_MS;
       // Damage chip: hold the pre-hit edge, then drain onto the new edge.
       // Consecutive hits mid-drain extend the chip from the older edge.
       if (!this.barMotionReduced) {
@@ -1213,7 +1212,11 @@ export class HUDManager {
     this.hpText.setText(`${Math.ceil(state.currentHP)}/${Math.ceil(state.maxHP)}`);
 
     const currentHPThreshold = getHPThreshold(hpProgress);
-    this.hpBarFill.setFillStyle(HP_THRESHOLD_COLORS[currentHPThreshold]);
+    this.hpBarFill.setFillStyle(
+      this.scene.time.now < this.hpDamageFlashUntilMs
+        ? 0xffffff
+        : HP_THRESHOLD_COLORS[currentHPThreshold],
+    );
 
     // Pulse HP glow on threshold change
     if (currentHPThreshold !== this.lastHPThreshold) {
@@ -1277,10 +1280,9 @@ export class HUDManager {
         const targetWidth = barMaxWidth * bossProgress;
         bossBar.barFill.width = Phaser.Math.Linear(bossBar.barFill.width, targetWidth, 0.1);
 
-        // Update health text (pad current HP to match max HP width for alignment)
-        const maxHPStr = Math.ceil(bossData.maxHP).toString();
-        const currentHPStr = Math.ceil(bossData.currentHP).toString().padStart(maxHPStr.length, ' ');
-        bossBar.healthText.setText(`${currentHPStr} / ${maxHPStr}`);
+        bossBar.healthText.setText(
+          `${Math.ceil(bossData.currentHP)} / ${Math.ceil(bossData.maxHP)}`,
+        );
       }
     }
 
@@ -1539,16 +1541,21 @@ export class HUDManager {
     barFill.x = -barWidth / 2 + 1;
     container.add(barFill);
 
-    // Health text (vertically centered in bar)
-    const healthText = this.scene.add.text(0, barTopOffset + barHeight / 2, '', {
-      fontSize: this.scaledFontSize(11),
-      color: '#ffffff',
-      fontFamily: DISPLAY_FONT,
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 2,
-    });
-    healthText.setOrigin(0.5, 0.5);
+    // Right-aligned at the bar's inner right edge so the " / MAX" half holds
+    // still as the current-HP digit count changes. Space padding cannot do
+    // that: DISPLAY_FONT is proportional, so a space is much narrower than a
+    // digit and the separator drifted on every digit gained or lost.
+    const healthText = this.scene.add.text(
+      barWidth / 2 - this.scaledSize(6), barTopOffset + barHeight / 2, '', {
+        fontSize: this.scaledFontSize(11),
+        color: '#ffffff',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2,
+      },
+    );
+    healthText.setOrigin(1, 0.5);
     container.add(healthText);
 
     // Start pulsing glow tween (pronounced effect)
@@ -1634,6 +1641,7 @@ export class HUDManager {
     const panelWidth = this.scaledSize(180);
     const panelHeight = this.scaledSize(48);
     const barWidth = panelWidth - this.scaledSize(16);
+    this.eventIndicatorBarWidth = barWidth;
     const colorHex = `#${event.color.toString(16).padStart(6, '0')}`;
 
     // Position above FPS counter and auto-buy toggle in bottom-right
@@ -1728,8 +1736,9 @@ export class HUDManager {
     }
 
     const remainingTime = activeEventState.remainingTime;
-    const barWidth = 180 - 16; // panelWidth - padding
-    const fillWidth = Math.max(0, (remainingTime / this.eventIndicatorTotalDuration) * barWidth);
+    const fillWidth = Math.max(
+      0, (remainingTime / this.eventIndicatorTotalDuration) * this.eventIndicatorBarWidth,
+    );
 
     if (this.eventIndicatorBarFill) {
       this.eventIndicatorBarFill.width = fillWidth;
@@ -2114,7 +2123,14 @@ export class HUDManager {
       const toggleX = width - scaledPadding - toggleWidth / 2;
       const toggleY = height - scaledPadding - toggleHeight / 2;
       this.autoBuyToggleBg.setPosition(toggleX, toggleY);
+      this.autoBuyToggleBg.setSize(toggleWidth, toggleHeight);
+      this.autoBuyToggleBg.setInteractive({ useHandCursor: true });
       this.autoBuyToggleText.setPosition(toggleX, toggleY);
+      this.autoBuyToggleBg.setData('toggleX', toggleX);
+      this.autoBuyToggleBg.setData('toggleY', toggleY);
+      this.autoBuyToggleBg.setData('toggleW', toggleWidth);
+      this.autoBuyToggleBg.setData('toggleH', toggleHeight);
+      this.refreshAutoBuyPanel();
     }
 
     // --- Event indicator ---
@@ -2319,7 +2335,7 @@ export class HUDManager {
       this.options.onAutoBuyToggled();
     });
     this.autoBuyToggleBg.on('pointerover', () => {
-      paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
+      this.paintAutoBuyPanel(ACCENT_COLORS.focus);
     });
     this.autoBuyToggleBg.on('pointerout', () => {
       this.refreshAutoBuyPanel();
@@ -2359,19 +2375,30 @@ export class HUDManager {
   }
 
   /**
+   * Repaints the auto-buy pill from the geometry stashed on the hit rectangle.
+   * The stash, not the creation-time locals, is the live source: `handleResize`
+   * moves and resizes the pill and updates it there.
+   */
+  private paintAutoBuyPanel(accent: number): void {
+    if (!this.autoBuyToggleBg) return;
+    const gfx = this.autoBuyToggleBg.getData('panelGfx') as Phaser.GameObjects.Graphics | undefined;
+    if (!gfx) return;
+    paintHudPanel(
+      gfx,
+      this.autoBuyToggleBg.getData('toggleX') as number,
+      this.autoBuyToggleBg.getData('toggleY') as number,
+      this.autoBuyToggleBg.getData('toggleW') as number,
+      this.autoBuyToggleBg.getData('toggleH') as number,
+      BODY_COLORS.primary, accent, 8,
+    );
+  }
+
+  /**
    * Repaints the auto-buy pill background with the right accent for the
    * current state (gold when enabled, neutral when off).
    */
   private refreshAutoBuyPanel(): void {
-    if (!this.autoBuyToggleBg) return;
-    const gfx = this.autoBuyToggleBg.getData('panelGfx') as Phaser.GameObjects.Graphics | undefined;
-    if (!gfx) return;
-    const x = this.autoBuyToggleBg.getData('toggleX') as number;
-    const y = this.autoBuyToggleBg.getData('toggleY') as number;
-    const w = this.autoBuyToggleBg.getData('toggleW') as number;
-    const h = this.autoBuyToggleBg.getData('toggleH') as number;
-    const accent = this.isAutoBuyEnabled ? ACCENT_COLORS.gold : ACCENT_COLORS.neutral;
-    paintHudPanel(gfx, x, y, w, h, BODY_COLORS.primary, accent, 8);
+    this.paintAutoBuyPanel(this.isAutoBuyEnabled ? ACCENT_COLORS.gold : ACCENT_COLORS.neutral);
   }
 
   /**
