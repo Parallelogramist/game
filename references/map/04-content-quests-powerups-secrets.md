@@ -1057,7 +1057,13 @@ objectives. A world now issues its own. Six points:
 2. **The catalog is the only seam.** `ExpeditionQuestManager.questCatalog()` returns
    `[...EXPEDITION_QUESTS, ...buildSeasonQuests(getCurrentExpeditionSeed())]` and every
    `QuestProgress` call the manager already made now takes it. `src/data/ExpeditionQuests.ts`
-   and `src/systems/QuestProgress.ts` are byte-identical.
+   and `src/systems/QuestProgress.ts` are byte-identical. **One consumer was outside that seam
+   and it cost the announcements:** `GameScene.recordExpeditionQuest` resolved the quest behind
+   every reward with the authored-only `getExpeditionQuest`, so a contract's step, completion
+   and activation toasts were all swallowed while its gold was paid, until
+   `CHORE-QUEST-CONTRACT-COMPLETE-TOAST` moved that lookup onto the catalog too and deleted the
+   authored-only helper. "Nothing downstream knows the difference" is a property of reading
+   through `questCatalog()`, not a property the definitions carry on their own.
 3. **Contracts sort after the chains, and that order is the invariant.** `seedQuestStates`
    fills the three active slots in catalog order; a chain head grants the quest keys the
    generator seals regions behind, so it must keep winning. A contract auto-activates once the

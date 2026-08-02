@@ -10302,14 +10302,38 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   without the flag would otherwise ship a payout-free ending and nothing would go red). None for
   the three Phaser-coupled surfaces, per `CLAUDE.md`.
 
-- [ ] **CHORE-QUEST-CONTRACT-COMPLETE-TOAST** (new 2026-08-02, from FEAT-QUEST-COMPLETION-RELIC):
-  a season contract that completes raises **no toast at all**. Both loops in
-  `GameScene.recordExpeditionQuest` resolve the definition with `getExpeditionQuest`
-  (`ExpeditionQuests.ts:541`), which searches only `EXPEDITION_QUESTS` and returns `undefined`
-  for every `quest_contract_*` id, so the `continue` above the toast swallows it: contract gold is
-  paid silently and the step and completion announcements never fire. The fix is a lookup that
-  reads the same `questCatalog()` the manager folds against, not a second catalog. Value: a
-  contract that pays says so. Deps: none.
+- [x] **CHORE-QUEST-CONTRACT-COMPLETE-TOAST** (done, d7b543d) (new 2026-08-02, from
+  FEAT-QUEST-COMPLETION-RELIC): a season contract that completed raised **no toast at all**.
+  All three announcement loops in `GameScene.recordExpeditionQuest` resolved their definition
+  with `getExpeditionQuest`, which is `EXPEDITION_QUESTS.find(...)` and therefore searched only
+  the 13 authored chain quests, so every `quest_contract_<seed>_<key>` id answered `undefined`
+  and the `continue` on the next line swallowed the `OBJECTIVE COMPLETE`, `QUEST COMPLETE` and
+  `NEW OBJECTIVE` toasts alike. The asymmetry is what made it invisible rather than obviously
+  broken: `claimExpeditionQuestGold()` sits ABOVE the loops so contract gold was paid, and
+  `noteObjectiveUpdated` takes the raw id so the chart badge was raised. The player was paid
+  and badged and never told why.
+  **What shipped.** New `getExpeditionQuestFromCatalog` on `ExpeditionQuestManager`, resolving
+  against the same `questCatalog()` every other read in that module already folds against, and
+  the three call sites now take it. Nothing else in the loops moved: a contract raises exactly
+  the toasts an authored chain does, in the same tier, colour and duration, and rides the same
+  `asNotice` run-end routing. `startExpeditionQuestRun` needed no change and got none: it
+  iterates the definitions `beginExpeditionQuestRun()` returns, so a contract auto-activated at
+  run start already toasted, which is why the gap read as "contracts never finish" rather than
+  "contracts do not exist".
+  **`getExpeditionQuest` was deleted rather than left beside the new lookup.** It had zero
+  consumers after the swap and it is the trap that caused this: an inviting authored-only
+  lookup that answers `undefined` for a third of the live catalog and reports nothing.
+  `getQuestForKeyId` keeps searching `EXPEDITION_QUESTS` alone and is correct to: no contract
+  template sets `grantsKeyId`, so a quest key can only come from an authored chain.
+  **Not touched, deliberately:** contract icons were already asserted against `ICON_MAP` by
+  `seasonQuests.test.ts`, and all six contract-only keys resolve, so no icon work was needed;
+  contracts still carry no `completionRelicRoll`, which stays `BALANCE-QUEST-COMPLETION-RELIC-SPREAD`'s
+  question. One test, on the lookup rather than on the Phaser-coupled scene: the failure was
+  silent (a `continue` on `undefined`, nothing thrown, no assertion red), which is exactly the
+  case the workspace's test rule keeps. No storage key, no `SAVE_VERSION` and no
+  `WORLDGEN_VERSION` moved, and arena, daily, gauntlet and practice are untouched by
+  construction: `recordExpeditionQuest` returns early without a world map. The playtest half is
+  `POLISH-QUEST-CONTRACT-TOAST` under `## Human gates`.
 
 - [ ] **BALANCE-QUEST-COMPLETION-RELIC-SPREAD** (new 2026-08-02, from FEAT-QUEST-COMPLETION-RELIC):
   one roll on each of six chain tails is a designed call, measured against the catalog and never
@@ -11849,6 +11873,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-QUEST-CONTRACT-TOAST** (new 2026-08-02, from CHORE-QUEST-CONTRACT-COMPLETE-TOAST).
+  Three toast sources that had never fired now do, and none of it has been seen in a browser.
+  Questions for the operator: (a) a profile past the authored chains holds up to three contracts
+  at once, so contract steps can now land close together: does that read as a busy log or as
+  progress? (b) a contract's name is `Contract · Grand Survey`, longer than every authored quest
+  name, and the `QUEST COMPLETE` line appends ` · +<gold> gold` after it: does that line still
+  fit the toast plate? (c) an authored chain and a contract raise the identical toast, so
+  nothing on screen says which is which: is that right, or does a contract want its own colour?
+  Deps: play.
 
 - [ ] **POLISH-QUEST-COMPLETION-RELIC** (new 2026-08-02, from FEAT-QUEST-COMPLETION-RELIC). None of
   it has been seen in a browser. Questions for the operator: (a) a chain tail completing mid-flight
