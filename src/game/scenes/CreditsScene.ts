@@ -15,6 +15,15 @@ import {
   BODY_COLORS,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
+import { fitMenuScale, fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
+
+/** Title centre (60) plus half its 44px face, plus clearance. */
+const CREDITS_TOP_RESERVE = 92;
+/** The first link row sits 112 above the canvas bottom; this covers it plus clearance. */
+const CREDITS_BOTTOM_RESERVE = 130;
+/** Gap between the two cards when the viewport is too narrow to seat them side by side. */
+const CREDITS_STACK_GAP = 28;
 
 export class CreditsScene extends Phaser.Scene {
   private menuNavigator: MenuNavigator | null = null;
@@ -32,6 +41,25 @@ export class CreditsScene extends Phaser.Scene {
     const screenHeight = this.cameras.main.height;
     const centerX = this.cameras.main.centerX;
 
+    const cardWidth = 360;
+    const cardHeight = 360;
+    // Two 360-wide cards need ~780px of width to sit side by side; portrait
+    // (720) stacks them vertically instead — height is abundant there.
+    // Measured unscaled on purpose: the stacking decision must not depend on
+    // the scale that depends on it.
+    const stacked = screenWidth < cardWidth * 2 + 60;
+    const blockHeight = stacked ? cardHeight * 2 + CREDITS_STACK_GAP : cardHeight;
+    const menuScale = resolveMenuFontScale(
+      screenWidth, screenHeight, getSettingsManager().getUiScale(),
+    );
+    const scale = fitMenuScale(
+      fitMenuScale(
+        menuScale, screenHeight, CREDITS_TOP_RESERVE + blockHeight + CREDITS_BOTTOM_RESERVE,
+      ),
+      stacked ? screenWidth - 32 : screenWidth * 0.36,
+      cardWidth,
+    );
+
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
@@ -42,34 +70,39 @@ export class CreditsScene extends Phaser.Scene {
     this.events.on('update', this.bgUpdateHandler);
 
     // Title heading.
-    const title = makeDisplayText(this, centerX, 60, 'CREDITS', {
-      fontSize: 44,
+    const title = makeDisplayText(this, centerX, scaledInt(scale, 60), 'CREDITS', {
+      fontSize: scaledInt(scale, 44),
       color: ACCENT_COLORS_STR.gold,
-      strokeWidth: 6,
-      letterSpacing: 4,
+      strokeWidth: scaledInt(scale, 6),
+      letterSpacing: 4 * scale,
     });
+    fitTextWidth(title, screenWidth - 32);
 
-    const cardWidth = 360;
-    const cardHeight = 360;
-
-    // Two 360-wide cards need ~780px of width to sit side by side; portrait
-    // (720) stacks them vertically instead — height is abundant there.
-    const stacked = screenWidth < cardWidth * 2 + 60;
-    const cardY = screenHeight / 2 + 10;
+    // The composed anchor is height/2 + 10, honored whenever the block still fits between the
+    // title and the link rows; a density-scaled block is clamped into that band instead.
+    const halfBlock = (blockHeight * scale) / 2;
+    const highestCardY = CREDITS_TOP_RESERVE * scale + halfBlock;
+    const lowestCardY = screenHeight - CREDITS_BOTTOM_RESERVE * scale - halfBlock;
+    const cardY = Phaser.Math.Clamp(
+      screenHeight / 2 + 10 * scale,
+      Math.min(highestCardY, lowestCardY),
+      Math.max(highestCardY, lowestCardY),
+    );
     const leftCardX = stacked ? centerX : screenWidth * 0.32;
     const rightCardX = stacked ? centerX : screenWidth * 0.68;
-    const firstCardY = stacked ? cardY - cardHeight / 2 - 14 : cardY;
-    const secondCardY = stacked ? cardY + cardHeight / 2 + 14 : cardY;
+    const stackOffset = ((cardHeight + CREDITS_STACK_GAP) / 2) * scale;
+    const firstCardY = stacked ? cardY - stackOffset : cardY;
+    const secondCardY = stacked ? cardY + stackOffset : cardY;
 
     this.buildCreditCard(leftCardX, firstCardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
       { header: 'DEVELOPED BY', body: 'Parallelogramist' },
       { header: 'BUILT WITH', body: 'Phaser 3 — Game Framework\nbitECS — Entity Component System' },
-    ]);
+    ], scale);
 
     this.buildCreditCard(rightCardX, secondCardY, cardWidth, cardHeight, 'ASSETS', 'magenta', [
       { header: 'SOUND EFFECTS', body: 'Kenney.nl\nCC0 License' },
       { header: 'ICONS', body: 'game-icons.net\nCC BY 3.0' },
-    ]);
+    ], scale);
 
     // The main-menu footer no longer carries these; they live here as rows.
     const externalLinks: Array<{ label: string; url: string }> = [
@@ -80,9 +113,9 @@ export class CreditsScene extends Phaser.Scene {
       const text = makeBodyText(
         this,
         centerX,
-        screenHeight - 112 + index * 28,
+        screenHeight - scaledInt(scale, 112) + index * scaledInt(scale, 28),
         link.label,
-        { fontSize: 16, color: TEXT_COLORS.muted, fontStyle: 'bold' },
+        { fontSize: scaledInt(scale, 16), color: TEXT_COLORS.muted, fontStyle: 'bold' },
       ).setInteractive({ useHandCursor: true });
       text.on('pointerover', () => this.menuNavigator?.selectIndex(index));
       text.on('pointerdown', () => window.open(link.url, '_blank'));
@@ -92,12 +125,12 @@ export class CreditsScene extends Phaser.Scene {
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: screenHeight - 38,
-      width: 220,
-      height: 44,
+      y: screenHeight - scaledInt(scale, 38),
+      width: scaledInt(scale, 220),
+      height: scaledInt(scale, 44),
       label: '← BACK',
       variant: 'neutral',
-      fontSize: 16,
+      fontSize: scaledInt(scale, 16),
       onActivate: () => this.returnToMenu(),
     });
     this.backButton.card.hitZone.on('pointerover', () => this.backButton.setHoverState(true));
@@ -147,6 +180,7 @@ export class CreditsScene extends Phaser.Scene {
     bannerLabel: string,
     role: 'gold' | 'magenta',
     sections: { header: string; body: string }[],
+    scale: number,
   ): void {
     const card = createMenuCard(this, {
       x,
@@ -160,6 +194,7 @@ export class CreditsScene extends Phaser.Scene {
       borderColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
       cornerRadius: 8,
     });
+    card.container.setScale(scale);
 
     const banner = makeDisplayText(this, 0, card.bannerTopY + 25, bannerLabel, {
       fontSize: 22,
