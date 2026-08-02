@@ -548,7 +548,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
 
 #### Band C: UI/UX polish sweep (2026-08-01 review, 20 findings)
 
-- [ ] **POLISH-MENU-DENSITY**. Value: HIGH, mobile. Only BootScene, SettingsScene and
+- [x] **POLISH-MENU-DENSITY** (done, batches 1-7, last commit c46d2e7). Value: HIGH, mobile. Only BootScene, SettingsScene and
   PracticeScene apply density compensation; the other 19 menu scenes render at
   roughly half the intended physical size on phones (5-7pt text, 18pt buttons). The
   helper already exists: `computeMenuFontScale` + portrait variant,
@@ -688,17 +688,44 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   real viewport; below 720 it forced the list past the canvas bottom, and against scaled chrome it
   would have pushed the list under its own hints. The floor is gone and the band is simply what the
   chrome leaves.
-  Remaining: **RelicDraftScene**, the one scene the original item's list missed and the only
-  mechanical batch left (batch 7); MarketScene behind BUG-MARKET-VERTICAL-SATURATION, **MapScene, which
-  still needs its own session**: it is 1002 lines of hand-laid absolute panels (a 340-wide left
-  column at x=24, a 196-wide legend, and a zoomed map viewport between them), so density-scaling
-  its chrome trades away map area, a layout call the operator owns rather than a mechanical
-  batch. And **CardsScene, which cannot take the mechanical fix at all**: it composes two fixed
-  design boxes (1280x720 landscape, 720x1280 portrait) centred with `offsetX`/`offsetY`, and 24
-  tiles of 148x134 fill both boxes, so the uniform scale either box admits is exactly
-  `min(canvasW/1280, canvasH/720) = 1.0` in landscape and `min(720/720, 1280/1280) = 1.0` in
-  portrait. There is nothing to spend. It is the same saturation
-  BUG-MARKET-VERTICAL-SATURATION describes and needs the same operator layout call: drop a
+  **Batch 7 shipped (c46d2e7): RelicDraftScene, and the sweep's mechanical work is done.** It was
+  the one scene the original item's list missed, and the only one still on a hand-rolled fitter:
+  `createRelicCards` forced a single row of N and shrank it to fit, then tried to buy the text
+  back with `textBoost = min(1.2, 1 / cardScaleFactor)`, which is the exact inverse of the
+  mechanism every other batch used. On a 720x1280 portrait canvas that resolved to three
+  184-unit cards at 0.6977 with 1.2x fonts inside an unscaled layout. It now takes the shared
+  `computeCardGridInBand`, so portrait lays 1 column x 3 rows at 1.0234 (a 270-unit card, 1.45x
+  wider, 1.21x larger text) and a landscape phone at 1.6x menu scale lays 3 columns x 1 row at
+  1.3 rather than 1.0. `textBoost` is deleted and the five interior fonts are back at their
+  design sizes, because the container carries the scale. Two things came with it: a short last
+  row is now centred under a full one instead of left-aligned, and `MenuNavigator` gets the real
+  column count rather than the hardcoded `cardEntries.length`, which in portrait had left and
+  right doing nothing on a one-column grid. Desktop is byte-identical and it is pinned rather
+  than asserted: at 1280x720 the legacy code and the fitter agree on scale 1, first-card centre
+  x 342, column pitch 298 and row centre y 380, and `HudScale.test.ts` now holds those four
+  numbers. The three fitter inputs that encode the legacy composition are `edgeMargin` 120 (the
+  old 60-per-side margin), `topReserve` 150 (the subtitle baseline at 134 plus half its 22px
+  line plus clearance) and `anchorOffset` 180, which carries half a card because the fitter
+  measures its anchor against a grid top edge while the row was composed as a centre: for a
+  single row the half-card cancels and the anchor resolves to exactly `height / 2 + 20 * scale`.
+  Closed at batch 7: every scene that can take the mechanical fix has it. The three that cannot
+  are refiled below as their own items, because each needs a layout call the operator owns
+  rather than another batch: MarketScene under BUG-MARKET-VERTICAL-SATURATION, plus the two new
+  items POLISH-MAP-DENSITY and POLISH-CARDS-SATURATION.
+- [ ] **POLISH-MAP-DENSITY** (refiled 2026-08-02 out of POLISH-MENU-DENSITY, which closed at
+  batch 7). Value: MEDIUM, mobile. MapScene is one of only three scenes with no density
+  compensation, but it is 1002 lines of hand-laid absolute panels (a 340-wide left column at
+  x=24, a 196-wide legend, and a zoomed map viewport between them), so density-scaling its
+  chrome trades away map area. That trade is a layout call the operator owns, not a mechanical
+  batch: ask whether the chrome should scale and the viewport shrink, or the chrome should
+  collapse to an overlay in portrait. Do not retune it blind.
+- [ ] **POLISH-CARDS-SATURATION** (refiled 2026-08-02 out of POLISH-MENU-DENSITY, which closed
+  at batch 7). Value: MEDIUM, mobile. CardsScene cannot take the mechanical fix at all: it
+  composes two fixed design boxes (1280x720 landscape, 720x1280 portrait) centred with
+  `offsetX`/`offsetY`, and 24 tiles of 148x134 fill both boxes, so the uniform scale either box
+  admits is exactly `min(canvasW/1280, canvasH/720) = 1.0` in landscape and
+  `min(720/720, 1280/1280) = 1.0` in portrait. There is nothing to spend. Same saturation
+  BUG-MARKET-VERTICAL-SATURATION describes and it needs the same operator layout call: drop a
   column, or re-flow into the unused width a landscape phone canvas leaves outside the design
   box.
 - [x] **BUG-WEAPON-GRID-OVERFLOW** (done, `8f5cc49`). The pre-run weapon grid painted outside the
@@ -9712,7 +9739,7 @@ Never agent work. The fleet must not do any of these.
     scaling the whole card rather than one half feel wrong when tapping a half; (f) with
     PARALLELOGRAMIST and LEGAL moved into CREDITS, are they still findable, or does the site
     link want to stay on the main menu.
-  - **POLISH-MENU-DENSITY** (ec0b3cb, 21d358c, 41f3d3a, 9df1c0d, fb6eb6d): the menu density sweep, filed once for the
+  - **POLISH-MENU-DENSITY** (c46d2e7, ec0b3cb, 21d358c, 41f3d3a, 9df1c0d, fb6eb6d): the menu density sweep, filed once for the
     whole sweep as the item asks. Batch 1 covers the pre-run picker (stage, ship, weapon steps) and
     the level-up cards. Open both on a phone in each orientation. Owns: (a) are weapon descriptions
     and level-up card text legible at arm's length now, and is 1.6x landscape / 1.2x portrait the
@@ -9769,6 +9796,16 @@ Never agent work. The fleet must not do any of these.
     on a landscape phone because the canvas is vertically saturated there, so only the title, the
     links and BACK grow: does the panel look inconsistent, and is dropping one of the two credit
     cards to a single scrolling column the better answer.
+    Batch 7 adds RelicDraftScene and closes the sweep: (aa) trigger a relic draft on a phone in
+    portrait (a fortune shrine, a treasure chest or a miniboss Relic Vow): the three cards now
+    stack one per row instead of squeezing into a 720-unit canvas, which means scrolling nothing
+    but seeing one card at a time on the way down: does the stack read as a choice, or does it
+    want a 2-up grid at a smaller card; (bb) the draft pauses the run, so a taller layout costs
+    nothing in reaction time, but the entrance tween now drops each card in from below across a
+    1280-unit canvas with a 90ms stagger: is that too slow to wait through mid-run; (cc) on a
+    landscape phone the cards reach 1.3x rather than the 1.6x menu scale, because the band
+    between the header and the canvas floor is what binds: is that big enough at arm's length,
+    or should the title and subtitle shrink to buy the cards more room.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
