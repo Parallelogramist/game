@@ -6883,6 +6883,10 @@ exploring pays is the end of Phase 5.
   call `FEAT-WORLD-SPACE-1` made about `latticeScroll.ts`. Land it with its first real consumer,
   `FEAT-CARGO-PICKUP-ENTITY`. **Value:** a quest drop can be a thing in the room without being
   swept up when you step out of it. Deps: `FEAT-CARGO-PICKUP-ENTITY`.
+  **Updated 2026-08-02 by `FEAT-CARGO-PICKUP-ENTITY` (372c301): that named consumer has now
+  shipped and still does not need this API**, because the board's crate stayed a derived scene
+  `Graphics` rebuilt from the quest store rather than becoming a floor entity `serializeEntities`
+  can see; do not re-derive the dep.
 
 - [ ] **FEAT-WORLDGEN-STREAM-DIRECTOR** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): the
   sector-scoped director and the "undiscovered sectors never spawn anything" rule that
@@ -8425,7 +8429,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   player simply re-holds), but a 90 s hold interrupted by a reload is re-walked. Holding it
   means a `GameSaveState` field or a saved sector-entry stamp. Deps: none.
 
-- [ ] **FEAT-CARGO-PICKUP-ENTITY** (new 2026-08-01, from FEAT-QUEST-CARGO): the crate is handed
+- [x] **FEAT-CARGO-PICKUP-ENTITY** (done, 372c301, 2026-08-02): the crate is handed
   over by the board overlay and is never a thing in the room, so there is nothing to see, shoot
   around or leave behind. A visible crate at the board's own position, picked up by a walk-in like
   a cache is, would make the load a place rather than a menu. **Updated 2026-08-01 by
@@ -8436,6 +8440,35 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   the board's hand-over from the overlay to a walk-in: a position for the board's own crate, and
   `loadQuestCargo` fired by flying into it rather than by opening the card. Value: loading cargo
   happens in the world instead of in a dialog. Deps: none.
+
+  **What shipped:** a crate now stands beside every `QuestGiver` board while a delivery is owed,
+  and flying into it is what loads the cargo. `src/game/expeditionField/questCargoCrate.ts` is the
+  new home of the crate's three constants, its painter (moved verbatim out of `GameScene`, so the
+  board's crate and the dropped one are the same object to look at) and the pure
+  `pickCargoCratePoint`, which stands the crate 104 px off the board on the first of eight
+  bearings whose destination *and* midpoint are both open floor, falling back to the board's own
+  position. 104 px is past the board's 48 px open radius by more than the crate's own pickup
+  radius and under the 110 px re-arm radius, so the ship is outside the board when it grabs the
+  crate and the board it just left does not re-open behind it. The pickup radius is 44 px, the
+  secret cache's own claim radius, so a crate and a cache feel the same to fly into.
+  `QuestBoardManager.update` tests the crate **before** the board's walk-in and returns on a
+  pickup, so grabbing the crate can never open the overlay in the same frame.
+  `loadQuestCargo` is unchanged and still idempotent, so one crate is the board's pallet rather
+  than one crate per contract: flying into it loads every waiting delivery at once, which is
+  exactly the contract the overlay already had. `QuestBoardScene` stops calling
+  `loadExpeditionQuestCargo` entirely and reads the new `getExpeditionQuestCargoStatus` instead,
+  so its subtitle now says `CARGO WAITING OUTSIDE` where it used to say `CARGO LOADED`, and
+  nothing on that screen writes. The escort drone is deliberately still assigned by the overlay:
+  re-routing it is `FEAT-QUEST-ESCORT`'s surface, not this item's. The pure half is pinned by two
+  test blocks: `buildQuestCargoStatus`' three-way partition (aboard / adrift in this world /
+  pending, including the foreign-`worldStamp` drop, which is pending again because that crate is
+  unreachable from here), and the placement invariant that `pickCargoCratePoint` returns non-solid
+  floor at every `QuestGiver` slot of the live expedition world, so the documented fallback never
+  fires there and a crate is never spawned inside rock. **No storage key, no save field and no
+  `SAVE_VERSION` or `WORLDGEN_VERSION` bump**: the crate is derived, rebuilt from
+  `survivor-expedition-quests` on every sector change, on the once-a-second quest tick and when
+  the board overlay closes on a change, the `syncQuestCargoDrop` idiom. Its on-screen feel is
+  unplayed: see `POLISH-CARGO-CRATE-FEEL` under `## Human gates`.
 
 - [x] **FEAT-CARGO-DROP-IN-PLACE** (done, 8c3357c): dying returns the
   crate to the boards rather than dropping it where the ship died, because a dropped crate is a
@@ -10026,6 +10059,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-CARGO-CRATE-FEEL** (new 2026-08-02, from FEAT-CARGO-PICKUP-ENTITY, 372c301).
+  Value: a delivery's crate now stands beside the quest board and is flown into, but every number
+  placing it was validated by geometry (a test that it lands on open floor at every board of the
+  live world), never in a browser. Questions only a playtest answers: (a) does the crate at 104 px
+  read as belonging to the board, or as unrelated clutter parked near it? (b) does the board
+  overlay ever still steal the pickup on the approach, i.e. is 104 px actually enough separation
+  from the 48 px open radius in a real flight line? (c) is one crate standing for every waiting
+  delivery legible, or should each contract get its own crate? (d) does `CARGO WAITING OUTSIDE` on
+  the board's subtitle actually send the player back out, or does it read as a status line they
+  ignore? The constants are `QUEST_CARGO_BOARD_OFFSET` 104 and `QUEST_CARGO_PICKUP_RADIUS` 44 in
+  `src/game/expeditionField/questCargoCrate.ts`.
 
 - [ ] **POLISH-MAPOPEN-REVEAL** (new 2026-08-02, from FEAT-DISCOVERY-MAPOPEN-ANIMATIONS, db7de53).
   Value: the map-open replay (a secret-find bloom, a 400 ms outward cascade of the outlines a map

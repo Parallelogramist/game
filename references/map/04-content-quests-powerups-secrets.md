@@ -797,6 +797,47 @@ cache's claim radius).
 
 ---
 
+### As built (FEAT-CARGO-PICKUP-ENTITY, 372c301, 2026-08-02)
+
+The board stops handing the crate over. While a delivery is owed, a crate stands beside every
+`QuestGiver` board and flying into it is what loads the cargo, so loading is a place rather than a
+menu side effect.
+
+1. **Placement is pure and wall-aware.** `src/game/expeditionField/questCargoCrate.ts` holds the
+   crate's constants, its painter (moved verbatim out of `GameScene`, so the board's crate and the
+   dropped one are one object to look at) and `pickCargoCratePoint`, which tries eight bearings at
+   104 px and takes the first whose destination *and* midpoint are both open floor, so a bearing
+   that lands in a room across a wall is rejected rather than stranding the crate. It falls back
+   to the board's own position, which is reachable by construction because the board was walked
+   into. A test pins that the fallback never fires at any `QuestGiver` slot of the live world.
+2. **104 px and 44 px are the two numbers that make the walk-in unambiguous.** 104 px clears the
+   board's 48 px open radius by more than the crate's own pickup radius and stays inside the
+   110 px re-arm radius, so the ship is outside the board when it grabs the crate and the board it
+   just left does not re-open behind it. 44 px is the secret cache's claim radius, so a crate and
+   a cache feel the same to fly into. `QuestBoardManager.update` tests the crate before the
+   board's own walk-in and returns on a pickup, so a grab can never open the overlay in the frame
+   it happens.
+3. **One crate is the board's pallet, not one crate per contract.** `loadQuestCargo` is untouched
+   and still idempotent, so flying into the crate loads every waiting delivery at once, which is
+   the contract the overlay already had. `QuestBoardScene` no longer calls
+   `loadExpeditionQuestCargo` at all: it reads the new `getExpeditionQuestCargoStatus` and says
+   `CARGO WAITING OUTSIDE`, and nothing on that screen writes any more. The escort drone is still
+   assigned by the overlay: that is `FEAT-QUEST-ESCORT`'s surface, not this one's.
+4. **The crate stayed derived, so section 9.2 of doc 02 still has no consumer.** It is a scene
+   `Graphics` rebuilt from `survivor-expedition-quests` on sector change, on the once-a-second
+   quest tick and when the board closes on a change, the `syncQuestCargoDrop` idiom of the block
+   above. Nothing `serializeEntities` can see was created, so the persistence-exemption API this
+   doc promises is still owed to no caller: `FEAT-WORLDGEN-STREAM-EXEMPT-API` remains unbuilt on
+   purpose and its dep on this item should not be re-derived.
+5. **No storage key, no save field and no version bump of any kind**, for the same reason as
+   note 4: everything the crate needs is already in the quest store, read through one projection
+   so the object in the room and the board's own notice cannot disagree.
+6. **Deliberately not built:** a per-contract crate, any change to `loadQuestCargo`'s idempotence,
+   and any re-routing of the escort drone. The crate's on-screen feel is unplayed and is filed as
+   `POLISH-CARGO-CRATE-FEEL` under BACKLOG `## Human gates`.
+
+---
+
 ### As built (FEAT-QUEST-ESCORT, 840753d, 2026-08-01)
 
 `escortDrone`, this section's tenth and last kind, ships with its producer and its readers. It is
