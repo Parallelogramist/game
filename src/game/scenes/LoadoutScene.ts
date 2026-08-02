@@ -134,61 +134,49 @@ export class LoadoutScene extends Phaser.Scene {
     });
 
     // ─── build-code bar: share loadouts as copy/paste codes ─────────────
-    // A fixed two-button bar above BACK, deliberately NOT extra list rows — so
-    // the tuned row list (replay/presets/save) and its density stay untouched.
+    // A fixed bar above BACK, deliberately NOT extra list rows — so the tuned row
+    // list (replay/presets/save) and its density stay untouched. COPY drops out when
+    // there is no last run to encode, so the bar is two buttons wide or three.
     const codeSourceLoadout = loadLastLoadout();
-    const barY = height - scaledInt(this.layoutScale, 112);
-    const barButtonWidth = Math.min(scaledInt(this.layoutScale, 258),
-      (cardWidth - scaledInt(this.layoutScale, 18)) / 2);
-    const barButtonHeight = scaledInt(this.layoutScale, 42);
-    const barGap = scaledInt(this.layoutScale, 16);
-    const copyCenterX = width / 2 - (barButtonWidth + barGap) / 2;
-    const pasteCenterX = codeSourceLoadout
-      ? width / 2 + (barButtonWidth + barGap) / 2
-      : width / 2;
-
+    const barActions: { label: string; activate: () => void }[] = [];
     if (codeSourceLoadout) {
-      const copyIndex = navigableItems.length;
-      const copyBg = this.add.rectangle(copyCenterX, barY, barButtonWidth, barButtonHeight, 0x121820)
+      barActions.push({ label: 'COPY CODE', activate: () => this.copyBuildCode() });
+    }
+    barActions.push({ label: 'PASTE & LAUNCH', activate: () => { void this.pasteAndLaunchCode(); } });
+    barActions.push({ label: 'ENTER CODE', activate: () => this.openBuildCodeEntry() });
+
+    const barY = height - scaledInt(this.layoutScale, 112);
+    const barGap = scaledInt(this.layoutScale, 16);
+    const barButtonWidth = Math.min(
+      scaledInt(this.layoutScale, 258),
+      (cardWidth - barGap * (barActions.length - 1)) / barActions.length,
+    );
+    const barButtonHeight = scaledInt(this.layoutScale, 42);
+    const barSpan = barActions.length * barButtonWidth + (barActions.length - 1) * barGap;
+    const barFirstCenterX = width / 2 - barSpan / 2 + barButtonWidth / 2;
+
+    barActions.forEach((action, barIndex) => {
+      const barCenterX = barFirstCenterX + barIndex * (barButtonWidth + barGap);
+      const barNavIndex = navigableItems.length;
+      const barButtonBg = this.add.rectangle(barCenterX, barY, barButtonWidth, barButtonHeight, 0x121820)
         .setStrokeStyle(2, 0x3a5a7a)
         .setInteractive({ useHandCursor: true });
-      this.add.text(copyCenterX, barY, 'COPY BUILD CODE', {
+      const barButtonLabel = this.add.text(barCenterX, barY, action.label, {
         fontSize: `${scaledInt(this.layoutScale, 14)}px`,
         color: '#88ccff',
         fontFamily: TITLE_FONT,
         fontStyle: 'bold',
       }).setOrigin(0.5);
-      const doCopy = () => this.copyBuildCode();
-      copyBg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
-        if (!pointer.wasTouch) this.navigator?.selectIndex(copyIndex);
+      fitTextWidth(barButtonLabel, barButtonWidth - scaledInt(this.layoutScale, 14));
+      barButtonBg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+        if (!pointer.wasTouch) this.navigator?.selectIndex(barNavIndex);
       });
-      copyBg.on('pointerup', doCopy);
+      barButtonBg.on('pointerup', action.activate);
       navigableItems.push({
-        onFocus: () => copyBg.setStrokeStyle(2, 0xffffff, 0.9),
-        onBlur: () => copyBg.setStrokeStyle(2, 0x3a5a7a),
-        onActivate: doCopy,
+        onFocus: () => barButtonBg.setStrokeStyle(2, 0xffffff, 0.9),
+        onBlur: () => barButtonBg.setStrokeStyle(2, 0x3a5a7a),
+        onActivate: action.activate,
       });
-    }
-
-    const pasteIndex = navigableItems.length;
-    const pasteBg = this.add.rectangle(pasteCenterX, barY, barButtonWidth, barButtonHeight, 0x121820)
-      .setStrokeStyle(2, 0x3a5a7a)
-      .setInteractive({ useHandCursor: true });
-    this.add.text(pasteCenterX, barY, 'PASTE & LAUNCH CODE', {
-      fontSize: `${scaledInt(this.layoutScale, 14)}px`,
-      color: '#88ccff',
-      fontFamily: TITLE_FONT,
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    const doPaste = () => { void this.pasteAndLaunchCode(); };
-    pasteBg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.wasTouch) this.navigator?.selectIndex(pasteIndex);
-    });
-    pasteBg.on('pointerup', doPaste);
-    navigableItems.push({
-      onFocus: () => pasteBg.setStrokeStyle(2, 0xffffff, 0.9),
-      onBlur: () => pasteBg.setStrokeStyle(2, 0x3a5a7a),
-      onActivate: doPaste,
     });
 
     const backY = height - scaledInt(this.layoutScale, 54);
@@ -304,9 +292,9 @@ export class LoadoutScene extends Phaser.Scene {
   }
 
   /**
-   * The bar is a fixed two-button layout sized off cardWidth, so a third button here is a layout
-   * change larger than the feature; the typed field takes over the dead end the paste path already
-   * had instead. A clipboard hit still launches in one press exactly as before.
+   * Reached two ways on purpose: the ENTER CODE bar button, and PASTE & LAUNCH's failure branch,
+   * which still lands here when the clipboard is empty, unreadable or not a build code. A
+   * clipboard hit still launches in one press exactly as before.
    */
   private openBuildCodeEntry(): void {
     if (this.isLeaving || this.codeEntryTeardown) return;
