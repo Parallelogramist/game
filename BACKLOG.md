@@ -4914,7 +4914,7 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   it. If mobile memory ever shows, measure the real peak entity id first and only then decide
   between a smaller world capacity (one `setDefaultSize` call, affects every component) and a
   packed enemy-slot indirection. Do not shrink it on a guess.
-- [ ] **BUG-TWIN-BERSERK-DAMAGE** (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: the
+- [x] **BUG-TWIN-BERSERK-DAMAGE** (done, c71df3f) (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: the
   surviving Twin one-shots the player within a second of its partner dying, which reads as a
   random insta-death rather than a boss mechanic. `twin.ts` runs
   `EnemyType.baseDamage[enemyId] = EnemyType.baseDamage[enemyId] * 1.5` inside the dead-partner
@@ -4924,6 +4924,23 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   reaches ~1e10 after one second and `Infinity` inside two. Fix: apply the berserk buff once, on
   the transition (an `EnemyAI.state` flag or a stored base value), not per frame. Done: a twin
   whose partner dies deals a fixed 1.5x for the rest of the run, pinned by one pure test.
+  **What shipped**: `TWIN_BERSERK_STATE` in `src/ecs/systems/enemy-ai/twin.ts`, a latch read
+  from `EnemyAI.state` that gates the +50% damage buff to the frame the partner dies. Before
+  this the multiply sat bare in the dead-partner branch, and because the Twins are aiType 54
+  and 55 (`EnemyAISystem.ts:131` exempts everything at 50 or above from the distance LOD
+  throttle) that branch runs every rendered frame: from the catalog base of 20 the contact
+  damage `GameScene.ts:7619` charges passed 8,700 in a quarter second and hit the f32 ceiling
+  inside two, so the surviving Twin deleted the player on touch.
+  **No new state, by design**: `EnemyAI.state` is zeroed on every fresh spawn
+  (`GameScene.ts:9717`) so a recycled entity id cannot arrive pre-latched, and it is already
+  serialized (`GameStateManager.ts:989`) and restored (`GameScene.ts:3645`) so a reload cannot
+  re-apply the buff. No component field, storage key or version constant moved.
+  **No save migration and none is owed**: `JSON.stringify(Infinity)` is `null`, which restores
+  into the `Float32Array` as 0, and `GameScene.ts:7619`'s `|| 10` fallback then charges 10, so
+  a save written mid-corruption self-heals on reload.
+  **Two neighbours checked and deliberately left alone**: `glutton.ts:64-70` grows the same
+  field but inside its eat-a-gem branch with a speed cap, and `applyNemesisScaling`
+  (`GameScene.ts:10052`) has a single call site, so neither compounds.
 - [ ] **BUG-DECOY-FLOW-MISMATCH** (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: a
   hostile that broke off for the escort drone walks back toward the player the moment it loses
   sight of the drone, which makes the decoy quest look broken. `EnemyAISystem.ts` substitutes the
@@ -4935,6 +4952,15 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   too much for one drone), or the cheaper rule that a decoy follower with no line of sight to the
   drone uses the wall-tangent rung rather than the player's route. Done: a follower behind a wall
   from the drone moves around it toward the drone, never toward the player.
+
+- [ ] **CHORE-NEMESIS-SCALING-COMMENT** (new 2026-08-02, found by BUG-TWIN-BERSERK-DAMAGE):
+  the doc comment on `GameScene.applyNemesisScaling` (`:10047-10051`) says it is "Shared by the
+  fresh spawn and the save-restore path", but `grep -n applyNemesisScaling` finds exactly one
+  call site (`:10037`, the fresh miniboss spawn), and the restore path re-derives only the
+  sprite scale. The comment describes a double-scaling hazard that does not exist, which is the
+  kind of note that makes a future agent either chase a phantom bug or trust a claim it should
+  check. Value: the next reader of the nemesis path is not misled about whether grudge
+  multipliers compound across reloads. Deps: none.
 
 ## Next
 
