@@ -21,7 +21,6 @@ import {
   MagnetPickupTag,
   NemesisTag,
   AmbushSpawnTag,
-  VaultGuardTag,
 } from '../../ecs/components';
 import { inputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
@@ -170,6 +169,8 @@ import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager } from '../../visual/MinimapManager';
 import { MinimapFeed } from '../managers/MinimapFeed';
+import { AbilityVaultManager } from '../expeditionField/AbilityVaultManager';
+import { QuestBoardManager } from '../expeditionField/QuestBoardManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
@@ -241,13 +242,8 @@ import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
-import {
-  getTraversalAbility, IMPLEMENTED_TRAVERSAL_ABILITY_IDS, VAULT_GUARD_PACKS,
-  scanPulseGraphRadius,
-} from '../../data/TraversalAbilities';
-import {
-  claimTraversalAbility, getOwnedTraversalAbilityIds,
-} from '../../meta/TraversalAbilityManager';
+import { getTraversalAbility, scanPulseGraphRadius } from '../../data/TraversalAbilities';
+import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
@@ -343,8 +339,6 @@ const SPECIAL_CHEST_CHANCE = 0.15;
 const POI_CRATE_FIELD_COUNT = 3;
 const POI_CRATE_FIELD_RADIUS = 34;
 const POI_CACHE_SPREAD = 22;
-/** The quest-anchor cyan poiGlyphs.ts draws the board with; kept identical on purpose. */
-const QUEST_BOARD_COLOR = 0x66ddff;
 const SECRET_REWARD_SPREAD = 26;
 const SECRET_REWARD_RADIUS = 34;
 const SECRET_REWARD_BUNDLE_COUNT = 3;
@@ -447,13 +441,6 @@ const SIGNAL_DECRYPTOR_ID = 'ability_signal_decryptor';
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
-
-/** Where a vault's placed pack stands up, measured from the core. */
-const VAULT_GUARD_RING_RADIUS = 120;
-/** Inside this, a guarded core says so once per sector visit. */
-const VAULT_GUARD_NOTICE_RADIUS = 170;
-/** Every guard is the same elite, so the encounter reads identically on every vault. */
-const VAULT_GUARD_AFFIX = EnemyAffixType.TITAN;
 
 /** A nest is legible long before it is live: the ship trips it well inside the vault's notice
  *  radius, so engaging is the player's decision and not the room's. */
@@ -678,13 +665,6 @@ export class GameScene extends Phaser.Scene {
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
 
-  // Ability vaults (expedition only): the walk-in claim sites for traversal abilities.
-  // Rebuilt when the ship changes sector, keyed the way syncMinimapUnderlay is keyed.
-  private activeVaults: {
-    poiId: string; abilityId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
-    guarded: boolean; guardEntityIds: number[]; noticed: boolean;
-  }[] = [];
-  private vaultSectorKey: string | null = null;
   private secretSectorKey: string | null = null;
   private activeSecretCaches: {
     secretId: string; reward: SecretRewardDefinition;
@@ -694,14 +674,6 @@ export class GameScene extends Phaser.Scene {
      *  indices are precomputed so the per-frame read allocates nothing. */
     shell: { tiles: Uint8Array; ringIndices: number[] } | null;
   }[] = [];
-  /** Walk-in quest boards for the sector the ship is in, the syncAbilityVaults shape. The board
-   *  is the QuestGiver slot's consumer; it holds no per-profile state of its own, so nothing
-   *  about it reaches the run save. `engaged` is the re-open latch: a board is never consumed, so
-   *  without it the ship would still be inside the open radius the frame the overlay closes. */
-  private activeQuestBoards: {
-    poiId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number; engaged: boolean;
-  }[] = [];
-  private questBoardSectorKey: string | null = null;
   /** Ambush nests, expedition only. World-space and run-scoped like a chest rather than rebuilt
    *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
    *  reset a fight the player half-won. */
@@ -756,10 +728,6 @@ export class GameScene extends Phaser.Scene {
    *  that runs on a timer and each read is a SecureStorage decrypt. Marks can only change while
    *  MapScene holds the pause, so refreshing on its close is exact. */
   private markedSectorKeys: string[] = [];
-  private static readonly VAULT_CLAIM_RADIUS = 40;
-  private static readonly QUEST_BOARD_OPEN_RADIUS = 48;
-  /** Wider than the open radius: the ship has to actually leave the board before it re-opens. */
-  private static readonly QUEST_BOARD_REARM_RADIUS = 110;
   private static readonly SECRET_SENSE_RADIUS = 300;
   private static readonly SECRET_CLAIM_RADIUS = 44;
   /** Wider than ABILITY_DOOR_OPEN_RADIUS (60) on purpose: the notice has to land while the
@@ -1057,6 +1025,8 @@ export class GameScene extends Phaser.Scene {
   // Tactical minimap / threat radar (mid-right HUD edge)
   private minimapManager!: MinimapManager;
   private minimapFeed!: MinimapFeed;
+  private abilityVaultManager!: AbilityVaultManager;
+  private questBoardManager!: QuestBoardManager;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
@@ -1533,6 +1503,8 @@ export class GameScene extends Phaser.Scene {
     this.spawnTimer = 0;
     this.enemyCount = 0;
     this.killCount = 0;
+    // Built before the reset below, which is the first thing that clears a field POI.
+    this.createFieldPoiManagers();
     this.resetInRunFeatureState();
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
@@ -3039,6 +3011,7 @@ export class GameScene extends Phaser.Scene {
     this.bindExpeditionDiscovery();
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
+    this.createFieldPoiManagers();
     this.createMinimapFeed();
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
@@ -4907,6 +4880,37 @@ export class GameScene extends Phaser.Scene {
     removeEntity(this.world, enemyId);
   }
 
+  /** One place, called from both create paths before anything can clear or draw a field POI. */
+  private createFieldPoiManagers(): void {
+    this.abilityVaultManager = new AbilityVaultManager(this, {
+      world: () => this.world,
+      gameTime: () => this.gameTime,
+      worldLevelHealthMult: () => this.worldLevelHealthMult,
+      worldLevelDamageMult: () => this.worldLevelDamageMult,
+      holdsAbility: (abilityId) => this.ownedTraversalAbilityIds.has(abilityId),
+      noteAbilityClaimed: (abilityId) => { this.ownedTraversalAbilityIds.add(abilityId); },
+      createEnemy: (x, y, enemyType, scaledStats) =>
+        this.createEnemy(x, y, enemyType, scaledStats),
+      applyDampedAffixStats: (entityId, affix) => this.applyDampedAffixStats(entityId, affix),
+      createGuardHealthBar: (entityId, name) =>
+        { this.hudManager?.createBossHealthBar(entityId, name, false); },
+      despawnGuard: (entityId) => this.despawnVaultGuard(entityId),
+      playDeathBurst: (x, y, color) => this.effectsManager.playDeathBurst(x, y, color),
+      showDamageNumber: (x, y, text, color) =>
+        this.effectsManager.showDamageNumber(x, y, text, color),
+      playLevelUp: () => this.soundManager.playLevelUp(),
+      playPurchase: () => this.soundManager.playPurchase(),
+      showToast: (config) => this.toastManager?.showToast(config),
+      announceNewRoutes: (gainedId, sourceName, icon) =>
+        this.announceNewRoutes(gainedId, sourceName, icon),
+      recordExpeditionQuest: (event) => this.recordExpeditionQuest(event),
+    });
+    this.questBoardManager = new QuestBoardManager(this, {
+      gameTime: () => this.gameTime,
+      openBoard: () => this.openQuestBoard(),
+    });
+  }
+
   /** One place, called from both create paths: the fresh run and the restore. */
   private createMinimapFeed(): void {
     this.minimapManager = new MinimapManager(this);
@@ -4917,8 +4921,8 @@ export class GameScene extends Phaser.Scene {
       worldMap: () => this.worldMode.worldMap(),
       biomeTint: biomeTintFor,
       chests: () => this.activeChests,
-      vaults: () => this.activeVaults,
-      questBoards: () => this.activeQuestBoards,
+      vaults: () => this.abilityVaultManager.contacts(),
+      questBoards: () => this.questBoardManager.contacts(),
       ambushNests: () => this.activeAmbushNests,
       nemesisLairs: () => this.activeNemesisLairs,
       secretCaches: () => this.activeSecretCaches,
@@ -4944,12 +4948,10 @@ export class GameScene extends Phaser.Scene {
     this.activeShrines = [];
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
-    this.clearAbilityVaults();
-    this.vaultSectorKey = null;
+    this.abilityVaultManager.clear();
     this.clearSecretCaches();
     this.secretSectorKey = null;
-    this.clearQuestBoards();
-    this.questBoardSectorKey = null;
+    this.questBoardManager.clear();
     this.clearAmbushNests();
     this.clearNemesisLairs();
     this.clearWardenThrone();
@@ -5178,97 +5180,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Ability vaults for the sector the ship is in. Rebuilt only when that sector changes, the
-   * same key-compare shape syncMinimapUnderlay uses, so the common frame does no work. A vault
-   * is spawned only for an ability this profile does not already own: ownership is the single
-   * source of truth for a spent vault, so there is no second collected-ids list to disagree
-   * with it.
-   */
-  private syncAbilityVaults(map: WorldMap, playerX: number, playerY: number): void {
-    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
-    if (key === this.vaultSectorKey) return;
-    this.vaultSectorKey = key;
-    this.clearAbilityVaults();
-
-    const sector = map.sectors.get(key);
-    if (!sector) return;
-    for (const slot of sector.poiSlots) {
-      if (slot.kind !== PoiKind.AbilityPowerUp) continue;
-      const abilityId = slot.grantsAbilityId;
-      if (!abilityId || this.ownedTraversalAbilityIds.has(abilityId)) continue;
-      this.addAbilityVault(
-        slot.id, abilityId,
-        sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
-        sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
-      );
-    }
-  }
-
-  private addAbilityVault(poiId: string, abilityId: string, x: number, y: number): void {
-    const graphics = this.add.graphics();
-    graphics.setPosition(x, y);
-    graphics.setDepth(4);
-    const vault = {
-      poiId, abilityId, graphics, x, y,
-      guarded: false, guardEntityIds: [] as number[], noticed: false,
-    };
-    this.activeVaults.push(vault);
-
-    if (!getDiscoveryManager().isVaultGuardCleared(poiId)) {
-      this.spawnVaultGuards(vault, abilityId);
-    }
-    // A pack that produced no entity (an unknown type id) leaves the core claimable rather
-    // than permanently sealed: the failure mode of a placed encounter must be open, not locked.
-    vault.guarded = vault.guardEntityIds.length > 0;
-    graphics.setAlpha(vault.guarded ? 0.55 : 1);
-    this.drawAbilityVault(
-      graphics,
-      vault.guarded ? WORLD_GEOMETRY_COLORS.hazard.stroke : WORLD_GEOMETRY_COLORS.gate.stroke,
-    );
-  }
-
-  /**
-   * A vault's pack, standing in an even ring around the core. Every member is forced to the
-   * same elite affix rather than rolled, so a guard is never a plain trash spawn and the
-   * encounter is identical on every visit. createEnemy runs freeSpotNear, so a ring point
-   * inside rock is shoved to open floor instead of spawning a mover in a wall.
-   */
-  private spawnVaultGuards(
-    vault: { poiId: string; x: number; y: number; guardEntityIds: number[] },
-    abilityId: string,
-  ): void {
-    const definition = getTraversalAbility(abilityId);
-    if (!definition) return;
-    const pack = VAULT_GUARD_PACKS[definition.guardTier];
-    const total = pack.reduce((sum, member) => sum + member.count, 0);
-    if (total === 0) return;
-
-    let placed = 0;
-    for (const member of pack) {
-      const enemyType = getEnemyType(member.typeId);
-      if (!enemyType) continue;
-      for (let index = 0; index < member.count; index++) {
-        const angle = (Math.PI * 2 * placed) / total - Math.PI / 2;
-        placed++;
-        const scaledStats = getScaledStats(
-          enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult,
-        );
-        const entityId = this.createEnemy(
-          vault.x + Math.cos(angle) * VAULT_GUARD_RING_RADIUS,
-          vault.y + Math.sin(angle) * VAULT_GUARD_RING_RADIUS,
-          enemyType, scaledStats,
-        );
-        addComponent(this.world, VaultGuardTag, entityId);
-        this.applyDampedAffixStats(entityId, VAULT_GUARD_AFFIX);
-        if (enemyType.xpValue >= 30) {
-          this.hudManager?.createBossHealthBar(entityId, enemyType.name, false);
-        }
-        vault.guardEntityIds.push(entityId);
-      }
-    }
-  }
-
   /** Silent removal: no rewards, no kill flash, no kill/combo credit. A guard that was not
    *  beaten was not killed, so it must not route through handleEnemyDeath. */
   private despawnVaultGuard(enemyId: number): void {
@@ -5282,84 +5193,6 @@ export class GameScene extends Phaser.Scene {
     unregisterSprite(enemyId);
     removeEntity(this.world, enemyId);
     this.enemyCount--;
-  }
-
-  /** A caged core in the gate's own violet, so the vault and the doors it opens read as one
-   *  system without inventing a second palette. A guarded core takes hazard orange instead. */
-  private drawAbilityVault(graphics: Phaser.GameObjects.Graphics, color: number): void {
-    graphics.clear();
-    graphics.fillStyle(color, 0.18);
-    graphics.fillCircle(0, 0, 30);
-    graphics.lineStyle(3, color, 0.95);
-    graphics.strokeCircle(0, 0, 22);
-    const cage: Phaser.Geom.Point[] = [];
-    for (let corner = 0; corner < 6; corner++) {
-      const angle = (Math.PI / 3) * corner - Math.PI / 2;
-      cage.push(new Phaser.Geom.Point(Math.cos(angle) * 13, Math.sin(angle) * 13));
-    }
-    graphics.strokePoints(cage, true);
-    graphics.fillStyle(0xffffff, 0.9);
-    graphics.fillCircle(0, 0, 5);
-  }
-
-  private clearAbilityVaults(): void {
-    for (const vault of this.activeVaults) {
-      for (const entityId of vault.guardEntityIds) this.despawnVaultGuard(entityId);
-      vault.graphics.destroy();
-    }
-    this.activeVaults = [];
-  }
-
-  /**
-   * Quest boards for the sector the ship is in, the syncAbilityVaults shape and the same
-   * key-compare, so the common frame does no work. One board per QuestGiver slot: that is the
-   * vault's own precedent, so the chart's glyph and the world's object agree slot for slot.
-   */
-  private syncQuestBoards(map: WorldMap, playerX: number, playerY: number): void {
-    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
-    if (key === this.questBoardSectorKey) return;
-    this.questBoardSectorKey = key;
-    this.clearQuestBoards();
-
-    const sector = map.sectors.get(key);
-    if (!sector) return;
-    for (const slot of sector.poiSlots) {
-      if (slot.kind !== PoiKind.QuestGiver) continue;
-      this.addQuestBoard(
-        slot.id,
-        sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
-        sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
-      );
-    }
-  }
-
-  private addQuestBoard(poiId: string, x: number, y: number): void {
-    const graphics = this.add.graphics();
-    graphics.setPosition(x, y);
-    graphics.setDepth(4);
-    this.drawQuestBoard(graphics);
-    this.activeQuestBoards.push({ poiId, graphics, x, y, engaged: false });
-  }
-
-  /** A standing notice board in the quest-anchor cyan the chart glyph and the map legend use, so
-   *  the room and the chart name the same thing. */
-  private drawQuestBoard(graphics: Phaser.GameObjects.Graphics): void {
-    const color = QUEST_BOARD_COLOR;
-    graphics.clear();
-    graphics.fillStyle(color, 0.15);
-    graphics.fillCircle(0, 0, 28);
-    graphics.lineStyle(3, color, 0.95);
-    graphics.strokeRect(-20, -24, 40, 30);
-    graphics.lineBetween(-11, 6, -11, 22);
-    graphics.lineBetween(11, 6, 11, 22);
-    graphics.fillStyle(color, 0.85);
-    graphics.fillRect(-13, -17, 26, 4);
-    graphics.fillRect(-13, -9, 17, 4);
-  }
-
-  private clearQuestBoards(): void {
-    for (const board of this.activeQuestBoards) board.graphics.destroy();
-    this.activeQuestBoards = [];
   }
 
   /**
@@ -6252,44 +6085,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Walk-in claim, the shrine pattern. Permanent at the moment of pickup (doc 04 section 2):
-   * the write happens here, not at run end, so a death seconds later keeps the ability.
-   */
-  private claimAbilityVault(index: number): void {
-    const vault = this.activeVaults[index];
-    const definition = getTraversalAbility(vault.abilityId);
-    claimTraversalAbility(vault.abilityId);
-    this.ownedTraversalAbilityIds.add(vault.abilityId);
-    getDiscoveryManager().markPoiCollected(vault.poiId);
-
-    vault.graphics.destroy();
-    this.activeVaults.splice(index, 1);
-
-    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
-    this.effectsManager.playDeathBurst(vault.x, vault.y, color);
-    this.cameras.main.shake(160, 0.006);
-    this.soundManager.playLevelUp();
-    if (this.toastManager && definition) {
-      // Only an ability whose description names a system that exists may print it: the rest
-      // still open doors and nothing more, and a toast must not promise what it cannot pay.
-      this.toastManager.showToast({
-        tier: 'rare',
-        title: `${definition.name.toUpperCase()} ACQUIRED`,
-        description: IMPLEMENTED_TRAVERSAL_ABILITY_IDS.has(definition.id)
-          ? definition.description
-          : 'Doors keyed to it now open as you approach.',
-        icon: definition.icon,
-        color,
-        duration: 3600,
-      });
-    }
-    this.announceNewRoutes(
-      vault.abilityId, definition?.name ?? 'the new system', definition?.icon ?? 'bolt',
-    );
-    this.recordExpeditionQuest({ kind: 'claimAbility', abilityId: vault.abilityId });
-  }
-
-  /**
    * Doc 03 section 7 moment 6, the loudest moment by design: it converts a power-up into an
    * itinerary. Silent when nothing the player has actually charted is keyed to the gain, so a
    * first-hour claim does not promise routes the map has never drawn.
@@ -6323,109 +6118,6 @@ export class GameScene extends Phaser.Scene {
       `${discovery.getVisitedSectorCount()} of ${discovery.getKnowableSectorCount()} sectors`
       + `  ·  ${discovery.getFoundSecretCount()} secrets recovered`,
     );
-  }
-
-  /** A core that silently refuses the walk-in reads as a bug, the noticeSealedCache rule
-   *  applied to the vault. Once per sector visit, because the pack is rebuilt on re-entry. */
-  private noticeGuardedVault(
-    vault: { abilityId: string; x: number; y: number; noticed: boolean },
-  ): void {
-    vault.noticed = true;
-    const color = WORLD_GEOMETRY_COLORS.hazard.stroke;
-    this.effectsManager.showDamageNumber(vault.x, vault.y - 26, 'GUARDED', color);
-    const definition = getTraversalAbility(vault.abilityId);
-    this.toastManager?.showToast({
-      tier: 'ambient',
-      title: 'VAULT GUARDED',
-      description: definition
-        ? `${definition.name} stays sealed until its guard falls.`
-        : 'The core stays sealed until its guard falls.',
-      icon: 'skull',
-      color,
-      duration: 3200,
-    });
-  }
-
-  /** The last guard fell: the core drops to its own violet and the shipped walk-in claim takes
-   *  over on the next frame. The cleared flag is written here, not at the claim, because a
-   *  player who wins the fight and dies on the way to the core has already paid the price. */
-  private unsealAbilityVault(
-    vault: {
-      poiId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
-      guarded: boolean;
-    },
-  ): void {
-    vault.guarded = false;
-    getDiscoveryManager().markVaultGuardCleared(vault.poiId);
-
-    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
-    vault.graphics.setAlpha(1);
-    this.drawAbilityVault(vault.graphics, color);
-    this.effectsManager.playDeathBurst(vault.x, vault.y, color);
-    if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(180, 0.007);
-    this.soundManager.playPurchase();
-    this.toastManager?.showToast({
-      tier: 'ambient',
-      title: 'VAULT UNSEALED',
-      description: 'The core is exposed. Fly into it to claim.',
-      icon: 'bolt',
-      color,
-      duration: 3000,
-    });
-  }
-
-  /** Pulse and walk-in test, the updateShrines shape. Iterated backwards because a claim
-   *  splices the entry out. */
-  private updateAbilityVaults(playerX: number, playerY: number): void {
-    if (this.activeVaults.length === 0) return;
-    const pulse = 1 + Math.sin(this.gameTime * 2.4) * 0.14;
-    const radius = GameScene.VAULT_CLAIM_RADIUS;
-    for (let i = this.activeVaults.length - 1; i >= 0; i--) {
-      const vault = this.activeVaults[i];
-      vault.graphics.setScale(pulse);
-      const dx = playerX - vault.x;
-      const dy = playerY - vault.y;
-      const distanceSq = dx * dx + dy * dy;
-
-      if (vault.guarded) {
-        vault.guardEntityIds = vault.guardEntityIds.filter(entityId =>
-          hasComponent(this.world, VaultGuardTag, entityId)
-          && hasComponent(this.world, EnemyTag, entityId));
-        if (vault.guardEntityIds.length === 0) {
-          this.unsealAbilityVault(vault);
-        } else if (!vault.noticed
-          && distanceSq < VAULT_GUARD_NOTICE_RADIUS * VAULT_GUARD_NOTICE_RADIUS) {
-          this.noticeGuardedVault(vault);
-        }
-        continue;
-      }
-
-      if (distanceSq < radius * radius) this.claimAbilityVault(i);
-    }
-  }
-
-  /** Pulse and walk-in test, the updateAbilityVaults shape. A board is never consumed, so it
-   *  latches instead of splicing: it re-arms only once the ship has left the re-arm radius. */
-  private updateQuestBoards(playerX: number, playerY: number): void {
-    if (this.activeQuestBoards.length === 0) return;
-    const pulse = 1 + Math.sin(this.gameTime * 1.8) * 0.06;
-    const openRadius = GameScene.QUEST_BOARD_OPEN_RADIUS;
-    const rearmRadius = GameScene.QUEST_BOARD_REARM_RADIUS;
-    for (const board of this.activeQuestBoards) {
-      board.graphics.setScale(pulse);
-      const dx = playerX - board.x;
-      const dy = playerY - board.y;
-      const distanceSq = dx * dx + dy * dy;
-      if (board.engaged) {
-        if (distanceSq > rearmRadius * rearmRadius) board.engaged = false;
-        continue;
-      }
-      if (distanceSq < openRadius * openRadius) {
-        board.engaged = true;
-        this.openQuestBoard();
-        return;
-      }
-    }
   }
 
   /** Opens the objective board over a paused run, openMarket's contract exactly. update() returns
@@ -7412,10 +7104,10 @@ export class GameScene extends Phaser.Scene {
     // the sealed mouth of an owned ability door mid-fight, and the readout would name a
     // requirement the seal, not the door, is enforcing.
     if (!this.worldMode.isSectorLocked()) {
-      this.syncAbilityVaults(map, playerX, playerY);
-      this.updateAbilityVaults(playerX, playerY);
-      this.syncQuestBoards(map, playerX, playerY);
-      this.updateQuestBoards(playerX, playerY);
+      this.abilityVaultManager.sync(map, playerX, playerY);
+      this.abilityVaultManager.update(playerX, playerY);
+      this.questBoardManager.sync(map, playerX, playerY);
+      this.questBoardManager.update(playerX, playerY);
       this.syncSecretCaches(map, playerX, playerY);
       this.updateSecretCaches(playerX, playerY);
       this.updateAmbushNests(playerX, playerY);
@@ -14450,12 +14142,10 @@ export class GameScene extends Phaser.Scene {
     this.activeShrines = [];
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
-    this.clearAbilityVaults();
-    this.vaultSectorKey = null;
+    this.abilityVaultManager.clear();
     this.clearSecretCaches();
     this.secretSectorKey = null;
-    this.clearQuestBoards();
-    this.questBoardSectorKey = null;
+    this.questBoardManager.clear();
     this.clearAmbushNests();
     this.clearNemesisLairs();
     this.clearWardenThrone();
