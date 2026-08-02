@@ -2869,6 +2869,7 @@ export class GameScene extends Phaser.Scene {
             lairs: this.activeNemesisLairs.map(lair => ({
               x: lair.x, y: lair.y, awake: lair.awake,
             })),
+            puzzles: this.secretCacheManager.serializePuzzleProgress(),
             slots: Array.from(this.poiSlotObjects, ([id, record]) => ({
               id,
               sectorKey: record.sectorKey,
@@ -3080,6 +3081,21 @@ export class GameScene extends Phaser.Scene {
       for (const lair of Array.isArray(state.poiState.lairs) ? state.poiState.lairs : []) {
         if (Number.isFinite(lair.x) && Number.isFinite(lair.y)) {
           this.addNemesisLair(lair.x, lair.y, lair.awake === true);
+        }
+      }
+      // A ring the ship half woke and then left survives the refresh: the count alone relights it,
+      // because a ring's glyph ids are unique. Sanitized the way the nests above are, against a
+      // tampered save, and length-capped so it cannot grow an unbounded map. The ring itself
+      // clamps a count at or past its own length, which is the only bound that needs to know how
+      // many pylons it has.
+      const restoredPuzzles = Array.isArray(state.poiState.puzzles)
+        ? state.poiState.puzzles.slice(0, 64)
+        : [];
+      for (const puzzle of restoredPuzzles) {
+        if (typeof puzzle.secretId === 'string'
+          && puzzle.secretId.length > 0 && puzzle.secretId.length <= 64
+          && Number.isInteger(puzzle.progress) && puzzle.progress > 0) {
+          this.secretCacheManager.restorePuzzleProgress(puzzle.secretId, puzzle.progress);
         }
       }
     }

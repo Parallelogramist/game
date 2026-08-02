@@ -46,7 +46,8 @@ interface ActiveSecretPuzzle {
   progress: number;
   /** Which node the ship is standing on, so holding still does not re-fire it. -1 for none. */
   occupiedNodeIndex: number;
-  /** Whether the sealed-cache notice has been shown this sector visit. */
+  /** Whether the sealed-cache notice has been shown. A ring that comes back with pylons already
+   *  woken starts noticed: a player looking at lit sigils knows the cache is sealed. */
   noticed: boolean;
 }
 
@@ -99,6 +100,10 @@ export interface SecretCacheDeps {
 export class SecretCacheManager implements FieldPoiManager {
   private caches: ActiveSecretCache[] = [];
   private sectorKey: string | null = null;
+  /** How far into its sequence each partly-woken ring is, keyed by the cache's secret id. sync()
+   *  rebuilds a sector's rings from the generator, so without this a ring you half woke and then
+   *  stepped out of comes back dark. */
+  private puzzleProgress = new Map<string, number>();
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -199,6 +204,19 @@ export class SecretCacheManager implements FieldPoiManager {
   clear(): void {
     this.destroyCaches();
     this.sectorKey = null;
+    this.puzzleProgress.clear();
+  }
+
+  /** For `poiState.puzzles`. Only partly-woken rings are ever in the map, so this is usually
+   *  empty. */
+  serializePuzzleProgress(): { secretId: string; progress: number }[] {
+    return Array.from(this.puzzleProgress, ([secretId, progress]) => ({ secretId, progress }));
+  }
+
+  /** One entry of `poiState.puzzles`, already sanitized by the caller: the addAmbushNest /
+   *  addNemesisLair idiom. */
+  restorePuzzleProgress(secretId: string, progress: number): void {
+    this.puzzleProgress.set(secretId, progress);
   }
 
   private addCache(
@@ -233,6 +251,12 @@ export class SecretCacheManager implements FieldPoiManager {
     const ringX = Phaser.Math.Clamp(cacheX, originX + inset, originX + SECTOR_WIDTH - inset);
     const ringY = Phaser.Math.Clamp(cacheY, originY + inset, originY + SECTOR_HEIGHT - inset);
     const spot = { x: 0, y: 0 };
+    // Clamped below the full sequence: a ring restored with every pylon lit would refuse every
+    // touch (a lit pylon is a no-op) and could never be solved.
+    const restoredProgress = Math.min(
+      this.puzzleProgress.get(definition.secretId) ?? 0,
+      definition.sequence.length - 1);
+    const litGlyphIds = new Set(definition.sequence.slice(0, restoredProgress));
 
     const nodes = definition.nodes.map(node => {
       this.deps.freeSpotNear(ringX + node.offsetX, ringY + node.offsetY, spot);
@@ -240,13 +264,17 @@ export class SecretCacheManager implements FieldPoiManager {
       graphics.setPosition(spot.x, spot.y);
       graphics.setDepth(4);
       const active: ActivePuzzleNode = {
-        glyphId: node.glyphId, sides: node.sides, x: spot.x, y: spot.y, graphics, lit: false,
+        glyphId: node.glyphId, sides: node.sides, x: spot.x, y: spot.y, graphics,
+        lit: litGlyphIds.has(node.glyphId),
       };
       drawPuzzleNode(active);
       return active;
     });
 
-    return { definition, nodes, progress: 0, occupiedNodeIndex: -1, noticed: false };
+    return {
+      definition, nodes, progress: restoredProgress, occupiedNodeIndex: -1,
+      noticed: restoredProgress > 0,
+    };
   }
 
   /**
@@ -286,6 +314,7 @@ export class SecretCacheManager implements FieldPoiManager {
 
     if (node.glyphId !== puzzle.definition.sequence[puzzle.progress]) {
       puzzle.progress = 0;
+      this.rememberPuzzleProgress(puzzle);
       for (const other of puzzle.nodes) {
         other.lit = false;
         drawPuzzleNode(other);
@@ -298,6 +327,7 @@ export class SecretCacheManager implements FieldPoiManager {
 
     node.lit = true;
     puzzle.progress++;
+    this.rememberPuzzleProgress(puzzle);
     drawPuzzleNode(node);
     this.deps.playPurchase();
     if (!reducedMotion) {
@@ -311,8 +341,14 @@ export class SecretCacheManager implements FieldPoiManager {
     return puzzle.progress === puzzle.definition.sequence.length;
   }
 
-  /** A sealed cache that silently refuses the walk-in reads as a bug. Once per sector visit,
-   *  because the ring is rebuilt dark every time the ship re-enters the room. */
+  private rememberPuzzleProgress(puzzle: ActiveSecretPuzzle): void {
+    const secretId = puzzle.definition.secretId;
+    if (puzzle.progress > 0) this.puzzleProgress.set(secretId, puzzle.progress);
+    else this.puzzleProgress.delete(secretId);
+  }
+
+  /** A sealed cache that silently refuses the walk-in reads as a bug. Once per sector visit for an
+   *  untouched ring; a ring with woken pylons starts noticed and never re-announces. */
   private noticeSealedCache(puzzle: ActiveSecretPuzzle): void {
     if (puzzle.noticed) return;
     puzzle.noticed = true;
@@ -348,6 +384,7 @@ export class SecretCacheManager implements FieldPoiManager {
     cache.graphics.destroy();
     cache.puzzle?.nodes.forEach(node => node.graphics.destroy());
     this.caches.splice(index, 1);
+    this.puzzleProgress.delete(cache.secretId);
 
     const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
     this.deps.playDeathBurst(cache.x, cache.y, color);

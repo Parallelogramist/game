@@ -293,6 +293,16 @@ interface SerializedPoiSlot {
 }
 
 /**
+ * How far into its sequence one sigil ring is woken. A count is the whole of it: buildSecretPuzzle
+ * deals a ring its glyphs from a single slice of PUZZLE_GLYPHS, so a ring's glyph ids are unique
+ * and the lit pylons are exactly the first `progress` entries of its own sequence.
+ */
+interface SerializedSecretPuzzleProgress {
+  secretId: string;
+  progress: number;
+}
+
+/**
  * Serialized expedition POI state. `runSalt` is what makes a slot's contents re-roll per run
  * but stay identical across a refresh; `spawnedSlotIds` is the run's memory of which slots
  * have already paid out, so a re-entered sector does not re-stock itself; `oncePerRunSpawned`
@@ -310,6 +320,9 @@ interface SerializedPoiState {
   /** Absent on saves written before this change → no slot records restored, so a restored run
    *  retires no POI slot and its crates are lost, exactly as it behaved before. */
   slots?: SerializedPoiSlot[];
+  /** Absent on saves written before CHORE-SECRET-PUZZLE-RESUME → every ring comes back dark,
+   *  exactly as it behaved before. */
+  puzzles?: SerializedSecretPuzzleProgress[];
 }
 
 /**
