@@ -8175,11 +8175,30 @@ exploring pays is the end of Phase 5.
   Node-env suite can cover. Value: one place to fix a pad quirk instead of two. Deps: none, but it
   wants a third consumer before the extraction earns itself.
 
-- [ ] **FEAT-LOADOUT-CODE-ENTRY-BUTTON** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the
+- [x] **FEAT-LOADOUT-CODE-ENTRY-BUTTON** (done, 5c04481) (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the
   build-code field is reachable only through `PASTE & LAUNCH CODE`'s failure path, so a player whose
   clipboard holds a valid but unwanted build code is launched into it instead of getting the field.
   A third bar button is the fix and it is the layout change this chunk declined. Value: typed build
   entry is a destination, not a consolation. Deps: none.
+  **What shipped:** a third bar button, `ENTER CODE`, opening the same `showCodeEntryOverlay` field
+  `openBuildCodeEntry` already built, so typing a code is now a thing you choose rather than what
+  you get when the clipboard disappoints. The bar stopped being two hardcoded centres and became a
+  `barActions` array laid out from one formula: width is
+  `min(258s, (cardWidth - barGap * (n - 1)) / n)` and the row is centred as a span, so it is two
+  buttons wide when there is no last run to encode and three otherwise. **The 2-button case shifts
+  by one design unit** (the old divisor subtracted 18 against a gap of 16) and that is intended, not
+  drift to chase. **The labels shortened** to `COPY CODE` / `PASTE & LAUNCH` / `ENTER CODE`, because
+  three buttons resolve to 176 units each at the 560 card width and `PASTE & LAUNCH CODE` does not
+  read at 14px there; `fitTextWidth` backstops each label on narrower canvases, the same primitive
+  the title and subtitle already use.
+  **Deliberate calls:** `PASTE & LAUNCH` keeps its fallback into the typed field, because an empty
+  clipboard or a denied permission still needs somewhere to land; the tuned replay/preset/save row
+  stack and `CHROME_RESERVE` are untouched, since the bar grew sideways and not down; and no new
+  input path was needed, as `MenuNavigator` runs `columns: 1` and the bar buttons were already flat
+  entries in that list. The two comments that argued the bar could only hold two buttons were
+  rewritten rather than left to lie. None of it has been seen on a real viewport, so the width and
+  label questions are filed as `POLISH-LOADOUT-CODE-BAR` under Human gates. No test: this is Phaser
+  scene layout, which `CLAUDE.md` says is verified by play, not by mocking a live scene.
 
 - [ ] **POLISH-CODE-ENTRY-LIVE-VALIDATE** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY):
   the field validates on submit only, so a mistyped character reads as valid until the button is
@@ -11726,6 +11745,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-LOADOUT-CODE-BAR** (new 2026-08-02, from FEAT-LOADOUT-CODE-ENTRY-BUTTON). Value: the
+  LOADOUTS build-code bar now carries three buttons instead of two, with shortened labels, and none
+  of it has been seen on a real viewport. Questions for the operator: (1) at the 560-unit card width
+  three buttons are 176 units each and the labels are `COPY CODE` / `PASTE & LAUNCH` / `ENTER CODE`:
+  do they read, or does the bar want two rows of buttons on narrow canvases? (2) on a portrait phone
+  `fitTextWidth` shrinks whichever label overflows, so one button's text can end up visibly smaller
+  than its neighbours: check whether that reads as deliberate. (3) a profile with no last run shows
+  only two buttons (`PASTE & LAUNCH`, `ENTER CODE`) at the full 258 width: confirm the bar does not
+  look broken in that state. (4) `PASTE & LAUNCH` still opens the typed field when the clipboard
+  holds nothing usable, which is now a second route to a button that exists in its own right: is
+  that helpful, or should a failed paste just flash a message instead?
 
 - [ ] **POLISH-QUEST-BOARD-VICTORY** (new 2026-08-02, from FEAT-QUEST-BOARD-VICTORY). Value: the
   DAILY QUESTS board now draws on the victory screen and the RUN ENDED panel, and none of it has
