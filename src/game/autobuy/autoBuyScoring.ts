@@ -17,6 +17,56 @@ const PRIORITY_STATS = ['might', 'haste', 'vitality', 'swiftness'];
 const DEFENSIVE_STATS = ['vitality', 'shieldBarrier'];
 const GATES = [3, 6, 9];
 
+export type WeaponSynergyFamily = 'projectile' | 'meleeAura' | 'beamAoe';
+
+const SYNERGY_BONUS = 15;
+
+/** The stats each weapon family wants. Unchanged from the original three hardcoded lists. */
+export const FAMILY_SYNERGY_STATS: Record<WeaponSynergyFamily, readonly string[]> = {
+  projectile: ['multishot', 'piercing', 'velocity', 'reach'],
+  meleeAura: ['haste', 'might', 'swiftness'],
+  beamAoe: ['might', 'reach', 'haste'],
+};
+
+/**
+ * Every id in WeaponRegistry (src/weapons/index.ts) maps to exactly one family. A weapon
+ * missing from here contributes nothing to tier-4 synergy and nothing says so at runtime,
+ * which is how 16 weapons went unscored; autoBuyScoring.test.ts now fails the build instead.
+ */
+export const WEAPON_SYNERGY_FAMILY: Record<string, WeaponSynergyFamily> = {
+  projectile: 'projectile',
+  ricochet: 'projectile',
+  homing_missile: 'projectile',
+  shuriken: 'projectile',
+  boomerang: 'projectile',
+  scatter: 'projectile',
+  sentry: 'projectile',
+  drone: 'projectile',
+
+  katana: 'meleeAura',
+  aura: 'meleeAura',
+  orbiting_blades: 'meleeAura',
+  frost_nova: 'meleeAura',
+  reaper: 'meleeAura',
+  wake: 'meleeAura',
+  pulse: 'meleeAura',
+  flail: 'meleeAura',
+
+  laser_beam: 'beamAoe',
+  flamethrower: 'beamAoe',
+  meteor: 'beamAoe',
+  ground_spike: 'beamAoe',
+  chain_lightning: 'beamAoe',
+  sweep_beam: 'beamAoe',
+  railgun: 'beamAoe',
+  focus: 'beamAoe',
+  mine: 'beamAoe',
+  singularity: 'beamAoe',
+  guardian: 'beamAoe',
+  storm: 'beamAoe',
+  grenade: 'beamAoe',
+};
+
 /**
  * Tier 1: weapon milestones (every 5th level) prefer new weapons, normal levels prefer
  * levelling the weapons and stats that are furthest behind.
@@ -120,24 +170,16 @@ export function calculateWeaponSynergyBonus(
 ): number {
   if (upgrade.upgradeType !== 'stat') return 0;
 
-  const weaponIds = context.ownedWeaponIds;
-
-  const projectileWeapons = ['projectile', 'ricochet', 'homing_missile', 'shuriken'];
-  const hasProjectileWeapons = projectileWeapons.some(id => weaponIds.includes(id));
-  const projectileStats = ['multishot', 'piercing', 'velocity', 'reach'];
-
-  const meleeAuraWeapons = ['katana', 'aura', 'orbiting_blades', 'frost_nova'];
-  const hasMeleeAura = meleeAuraWeapons.some(id => weaponIds.includes(id));
-  const meleeStats = ['haste', 'might', 'swiftness'];
-
-  const beamAoeWeapons = ['laser_beam', 'flamethrower', 'meteor', 'ground_spike', 'chain_lightning'];
-  const hasBeamAoe = beamAoeWeapons.some(id => weaponIds.includes(id));
-  const beamStats = ['might', 'reach', 'haste'];
+  const families = new Set(
+    context.ownedWeaponIds
+      .map(weaponId => WEAPON_SYNERGY_FAMILY[weaponId])
+      .filter((family): family is WeaponSynergyFamily => family !== undefined)
+  );
 
   let bonus = 0;
-  if (hasProjectileWeapons && projectileStats.includes(upgrade.id)) bonus += 15;
-  if (hasMeleeAura && meleeStats.includes(upgrade.id)) bonus += 15;
-  if (hasBeamAoe && beamStats.includes(upgrade.id)) bonus += 15;
+  for (const family of families) {
+    if (FAMILY_SYNERGY_STATS[family].includes(upgrade.id)) bonus += SYNERGY_BONUS;
+  }
 
   return bonus;
 }

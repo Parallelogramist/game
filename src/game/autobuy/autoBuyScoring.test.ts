@@ -1,3 +1,4 @@
+import weaponRegistrySource from '../../weapons/index.ts?raw';
 import { describe, test, expect, vi } from 'vitest';
 
 // Upgrades.ts imports WeaponManager from '../weapons' (Phaser-coupled) purely for a type and
@@ -11,6 +12,9 @@ import { createUpgrades, type CombinedUpgrade, type Upgrade } from '../../data/U
 import {
   calculateBaseScore,
   calculateGatePlanningBonus,
+  calculateWeaponSynergyBonus,
+  FAMILY_SYNERGY_STATS,
+  WEAPON_SYNERGY_FAMILY,
   type AutoBuyContext,
 } from './autoBuyScoring';
 
@@ -47,6 +51,13 @@ function weaponLevelCard(currentLevel: number): CombinedUpgrade {
   };
 }
 
+const registryBlockStart = weaponRegistrySource.indexOf('const WeaponRegistry');
+const registryBlock = weaponRegistrySource.slice(
+  registryBlockStart,
+  weaponRegistrySource.indexOf('};', registryBlockStart)
+);
+const registeredWeaponIds = [...registryBlock.matchAll(/^ {2}([a-z_]+):/gm)].map(match => match[1]);
+
 describe('auto-buy scoring', () => {
   test('a Limit Break overflow stat never outscores a weapon level-up', () => {
     const pool = createUpgrades();
@@ -76,5 +87,36 @@ describe('auto-buy scoring', () => {
 
     expect(calculateGatePlanningBonus(statCard(pool, 'might'), context)).toBe(-10);
     expect(calculateGatePlanningBonus(statCard(pool, 'haste'), context)).toBe(15);
+  });
+
+  test('every weapon in WeaponRegistry declares a tier-4 synergy family', () => {
+    expect(registeredWeaponIds.length).toBeGreaterThan(25);
+
+    const unclassified = registeredWeaponIds.filter(id => !(id in WEAPON_SYNERGY_FAMILY));
+    expect(unclassified, 'these earn no tier-4 auto-upgrade synergy at all').toEqual([]);
+
+    const stale = Object.keys(WEAPON_SYNERGY_FAMILY).filter(
+      id => !registeredWeaponIds.includes(id)
+    );
+    expect(stale, 'these are not weapons any more').toEqual([]);
+  });
+
+  test('every stat a synergy family names is a real stat upgrade', () => {
+    const statIds = new Set(
+      createUpgrades()
+        .filter(u => u.isStatUpgrade)
+        .map(u => u.id)
+    );
+    const unknown = Object.values(FAMILY_SYNERGY_STATS)
+      .flat()
+      .filter(id => !statIds.has(id));
+    expect(unknown, 'these stat ids no longer exist, so their bonus is dead').toEqual([]);
+  });
+
+  test('a loadout of weapons added after the original three lists still gets synergy', () => {
+    const pool = createUpgrades();
+    const context = contextFor(pool, { ownedWeaponIds: ['storm', 'flail', 'sentry'] });
+
+    expect(calculateWeaponSynergyBonus(statCard(pool, 'might'), context)).toBe(30);
   });
 });
