@@ -1215,7 +1215,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   score weight, grade threshold, leaderboard cap or save shape changed. Six tests pin the mode
   routing (practice writes nothing, normal/gauntlet/daily/endless each post exactly their own
   records, the pace ghost saves only on a new best while recording).
-- [ ] **ARCH-RUNEND-VICTORY** (chunk 6b, filed 2026-08-02 by chunk 6). `showVictory`
+- [x] **ARCH-RUNEND-VICTORY** (chunk 6b, done, `c577027`). `showVictory`
   (`GameScene.ts:8840`) is the third run-end path and still hand-rolls every payload chunk 6 moved:
   its own `RunEndData` literal (plus `shipId`/`stageId`, which the loss paths omit), its own
   `DailyQuestRunData`, its own `computeRunScore`/`recordScore`/`savePaceGhost`/`recordShipRun`/
@@ -1225,6 +1225,36 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `scoreWorldLevel` override, and route `showVictory` through both. Guardrail: victory records
   against the world level the run was PLAYED at, not the advanced one — that off-by-one is the
   whole reason it looks different.
+  **What shipped (`c577027`):** all three run-end paths now settle through `runSettlement`. The
+  victory path's score cascade (`computeRunScore` → `recordScore` → `savePaceGhost` →
+  `recordShipRun` → `computePerformanceGrade` → `recordDailyRun` → `getRecentRuns` → `recordRun`)
+  is one `recordRunOutcome` call, its `RunEndData` literal is `buildRunEndData`, its
+  `DailyQuestRunData` literal is `buildQuestRunData`, and its seven-argument positional codex call
+  is `recordCodexRunEnd`. Eight import names left `GameScene` with them (`noUnusedLocals` would
+  have failed the build otherwise). **The two-world-level split is now a named parameter instead of
+  an inline off-by-one:** the boss-kill site calls `advanceWorldLevel()` before `showVictory`, so
+  `getWorldLevel()` is already the NEXT world. The achievement, codex and hidden-unlock records
+  keep that advanced level (via `runFacts.worldLevel`, exactly as before); the score-side records —
+  best score, pace ghost, performance grade and the run-history row — go to the level actually
+  played, via a new optional `RunEndModes.scoreWorldLevel` that defaults to `facts.worldLevel`.
+  It is deliberately scoped to those four sites: the gauntlet and endless leaderboards still write
+  `facts.worldLevel`, since neither is a score-side board and the victory path passes
+  `gauntlet: false` / `endless: false` anyway. `buildRunEndData` grew an optional
+  ship/stage identity argument assigned key-by-key rather than spread, so the loss paths keep
+  emitting an object with **neither** key while the victory path keeps crediting
+  `SHIP_WIN_TRACKING` / `STAGE_WIN_TRACKING`. `practice`/`gauntlet`/`endless` are literal `false`
+  on this path: the boss-kill site guards the first two, and endless is only ever entered *after* a
+  victory. **`recordRun`/`getRecentRuns` moved earlier in the method** (they now fire inside
+  `recordRunOutcome`, before the achievement, quest, codex, streak and unlock passes instead of
+  after them); unobservable because `getRecentRuns` still reads before its own `recordRun` and
+  nothing in between touches run history — `CodexScene` is its only other reader and it runs after
+  the run. The daily overlay's `score` moved from the raw composite to `scoreResult.score`, the
+  same integer: `recordScore` returns `Math.floor` of an already-`Math.round`ed non-negative
+  composite, and `gameOver()` already fills that slot the same way. Behaviour-preserving otherwise:
+  no gold formula, score weight, grade threshold, leaderboard cap or save shape changed, so there
+  is **no `POLISH-*` item to playtest**. Two tests pin the world-level split (it corrupts the
+  best-score table silently in both directions); they land in the existing
+  `runSettlement.test.ts`, so the suite holds at 178 files and goes 2083 → 2085 tests, all green.
 - [ ] **ARCH-BOSS-DIRECTORS** (chunk 7, last: needs the manager pattern routine).
   Move `checkBossSpawn`/`beginRunBossFight`/`spawnBoss`/`showBossEntrance`/
   `handleBossPhaseTransition`/`spawnBossPhaseHazards` plus the
