@@ -7044,11 +7044,11 @@ exploring pays is the end of Phase 5.
   discovery memory that makes a hive a permanent chart marker; a nemesis lair carries `awake` plus
   `nemesisSpawned`. Each carries state a retire would have to unwind and none of them is loot, so
   they are filed as `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES` below rather than smuggled in. The
-  restore blindness was `CHORE-POI-RETIRE-RESTORE-BLIND`, now **closed (1b7641e)**, so what remains
-  of this slice is the structures item alone. The feel question is `POLISH-POI-RETIRE-RESTOCK` under
-  `## Human gates`.
+  restore blindness was `CHORE-POI-RETIRE-RESTORE-BLIND`, now **closed (1b7641e)**, and the
+  structures item is now **closed (0759bb6)**, so this slice is complete: nothing of it remains to
+  pick. The feel question is `POLISH-POI-RETIRE-RESTOCK` under `## Human gates`.
 
-- [ ] **FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES** (new 2026-08-02, from
+- [x] **FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES** (done, 0759bb6, 2026-08-02, from
   `FEAT-WORLDGEN-STREAM-POI-RETIRE`): the five structure branches the loot slice left standing, so a
   departed room still keeps its furniture. Each carries state a retire would have to unwind, which
   is why the loot slice stopped: the black market is once-per-run through `poiOncePerRunSpawned`, so
@@ -7059,6 +7059,66 @@ exploring pays is the end of Phase 5.
   `nemesisSpawned`. They are one `Graphics` each and hold no ECS entity until tripped, so they are
   cheap next to a 3-entity crate field, which is why this is a tidiness win rather than an
   entity-budget one. **Value:** a room's furniture is put away with its loot. Deps: none.
+
+  **What shipped, and the framing above is wrong:** measured against the tree at `9e582ea`, this
+  was not a tidiness win. Two untouched POI altars standing anywhere in the world silently
+  switched off the run's ambient altar for the rest of the expedition.
+  `ShrineManager.update` decrements `spawnTimer` only inside `if (this.shrines.length <
+  MAX_SHRINES)` (`MAX_SHRINES = 2`), `addShrine` pushes unconditionally and never consults that
+  cap, and a shrine leaves the manager only when the player walks into it or on run teardown.
+  So with two POI altars up and neither touched, the timer does not merely skip a beat, it stops
+  decrementing, and the altar the run pays every `SHRINE_INTERVAL = 38` seconds never arrives
+  again. Nothing tells the player and nothing goes red. Not a rare path either: a `PoiKind.Shrine`
+  slot rolls only the four altar contents (`src/data/PoiCatalog.ts:58-61`), slots run 1-3 per
+  sector, and a `fenced` altar is ringed by a laser grid the ship cannot cross without the Phase
+  Cloak (`src/world/securityGrids.ts`, `generateWorld.test.ts` invariant 13), so a fenced altar is
+  untouchable by construction and holds a cap slot permanently. Two rooms in was enough. **Do not
+  carry the "tidiness win rather than an entity-budget one" framing forward.**
+
+  The fix is wiring, not new machinery: `PoiSlotObject` gained a `shrine` member carrying the
+  altar's type and its point, and the four shrine branches plus the market branch of
+  `spawnPoiContent` now return that object instead of `[]`, so `stockSectorPois` records them in
+  `poiSlotObjects` exactly as it records a chest. From there the shipped retire pass works
+  unchanged. Liveness is `ShrineManager.hasShrineAt` (the manager splices an altar the instant the
+  ship touches it) and destruction is `removeShrineAt`, which destroys the `Graphics` without
+  triggering the altar and deliberately does **not** reset `spawnTimer`: the frozen timer resumes
+  where the cap stopped it rather than paying an extra altar. `MAX_SHRINES` was not raised and
+  `addShrine` did not learn the cap: a slot that rolled an altar must place it.
+
+  **Retiring an untouched Black Market clears `poiOncePerRunSpawned`, and that is safe.** The cap
+  the flag enforces is one market TAKEN per run, not one market ever drawn. The flag is set at
+  spawn and cleared only while destroying the very market that set it, so at most one market is
+  alive at any instant, which is all `rollPoiContents`' `oncePerRunAvailable` gate needs. If the
+  player *takes* the market, `ShrineManager` splices it, the record fails `retirePoiSlots`'
+  `every(alive)` test, the slot is never retired and the flag stays true for the rest of the run:
+  **a taken market is never re-armed.** And the roll is seeded
+  `poi:${worldSeed}:${runSalt}:${slotId}`, stable per slot per run, so returning to the room
+  re-rolls the identical market. The same run-stability means a re-stocked Shrine slot stands the
+  identical altar back up, so the retire costs the player nothing.
+
+  **Ambush nests and nemesis lairs are decided against, not deferred, and no follow-up item is
+  filed for them because there is nothing left to build.** A dormant hive or den is not furniture,
+  it is a charted destination the game told the player to come back to: `dormantHazardSectors`
+  derives the chart's hazard markers **live** from `activeAmbushNests` / `activeNemesisLairs`, so
+  retiring one would delete a marker while the player flies toward it and leave a `clearHazard`
+  quest step pinned at nothing, besides churning `markAmbushNestSighted`'s permanent chart memory.
+  They also cost nothing to keep (no ECS entity while dormant), and `isStableAmbushNestSlot` is
+  seeded on `worldSeed + slotId` alone, without the run salt, so a retire-and-restock would
+  deterministically hand back the identical hive: pure churn for a chart regression.
+
+  **Save shape:** one additive member on the already-optional `SerializedPoiSlotObject` union, on
+  the already-optional `slots?` field, inside the already-optional expedition-only `poiState`
+  block. No `SAVE_VERSION` bump, no storage key, no `WORLDGEN_VERSION` / `DISCOVERY_VERSION` /
+  `WORLD_PROFILE_VERSION` move. A legacy save carries no `shrine` entry and behaves exactly as it
+  does today. The altar itself still round-trips through `shrineState` via
+  `ShrineManager.serialize()` / `restore()`; `poiState.slots` only records which altar belongs to
+  which slot, and `relinkRestoredPoiSlots` matches the two on the exact point (an altar does not
+  drift, unlike a chest, and two POI slots never share a point, so no candidate list and no
+  tolerance are needed). The restore order `shrineState` then `poiState` then `restoreEntities`
+  then relink is load-bearing: the altar is already back before the relink pass runs, so the
+  branch re-links rather than re-adds. Arena, daily, weekly, practice and gauntlet are untouched
+  by construction, because `poiState` is written only when `worldMode.worldMap()` is non-null and
+  `stockSectorPois` returns early on a null map.
 
 - [x] **CHORE-POI-RETIRE-RESTORE-BLIND** (done, 1b7641e, 2026-08-02, from
   `FEAT-WORLDGEN-STREAM-POI-RETIRE`): `poiSlotObjects` was in-memory, so after a refresh-restore a
@@ -8714,8 +8774,10 @@ band 2 is itself fully shipped except the `markSectorClearedOnce` remainder of
 `FEAT-DISCOVERY-WRITE-PATHS`, which is blocked on `FEAT-WORLDGEN-STREAM-DIRECTOR`, itself
 blocked on an operator call. The unblocked work has therefore moved to the cuts filed off
 shipped band-1 and band-2 items, plus band 3's `FEAT-WORLDGEN-STREAM` slices, of which
-`FEAT-WORLDGEN-STREAM-POI-RETIRE` is now **done (2de1840)** and should not be re-picked: what
-remains of it is `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES`.
+`FEAT-WORLDGEN-STREAM-POI-RETIRE` is now **done (2de1840)** and should not be re-picked. Its
+structures remainder is **done (0759bb6)** too, so every `FEAT-WORLDGEN-STREAM` slice shipped so
+far is complete and the remaining `FEAT-WORLDGEN-STREAM` scope is `FEAT-WORLDGEN-STREAM-EXEMPT-API`
+and `FEAT-WORLDGEN-STREAM-DIRECTOR`.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
@@ -10571,7 +10633,10 @@ Never agent work. The fleet must not do any of these.
   it re-stocks, so it is tougher than when it was first placed: does that matter, or is it
   invisible next to weapon scaling? (d) a partly-looted slot is deliberately left standing
   forever, so a room where you shot one crate of three keeps the other two for the whole
-  expedition: does that asymmetry read as a rule or as a bug?
+  expedition: does that asymmetry read as a rule or as a bug? (e) an untouched altar now leaves
+  with the room and is stood back up identically on return (a Shrine slot's roll is run-stable),
+  so the only felt change should be that the ambient altar every 38 s keeps coming: does the room
+  emptying and re-filling read at all, or is it invisible?
 
 - [ ] **POLISH-CARGO-CRATE-FEEL** (new 2026-08-02, from FEAT-CARGO-PICKUP-ENTITY, 372c301).
   Value: a delivery's crate now stands beside the quest board and is flown into, but every number
