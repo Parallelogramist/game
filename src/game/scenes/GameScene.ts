@@ -169,6 +169,7 @@ import { MinimapFeed } from '../managers/MinimapFeed';
 import { AbilityVaultManager } from '../expeditionField/AbilityVaultManager';
 import { QuestBoardManager } from '../expeditionField/QuestBoardManager';
 import { SecretCacheManager } from '../expeditionField/SecretCacheManager';
+import { SHRINE_DEFS, ShrineManager, type ShrineType } from '../managers/ShrineManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
@@ -295,11 +296,6 @@ const PLAYER_COMBAT_RADIUS = 220;
 // Battle Flow caps its bonus at +25% regardless of how many enemies are nearby.
 const COMBAT_SPEED_BONUS_CAP = 0.25;
 
-// Field shrine archetypes — walk-in altars that auto-trigger on touch. Distinct
-// from the random "Shrine of Sacrifice" event: these are placed objects the
-// player chooses to seek out, each a small risk/reward or boon.
-type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice' | 'market';
-
 // The objective ticker borrows the bounty line while no bounty is running (doc 04 section 4:
 // one line, never two). It re-reads the quest store on a timer instead of per frame, and only
 // while the line is idle, so an active bounty pays nothing for it.
@@ -308,13 +304,6 @@ const QUEST_TICKER_CYCLE_SECONDS = 5;
 
 // In-run bounty objectives: rotating goals that reward a power-up burst.
 type BountyKind = 'kills' | 'elites' | 'flawless';
-const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
-  { type: 'cleanse', color: 0x66ff99, label: 'Font of Cleansing' },
-  { type: 'power', color: 0xff8833, label: 'Altar of Power' },
-  { type: 'fortune', color: 0xffd24a, label: 'Shrine of Fortune' },
-  { type: 'sacrifice', color: 0xff4466, label: 'Blood Altar' },
-  { type: 'market', color: 0x39e6d8, label: 'The Black Market' },
-];
 
 // Power shrine: temporary damage buff. Persisted + reverted via gameTime (see
 // TimedStatBuffs) so it survives refresh-recovery instead of sticking forever.
@@ -611,7 +600,7 @@ export class GameScene extends Phaser.Scene {
   // Treasure chest spawn timer
   private treasureSpawnTimer: number = 0;
   // On-field treasure chests (walk-in XP/relic caches). Tracked so they can be
-  // persisted across refresh-recovery (mirrors activeShrines) and torn down on
+  // persisted across refresh-recovery (mirrors the field shrines) and torn down on
   // reset/shutdown. Position is read live from the graphics (chests drift toward
   // the player via the chest-drone), `isSpecial` is the rare 3x-reward flag.
   private activeChests: {
@@ -624,15 +613,10 @@ export class GameScene extends Phaser.Scene {
   private static readonly DESTRUCTIBLE_INTERVAL = 14;
   private static readonly MAX_DESTRUCTIBLES = 6;
 
-  // Field shrines (walk-in altars — distinct from the random Shrine of Sacrifice event)
-  private activeShrines: { type: ShrineType; graphics: Phaser.GameObjects.Graphics; x: number; y: number }[] = [];
   // Active temporary timed stat buffs (Power shrine + Power Surge damage, Elite
   // Surge XP, Golden Tide gem value). Driven off gameTime so they persist across
   // refresh and revert at the correct moment.
   private timedStatBuffs: TimedStatBuff[] = [];
-  private shrineSpawnTimer: number = 25;
-  private static readonly SHRINE_INTERVAL = 38;
-  private static readonly MAX_SHRINES = 2;
 
   /** Ambush nests, expedition only. World-space and run-scoped like a chest rather than rebuilt
    *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
@@ -986,6 +970,7 @@ export class GameScene extends Phaser.Scene {
   private abilityVaultManager!: AbilityVaultManager;
   private questBoardManager!: QuestBoardManager;
   private secretCacheManager!: SecretCacheManager;
+  private shrineManager!: ShrineManager;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
@@ -2825,10 +2810,7 @@ export class GameScene extends Phaser.Scene {
         cooldown: this.bountyCooldown,
         flawlessBroken: this.bountyFlawlessBroken,
       },
-      shrineState: {
-        shrines: this.activeShrines.map(shrine => ({ type: shrine.type, x: shrine.x, y: shrine.y })),
-        spawnTimer: this.shrineSpawnTimer,
-      },
+      shrineState: this.shrineManager.serialize(),
       // Read each chest's live position from its graphics (chests drift toward
       // the player via the chest-drone, so the spawn coords would be stale).
       chestState: this.activeChests.map(chest => ({
@@ -3016,18 +2998,11 @@ export class GameScene extends Phaser.Scene {
       this.bountyFlawlessBroken = state.bountyState.flawlessBroken;
     }
 
-    // Restore on-field shrines + spawn pacing. resetInRunFeatureState above
-    // destroyed any altars and reset the timer to fresh-run defaults; re-draw the
-    // saved ones at their positions so a mid-run refresh doesn't despawn them and
-    // restart the spawn clock. The type is validated against SHRINE_DEFS to guard
-    // against a corrupted save. Absent on legacy saves → keep the reset defaults.
+    // Restore on-field shrines + spawn pacing. resetInRunFeatureState above destroyed any altars
+    // and reset the timer to fresh-run defaults, so this only re-adds. Absent on legacy saves →
+    // keep the reset defaults.
     if (state.shrineState) {
-      for (const saved of state.shrineState.shrines) {
-        if (SHRINE_DEFS.some(def => def.type === saved.type)) {
-          this.addShrine(saved.type as ShrineType, saved.x, saved.y);
-        }
-      }
-      this.shrineSpawnTimer = state.shrineState.spawnTimer;
+      this.shrineManager.restore(state.shrineState);
     }
 
     // Restore the run's POI memory. resetInRunFeatureState above cleared the spawned set and
@@ -4883,6 +4858,16 @@ export class GameScene extends Phaser.Scene {
       grantSecretLead: (secretId) => this.grantSecretLead(secretId),
       recordExpeditionQuest: (event) => this.recordExpeditionQuest(event),
     });
+    // Not a FieldPoiManager: shrines are timer-paced into the view rect in both modes and carry
+    // run-save state. Built here because both create paths already call this exactly once, before
+    // the first resetInRunFeatureState.
+    this.shrineManager = new ShrineManager(this, {
+      gameTime: () => this.gameTime,
+      viewRect: () => this.worldMode.viewRect(),
+      practiceMode: () => this.practiceModeActive,
+      showToast: (config) => this.toastManager?.showToast(config),
+      trigger: (type, x, y) => this.triggerShrine(type, x, y),
+    });
   }
 
   /** One place, called from both create paths: the fresh run and the restore. */
@@ -4918,8 +4903,7 @@ export class GameScene extends Phaser.Scene {
     this.ultimateWasReady = false;
     this.destructibleCount = 0;
     this.destructibleSpawnTimer = 12;
-    this.activeShrines.forEach(shrine => shrine.graphics.destroy());
-    this.activeShrines = [];
+    this.shrineManager.clear();
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
     this.abilityVaultManager.clear();
@@ -4935,7 +4919,6 @@ export class GameScene extends Phaser.Scene {
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
-    this.shrineSpawnTimer = 25;
     this.bounty = null;
     this.bountyCooldown = 20;
     this.bountyFlawlessBroken = false;
@@ -4989,108 +4972,10 @@ export class GameScene extends Phaser.Scene {
     this.questBoardActive = false;
   }
 
-  /**
-   * Per-frame field-shrine update: paces spawning and auto-triggers a shrine
-   * when the player walks into it.
-   */
-  private updateShrines(deltaSeconds: number): void {
-    if (this.playerId === -1) return;
-
-    // Spawn pacing.
-    if (this.activeShrines.length < GameScene.MAX_SHRINES) {
-      this.shrineSpawnTimer -= deltaSeconds;
-      if (this.shrineSpawnTimer <= 0) {
-        this.spawnShrine();
-        this.shrineSpawnTimer = GameScene.SHRINE_INTERVAL;
-      }
-    }
-
-    if (this.activeShrines.length === 0) return;
-    const playerX = Transform.x[this.playerId];
-    const playerY = Transform.y[this.playerId];
-    const pulse = 1 + Math.sin(this.gameTime * 3) * 0.12;
-
-    for (let i = this.activeShrines.length - 1; i >= 0; i--) {
-      const shrine = this.activeShrines[i];
-      shrine.graphics.setScale(pulse);
-      const dx = playerX - shrine.x;
-      const dy = playerY - shrine.y;
-      if (dx * dx + dy * dy < 36 * 36) {
-        this.triggerShrine(shrine);
-        shrine.graphics.destroy();
-        this.activeShrines.splice(i, 1);
-      }
-    }
-  }
-
-  /** Spawns a random shrine within the play area, away from the player. */
-  private spawnShrine(): void {
-    // PRACTICE is a sandbox with no run payout — selling real banked gold there
-    // would be a pure trap, so the market is excluded from its shrine pool.
-    const pool = this.practiceModeActive
-      ? SHRINE_DEFS.filter(def => def.type !== 'market')
-      : SHRINE_DEFS;
-    const def = pool[Math.floor(Math.random() * pool.length)];
-    let x = 0;
-    let y = 0;
-    // A few attempts to land clear of the player.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      ({ x, y } = pickInteriorPoint(this.worldMode.viewRect(), 90, Math.random));
-      if (this.playerId === -1) break;
-      const dx = x - Transform.x[this.playerId];
-      const dy = y - Transform.y[this.playerId];
-      if (dx * dx + dy * dy > 160 * 160) break;
-    }
-
-    this.addShrine(def.type, x, y);
-
-    if (this.toastManager) {
-      this.toastManager.showToast({
-        tier: 'ambient',
-        title: def.label,
-        description: 'A shrine has appeared — walk into it.',
-        icon: 'star',
-        color: def.color,
-        duration: 2600,
-      });
-    }
-  }
-
-  /**
-   * Creates the shrine graphics at a fixed position and registers it in
-   * activeShrines. Shared by fresh spawns (spawnShrine) and refresh-restore
-   * (restoreGameState) so both paths draw identical altars; restore skips the
-   * "appeared" toast and the random placement.
-   */
-  private addShrine(type: ShrineType, x: number, y: number): void {
-    const def = SHRINE_DEFS.find(d => d.type === type)!;
-    const graphics = this.add.graphics();
-    graphics.setPosition(x, y);
-    this.drawShrine(graphics, def.color);
-    graphics.setDepth(4);
-    this.activeShrines.push({ type, graphics, x, y });
-  }
-
-  /** Draws a glowing diamond altar with an inner glyph. */
-  private drawShrine(graphics: Phaser.GameObjects.Graphics, color: number): void {
-    graphics.fillStyle(color, 0.15);
-    graphics.fillCircle(0, 0, 26);
-    graphics.lineStyle(3, color, 0.95);
-    const diamond = [
-      new Phaser.Geom.Point(0, -22),
-      new Phaser.Geom.Point(16, 0),
-      new Phaser.Geom.Point(0, 22),
-      new Phaser.Geom.Point(-16, 0),
-    ];
-    graphics.strokePoints(diamond, true);
-    graphics.fillStyle(color, 0.85);
-    graphics.fillCircle(0, 0, 6);
-  }
-
   /** Applies a shrine's effect on touch. */
-  private triggerShrine(shrine: { type: ShrineType; x: number; y: number }): void {
-    const def = SHRINE_DEFS.find(d => d.type === shrine.type)!;
-    this.effectsManager.playDeathBurst(shrine.x, shrine.y, def.color);
+  private triggerShrine(type: ShrineType, x: number, y: number): void {
+    const def = SHRINE_DEFS.find(d => d.type === type)!;
+    this.effectsManager.playDeathBurst(x, y, def.color);
     this.soundManager.playLevelUp();
 
     let title = def.label;
@@ -5099,7 +4984,7 @@ export class GameScene extends Phaser.Scene {
     // pickup toast, so the generic shrine toast must not also fire.
     let showToast = true;
 
-    switch (shrine.type) {
+    switch (type) {
       case 'cleanse': {
         this.healPlayer(this.playerStats.maxHealth * 0.45);
         description = 'Restored 45% of your health.';
@@ -5115,8 +5000,8 @@ export class GameScene extends Phaser.Scene {
         if (relicManager.isFull() && !relicManager.hasReinforceCandidates()) {
           // Relic slots full and every relic capped — pay out gold + consumables instead.
           getMetaProgressionManager().addGold(80 + this.worldLevel * 15);
-          this.spawnRandomConsumable(shrine.x - 20, shrine.y);
-          this.spawnRandomConsumable(shrine.x + 20, shrine.y);
+          this.spawnRandomConsumable(x - 20, y);
+          this.spawnRandomConsumable(x + 20, y);
           description = 'Relics maxed — fortune paid in gold + power-ups.';
         } else {
           // Draft a relic (1-of-3), or a rank when slots are full. The choice
@@ -5143,7 +5028,7 @@ export class GameScene extends Phaser.Scene {
         // The overlay carries its own header + prices, so the generic shrine
         // toast would just be noise (same call as the fortune→draft branch).
         showToast = false;
-        this.openMarket(shrine.x, shrine.y);
+        this.openMarket(x, y);
         break;
       }
     }
@@ -5279,7 +5164,7 @@ export class GameScene extends Phaser.Scene {
         this.spawnFieldBoostPickup(x + POI_CACHE_SPREAD, y);
         return;
       case 'poi_black_market':
-        this.addShrine('market', x, y);
+        this.shrineManager.addShrine('market', x, y);
         this.poiOncePerRunSpawned = true;
         return;
       case 'poi_ambush_nest':
@@ -5288,10 +5173,10 @@ export class GameScene extends Phaser.Scene {
       case 'poi_nemesis_lair':
         this.addNemesisLair(x, y, false);
         return;
-      case 'poi_shrine_cleanse':   this.addShrine('cleanse', x, y); return;
-      case 'poi_shrine_power':     this.addShrine('power', x, y); return;
-      case 'poi_shrine_fortune':   this.addShrine('fortune', x, y); return;
-      case 'poi_shrine_sacrifice': this.addShrine('sacrifice', x, y); return;
+      case 'poi_shrine_cleanse':   this.shrineManager.addShrine('cleanse', x, y); return;
+      case 'poi_shrine_power':     this.shrineManager.addShrine('power', x, y); return;
+      case 'poi_shrine_fortune':   this.shrineManager.addShrine('fortune', x, y); return;
+      case 'poi_shrine_sacrifice': this.shrineManager.addShrine('sacrifice', x, y); return;
       default: {
         const unhandled: never = contentId;
         console.warn(`Unhandled POI content id: ${String(unhandled)}`);
@@ -7377,7 +7262,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ═══ FIELD SHRINES ═══
-    this.updateShrines(deltaSeconds);
+    if (this.playerId !== -1) {
+      this.shrineManager.update(deltaSeconds, Transform.x[this.playerId], Transform.y[this.playerId]);
+    }
 
     // ═══ EXPEDITION: ABILITY VAULTS AND THE DOORS THEY OPEN ═══
     this.updateExpeditionAbilities(deltaSeconds);
@@ -13811,8 +13698,7 @@ export class GameScene extends Phaser.Scene {
       this.minimapManager.destroy();
     }
     // Field shrine + chest + bounty cleanup (plain Phaser objects).
-    this.activeShrines.forEach(shrine => shrine.graphics.destroy());
-    this.activeShrines = [];
+    this.shrineManager.clear();
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
     this.abilityVaultManager.clear();
