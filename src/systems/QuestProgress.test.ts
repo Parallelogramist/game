@@ -788,3 +788,49 @@ describe('world-aware reachSector targets', () => {
     expect(renderStepDescription(SWEEP[0].steps[0], 6)).toBe('Survey 6 sectors of the Inferno');
   });
 });
+
+describe('conquerWorld trigger', () => {
+  const WARDEN_DEFS: readonly ExpeditionQuestDefinition[] = [
+    {
+      id: 'quest_w',
+      name: 'W',
+      icon: 'crown',
+      steps: [
+        { id: 'q_w.s1', description: 'any two', trigger: { kind: 'conquerWorld' }, target: 2, scope: 'persistent', goldReward: 5 },
+      ],
+      completionGoldReward: 10,
+    },
+    {
+      id: 'quest_v',
+      name: 'V',
+      icon: 'skull',
+      steps: [
+        { id: 'q_v.s1', description: 'two distinct', trigger: { kind: 'conquerWorld', distinctWorlds: true }, target: 2, scope: 'persistent', goldReward: 5 },
+      ],
+      completionGoldReward: 10,
+    },
+  ];
+
+  const activeStates = (): QuestInstanceState[] => [
+    { questId: 'quest_w', stepIndex: 0, stepProgress: 0, status: 'active' },
+    { questId: 'quest_v', stepIndex: 0, stepProgress: 0, status: 'active' },
+  ];
+
+  test('a re-conquest counts for a plain step and not for a distinctWorlds one', () => {
+    const first = recordQuestEvent(activeStates(), WARDEN_DEFS,
+      { kind: 'conquerWorld', firstConquest: true });
+    expect(first.states.map((state) => state.stepProgress)).toEqual([1, 1]);
+
+    const again = recordQuestEvent(first.states, WARDEN_DEFS,
+      { kind: 'conquerWorld', firstConquest: false });
+    // The plain step counted the re-win, so it hit its target of 2 and reset on completion;
+    // the distinctWorlds step ignored it and is still one short.
+    expect(again.states.map((state) => state.stepProgress)).toEqual([0, 1]);
+    expect(again.questCompletions.map((entry) => entry.questId)).toEqual(['quest_w']);
+  });
+
+  test('a live conquest step pins the boss arena', () => {
+    const markers = buildQuestMarkers(activeStates(), WARDEN_DEFS, '1:v1');
+    expect(markers.map((marker) => marker.sectorTag)).toEqual(['boss-arena', 'boss-arena']);
+  });
+});

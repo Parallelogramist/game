@@ -63,7 +63,14 @@ export type QuestTrigger =
    *  the game already emits beats a ninth that nothing produces. A hazard's ROOM is rolled per
    *  run into scene state, not into the catalog, so a step of this kind names no place and
    *  therefore produces no chart pin and no radar bearing. */
-  | { kind: 'clearHazard'; hazardKind?: PoiHazardKind };
+  | { kind: 'clearHazard'; hazardKind?: PoiHazardKind }
+  /** The world's own boss, defeated. Doc 04 lists nine kinds and this is a twelfth, on the
+   *  clearHazard precedent: a trigger for a signal the game already emits beats a kind nothing
+   *  produces. The signal is GameScene.recordWorldConquered, the same false→true transition
+   *  LifetimeStats.worldsConqueredTotal counts. `distinctWorlds` narrows a step to a world's
+   *  FIRST conquest, which is what lets "two different worlds" be counted with no visited-set:
+   *  a world can only be first-conquered once. */
+  | { kind: 'conquerWorld'; distinctWorlds?: true };
 
 export interface ExpeditionQuestStep {
   readonly id: string;
@@ -474,6 +481,55 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         description: 'Chart {target} rooms across your expeditions',
         trigger: { kind: 'reachSector' },
         target: 24,
+        scope: 'persistent',
+        goldReward: 260,
+      },
+    ],
+    completionGoldReward: 340,
+  },
+  {
+    id: 'quest_warden_01',
+    name: 'The Heart of the World',
+    icon: 'skull',
+    steps: [
+      {
+        id: 'q_warden_01.s1',
+        description: 'Find the arena at the heart of the world',
+        trigger: { kind: 'reachSector', sectorTag: 'boss-arena' },
+        target: 1,
+        scope: 'run',
+        goldReward: 160,
+      },
+      {
+        id: 'q_warden_01.s2',
+        description: 'Take the Warden and conquer the world',
+        trigger: { kind: 'conquerWorld' },
+        target: 1,
+        scope: 'persistent',
+        goldReward: 260,
+      },
+    ],
+    completionGoldReward: 320,
+    nextQuestId: 'quest_warden_02',
+  },
+  {
+    id: 'quest_warden_02',
+    name: 'Crown of Wardens',
+    icon: 'crown',
+    steps: [
+      {
+        id: 'q_warden_02.s1',
+        description: 'Take the Warden three times',
+        trigger: { kind: 'conquerWorld' },
+        target: 3,
+        scope: 'persistent',
+        goldReward: 240,
+      },
+      {
+        id: 'q_warden_02.s2',
+        description: 'Conquer two different worlds',
+        trigger: { kind: 'conquerWorld', distinctWorlds: true },
+        target: 2,
         scope: 'persistent',
         goldReward: 260,
       },

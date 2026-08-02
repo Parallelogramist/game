@@ -119,6 +119,13 @@ export class ToastManager {
     if (this.suppressed.length > MAX_SUPPRESSED_TOASTS) this.suppressed.shift();
   }
 
+  /** Record a toast as a run-end notice without drawing it. For the one caller that knows the
+   *  screen its toast would land on is about to be replaced: an undrawn toast is lost, a notice
+   *  reaches the end screen through buildRunNotices like any suppressed one. */
+  recordNotice(config: ToastConfig): void {
+    this.recordSuppressed(config);
+  }
+
   /** Everything the gate refused to draw this session, oldest first. */
   getSuppressed(): SuppressedToast[] {
     return [...this.suppressed];

@@ -96,7 +96,11 @@ export type QuestEvent =
   /** One cleared risk room, counted with +1 like a secret find. The producer fires once per
    *  hive whose wave is dead and once per hunter killed AT a woken den, so there is nothing to
    *  de-duplicate here. */
-  | { kind: 'clearHazard'; hazardKind: PoiHazardKind };
+  | { kind: 'clearHazard'; hazardKind: PoiHazardKind }
+  /** One expedition victory: the world's boss is dead. `firstConquest` is the read-before-write
+   *  answer to "was this world already conquered", so a step narrowed by `distinctWorlds` counts
+   *  a world once however many times it is re-won. */
+  | { kind: 'conquerWorld'; firstConquest: boolean };
 
 export interface QuestStepCompletion {
   questId: string;
@@ -147,6 +151,9 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
     case 'clearHazard':
       return trigger.kind === 'clearHazard'
         && (trigger.hazardKind === undefined || trigger.hazardKind === event.hazardKind);
+    case 'conquerWorld':
+      return trigger.kind === 'conquerWorld'
+        && (trigger.distinctWorlds !== true || event.firstConquest);
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -202,6 +209,7 @@ function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
         ? { ...current, progress: current.progress + 1, droneEscorting: undefined }
         : current;
     case 'clearHazard': return { ...current, progress: current.progress + 1 };
+    case 'conquerWorld': return { ...current, progress: current.progress + 1 };
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -501,8 +509,8 @@ export function buildQuestStepViews(
 /**
  * Doc 04 section 4's marker feed, the half `FEAT-QUEST-VIEW` cut for having no key and no
  * consumer. One entry per active quest whose CURRENT step names a place (`reachSector`,
- * `surviveInSector`); a quest working a kill, depth, gate, ability or secret step contributes
- * nothing, because those name a thing to do rather than somewhere to be.
+ * `surviveInSector`, `conquerWorld`); a quest working a kill, depth, gate, ability or secret
+ * step contributes nothing, because those name a thing to do rather than somewhere to be.
  */
 export interface QuestMarker {
   questId: string;
@@ -564,6 +572,18 @@ export function buildQuestMarkers(
         label: definition.name,
         icon: definition.icon,
         sectorTag: trigger.destinationTag,
+      });
+      continue;
+    }
+    if (trigger.kind === 'conquerWorld') {
+      // Where you go to take the Warden on purpose. The patient timed spawn can still field the
+      // boss wherever the ship stands, so the pin is guidance rather than a requirement, and it
+      // resolves to null until the arena is charted like every other marker.
+      markers.push({
+        questId: definition.id,
+        label: definition.name,
+        icon: definition.icon,
+        sectorTag: 'boss-arena',
       });
       continue;
     }

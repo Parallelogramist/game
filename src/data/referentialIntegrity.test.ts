@@ -337,6 +337,8 @@ describe('expedition quest data rules', () => {
           // this is a wait on the roll rather than an objective.
           expect(step.target, step.id).toBeLessThanOrEqual(4);
         }
+        // One expedition has exactly one win in it, so a run-scope conquest above 1 is unreachable.
+        if (step.trigger.kind === 'conquerWorld') expect(step.target, step.id).toBe(1);
       }
       expect(quest.completionGoldReward, quest.id).toBeGreaterThan(0);
     }

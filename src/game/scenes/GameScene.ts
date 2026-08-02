@@ -164,6 +164,7 @@ import { cargoLabelOf, droneLabelOf, getExpeditionQuest, getQuestForKeyId } from
 import type { ExpeditionQuestStep } from '../../data/ExpeditionQuests';
 import { effectiveStepTarget, questWorldStamp, renderStepDescription } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
+import type { ToastConfig } from '../../achievements/AchievementTypes';
 import { buildRunEarnings, buildRunNotices, type EarlyRunEndRecord, type RunEarning } from '../../meta/RunEarnings';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager } from '../../visual/MinimapManager';
@@ -9199,6 +9200,9 @@ export class GameScene extends Phaser.Scene {
     if (markWorldConquered(map.seed, map.worldGenVersion)) {
       getAchievementManager().recordWorldConquered();
     }
+    // The Warden is dead whether or not the profile write landed, so the chain counts the kill
+    // rather than the save. Raised as notices: showVictory is the caller's very next statement.
+    this.recordExpeditionQuest({ kind: 'conquerWorld', firstConquest: !alreadyConquered }, true);
     return !alreadyConquered;
   }
 
@@ -9826,12 +9830,21 @@ export class GameScene extends Phaser.Scene {
     return renderStepDescription(step, effectiveStepTarget(step, this.questSectorSupply()));
   }
 
+  /** A quest toast raised at the conquest would never be seen: showVictory is one statement
+   *  later, and it pauses the scene and draws its overlay over the HUD. Routed to the run-end
+   *  notice rows instead, which is where the victory screen already reports what the toast diet
+   *  held back. */
+  private raiseQuestToast(config: ToastConfig, asNotice: boolean): void {
+    if (asNotice) this.toastManager?.recordNotice(config);
+    else this.toastManager?.showToast(config);
+  }
+
   /**
    * The one door every expedition quest event goes through. Arena, daily, gauntlet and
    * practice runs have no world map, so the guard here is what keeps them out of the
    * expedition chains without a mode flag at each call site.
    */
-  private recordExpeditionQuest(event: QuestEvent): void {
+  private recordExpeditionQuest(event: QuestEvent, asNotice = false): void {
     if (!this.worldMode.worldMap()) return;
     const rewards = recordExpeditionQuestEvent(event, this.questSectorSupply());
     if (rewards.stepCompletions.length === 0
@@ -9857,14 +9870,14 @@ export class GameScene extends Phaser.Scene {
       const quest = getExpeditionQuest(completion.questId);
       const step = quest?.steps.find((entry) => entry.id === completion.stepId);
       if (!quest || !step) continue;
-      this.toastManager?.showToast({
+      this.raiseQuestToast({
         tier: 'notable',
         title: 'OBJECTIVE COMPLETE',
         description: `${this.questStepText(step)} · +${completion.goldReward} gold`,
         icon: quest.icon,
         color: 0x7fd7ff,
         duration: 3200,
-      });
+      }, asNotice);
     }
     for (const completion of rewards.questCompletions) {
       const quest = getExpeditionQuest(completion.questId);
@@ -9874,26 +9887,26 @@ export class GameScene extends Phaser.Scene {
         this.earnedQuestKeyIds.add(grantedKeyId);
         this.announceNewRoutes(grantedKeyId, quest.name, quest.icon);
       }
-      this.toastManager?.showToast({
+      this.raiseQuestToast({
         tier: 'notable',
         title: 'QUEST COMPLETE',
         description: `${quest.name} · +${completion.goldReward} gold`,
         icon: quest.icon,
         color: 0xffe26a,
         duration: 3600,
-      });
+      }, asNotice);
     }
     for (const questId of rewards.activatedQuestIds) {
       const quest = getExpeditionQuest(questId);
       if (!quest) continue;
-      this.toastManager?.showToast({
+      this.raiseQuestToast({
         tier: 'notable',
         title: 'NEW OBJECTIVE',
         description: `${quest.name}: ${this.questStepText(quest.steps[0])}`,
         icon: quest.icon,
         color: 0x9fe8a0,
         duration: 3600,
-      });
+      }, asNotice);
     }
   }
 
