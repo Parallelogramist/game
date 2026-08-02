@@ -211,6 +211,12 @@ honoured rather than worked around, and it is why the pass needs no cooldown: th
 one-shot lock, so a cooldown would gate nothing. `phaseLevel` is the row's synergy hook and
 spends on i-frames, 0.5 s on the way through plus 0.25 s per purchased level.
 
+**As built (FEAT-GRID-FENCE-CORRIDOR, `699582a`):** row 4's fence is no longer only a ring
+around an altar. One corridor pinch per sector, at a 20% share, carries a 1 to 3 tile band of
+the same `TileKind.SecurityGrid`, placed only where the interior flood proves another route to both
+flanks survives, so a band is a permanent shortcut the cloak opens and never a gate. Same
+kill-switch, same `downedSecurityGridIds` list, one new id namespace `band:<sx>,<sy>:0`.
+
 ### Ordering / solvability constraint the worldgen must honor
 
 Acquisition order is fixed by index. Doc 02's generator MUST place vault *i* so it

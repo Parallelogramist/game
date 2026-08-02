@@ -2882,6 +2882,19 @@ the line keeps one colour because `setColor` on a per-frame path forces a full t
 moved. Arena, daily, weekly, practice and gauntlet are untouched by construction. Files
 `POLISH-SIEGE-TICKER-CADENCE`.
 
+`FEAT-GRID-FENCE-CORRIDOR` (699582a) gives the Phase Cloak somewhere to go. A security grid fence
+had only ever been a ring around a shrine altar, so phasing through one opened a dead-end pocket
+the ship was about to leave again; one corridor pinch per sector now carries a 1 to 3 tile band of
+the same fence, and cutting it opens a route between two parts of a sector for good. The whole item
+is the proof, and it needed no new machinery: `sealHoldsUp` called with an empty pocket list already
+says "nothing became unreachable except these cells", so a pinch that is the only way through fails
+the check and is left open, and a band can never gate a region. It ships with **zero UI edits** and
+**no version bump of any kind**: the renderer, the radar underlay and the SECURITY GRID notice all
+key on `TileKind.SecurityGrid` and needed no change, and the band rides the shipped kill-switch on
+one new id namespace, `band:<sx>,<sy>:0`, which `WorldProfileStore`'s regex had to learn or every
+shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL` and
+`BALANCE-GRID-BAND-SHARE`.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -8794,12 +8807,55 @@ exploring pays is the end of Phase 5.
   i-frames rather than a collision change. Value: the cloak reads as intangibility rather than as
   a second door key. Deps: none.
 
-- [ ] **FEAT-GRID-FENCE-CORRIDOR** (new 2026-08-01, from FEAT-POWER-PHASE-CLOAK): the fence is
+- [x] **FEAT-GRID-FENCE-CORRIDOR** (done, 699582a) (new 2026-08-01, from FEAT-POWER-PHASE-CLOAK): the fence is
   always a ring around a POI, never a band across a corridor pinch, because a band that strands a
   region needs a **proven alternate route** and this chunk's flood guard proves the opposite
   property: that the fence cut off its own pocket and nothing else. A corridor band wants a
   reachability proof of a different shape, which is why it is its own item rather than a tuning
   knob. Value: a fence that opens a shortcut rather than a pocket. Deps: none.
+
+  **What shipped.** `fenceCorridorPinches` in `sectorInterior.ts`, the fourth and last pass of
+  `buildSectorInterior`, plugs at most one corridor pinch per sector with a straight run of 1 to 3
+  `TileKind.SecurityGrid` tiles. A pinch is a run of Open tiles capped by Solid rock at both ends
+  with walkable floor on both flanks of every cell, so no weapon and no tether opens a way around
+  it and the cloak always has somewhere to come out. `GridBandDef` on `SectorDef` carries the run's
+  local tile indices and its id, `band:<sx>,<sy>:0`.
+
+  **The proof is `sealHoldsUp` with an empty pocket list, and that is the whole item.** The seal
+  passes ask "did this cut off exactly its own pocket"; a band asks the opposite, "did this cut off
+  nothing at all", which is the same exact-count check with `pocketIndices` empty:
+  `after === before - band.length`. A pinch that is the only way through fails it and is left open,
+  so a band can never gate a region and the cloak is a shortcut, never a key. No new flood, no new
+  guard shape, no new module. Invariant 14 restates the property from outside the generator: both
+  flanks of every band cell are reachable on foot with the band still lit.
+
+  **Measured over the 100 invariant seeds**: 620 bands, median 6 per world (min 1, max 13),
+  lengths 204/290/126 for 1/2/3 tiles. `GRID_BAND_SHARE_PERCENT` is 20.
+
+  **The persistence trap, recorded because it is invisible:** `WorldProfileStore`'s id regex was
+  `/^poi:-?\d+,-?\d+:\d+$/` and gates BOTH the write in `recordDownedSecurityGrid` and the
+  load-time sanitizer, so a `band:` id would have been dropped without a word and every shortcut
+  would have reopened on the next run. It is now `/^(poi|band):-?\d+,-?\d+:\d+$/`.
+
+  **No version bump of any kind**, on the `fenceShrineAltars` precedent: the pass converts only
+  Open tiles, registers no `BreakableRect`, moves no POI, edge, sector or rect id, draws no rng
+  from the sector stream, and adds an id in a NEW namespace. `WORLDGEN_VERSION`, `SAVE_VERSION`,
+  `DISCOVERY_VERSION` and `WORLD_PROFILE_VERSION` all stay put, so every existing profile and every
+  archived world keeps its discovery state and lights the bands up on the next world build.
+
+  **No new HUD, no new colour, no chart line.** A band renders, pings the radar underlay and
+  announces itself to a ship without the cloak entirely through code that keys on
+  `TileKind.SecurityGrid`: `WorldGeometryRenderer`, `MinimapManager`, `sectorWallSegments` and
+  `reportSecurityGrid` all needed no edit. The GRID DOWN toast is the one string that branches.
+  Filed as cuts: `FEAT-GRID-BAND-CHART-TELL` and `BALANCE-GRID-BAND-SHARE`.
+
+- [ ] **FEAT-GRID-BAND-CHART-TELL** (new 2026-08-02, from FEAT-GRID-FENCE-CORRIDOR): the chart says
+  nothing about a corridor band. `sectorDetail.ts` and `lockouts.ts` both reach a fence through
+  `isGridFenceIntact(sector, slot)`, which is POI-slot shaped, and a band has no slot; a band-shaped
+  overload plus a LOCKED OUT row is a second lookup path, not a clause. Cut deliberately: the band
+  is visible in the room, draws on the radar underlay and announces itself with the SECURITY GRID
+  notice, so it is findable without the chart. Value: a shortcut you have not opened yet is
+  somewhere you can plan a route to. Deps: none.
 
 - [ ] **BALANCE-LOCKOUT-PANEL-ROWS** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): the 4-row
   cap, the `doors + sites` sort and the `NEAREST N SECTORS OUT` clause are designed guesses,
@@ -10989,6 +11045,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **BALANCE-GRID-BAND-SHARE** (new 2026-08-02, from FEAT-GRID-FENCE-CORRIDOR). Value: a fence
+  across a corridor should read as a shortcut worth earning, not as a toll booth. The share is a
+  measured guess: 620 bands over the 100 invariant seeds, median 6 per world, never fewer than 1
+  and never more than 13, against a median 7 fenced altars. Whether that many reads as a world with
+  shortcuts in it or as a world full of pink walls is what a browser answers. Also worth a look:
+  whether a 3-tile band reads as a corridor or as a wall. Deps: none, wants play.
 
 - [ ] **POLISH-SIEGE-TICKER-CADENCE** (new 2026-08-02, from FEAT-QUEST-SIEGE-HUD-TELL). Value: the
   siege row, its three branches and its every-other-slot cadence were validated by reading the code
