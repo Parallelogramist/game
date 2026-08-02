@@ -3,6 +3,15 @@ import { getLinkedTwin } from './state';
 import { chaseHeading } from './common';
 
 /**
+ * Latched in `EnemyAI.state` so the berserk buff lands on the transition rather than on every
+ * frame the partner stays dead. `EnemyType.baseDamage` is f32 and minibosses are exempt from
+ * the AI LOD throttle, so the per-frame form passed any survivable value in a quarter second
+ * and reached Infinity inside two. `EnemyAI.state` is zeroed on spawn and carried by the save,
+ * so neither a recycled entity id nor a reload can re-apply it.
+ */
+export const TWIN_BERSERK_STATE = 1;
+
+/**
  * The Twins (miniboss pair, TwinA/TwinB) — linked enemies that chase in
  * formation, enrage (+50% speed) when the partner drops below half health,
  * and go berserk (2x speed, +50% damage) when the partner dies.
@@ -74,7 +83,10 @@ export function updateTwinAI(
   } else {
     // Twin is dead - enrage and chase aggressively!
     speed *= 2.0;
-    EnemyType.baseDamage[enemyId] = EnemyType.baseDamage[enemyId] * 1.5;
+    if (EnemyAI.state[enemyId] !== TWIN_BERSERK_STATE) {
+      EnemyAI.state[enemyId] = TWIN_BERSERK_STATE;
+      EnemyType.baseDamage[enemyId] = EnemyType.baseDamage[enemyId] * 1.5;
+    }
 
     if (distance > 1) {
       const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
