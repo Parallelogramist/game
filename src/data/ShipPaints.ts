@@ -40,6 +40,7 @@ export const SHIP_PAINTS: ShipPaint[] = [
   { unlockId: 'cosmetic_charted_world',  name: 'Charted World Crest',  rank: 21, color: { core: 0x88ff99, glow: 0xccffdd } },
   { unlockId: 'cosmetic_warden_crest',   name: 'Warden Crest',         rank: 22, color: { core: 0xcc44ff, glow: 0xe6b3ff } },
   { unlockId: 'cosmetic_conqueror_mark', name: 'Conqueror Mark',       rank: 23, color: { core: 0xffcc33, glow: 0xffe9aa } },
+  { unlockId: 'cosmetic_warden_vigil',   name: 'Warden Vigil',         rank: 24, color: { core: 0xb3ff00, glow: 0xe0ff99 } },
 ];
 
 /**

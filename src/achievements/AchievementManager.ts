@@ -21,6 +21,7 @@ import {
 } from './AchievementTypes';
 import { MILESTONES, getMilestoneById } from './MilestoneDefinitions';
 import { ACHIEVEMENTS, getAchievementById, BOSS_KILL_TRACKING, SHIP_WIN_TRACKING, STAGE_WIN_TRACKING } from './AchievementDefinitions';
+import { wardenFelledBit } from '../expedition/wardenIdentity';
 
 // Storage keys
 const STORAGE_KEY_ACHIEVEMENTS = 'survivor-achievements';
@@ -68,6 +69,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     loreFragmentsFound: 0,
     bestWorldCompletionPercent: 0,
     worldsConqueredTotal: 0,
+    wardensFelledMask: 0,
   };
 }
 
@@ -155,6 +157,7 @@ const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
   loreFragmentsFound: { floor: true, allowInfinity: false },
   bestWorldCompletionPercent: { floor: true, allowInfinity: false },
   worldsConqueredTotal: { floor: true, allowInfinity: false },
+  wardensFelledMask: { floor: true, allowInfinity: false },
 };
 
 /** Rebuild lifetime stats from the known fields only, coercing each value.
@@ -285,6 +288,17 @@ export class AchievementManager {
   recordWorldConquered(): void {
     this.persistentState.lifetimeStats.worldsConqueredTotal++;
     this.savePersistentState();
+  }
+
+  /** Returns true only the first time this guardian is felled, on any world. Idempotent on
+   *  purpose: a world can be re-conquered and re-conquering it must not re-save. */
+  recordWardenFelled(bossTypeId: string): boolean {
+    const bit = wardenFelledBit(bossTypeId);
+    const stats = this.persistentState.lifetimeStats;
+    if (bit === 0 || (stats.wardensFelledMask & bit) !== 0) return false;
+    stats.wardensFelledMask |= bit;
+    this.savePersistentState();
+    return true;
   }
 
   /**

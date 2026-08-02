@@ -255,6 +255,10 @@ export interface LifetimeStats {
    *  profile's own false→true transition, never per victory, so re-winning a world already
    *  conquered cannot walk the unlocks behind it. */
   worldsConqueredTotal: number;
+  /** Bitfield over the twelve Wardens in TUNING.bosses.order: bit i is set once this profile has
+   *  killed the guardian at roster index i, on any world. A count would not do, because the
+   *  chase is WHICH twelve, not how many worlds were conquered (worldsConqueredTotal is that). */
+  wardensFelledMask: number;
 }
 
 /**

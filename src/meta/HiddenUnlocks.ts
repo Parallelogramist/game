@@ -14,6 +14,7 @@
 import { SecureStorage } from '../storage/SecureStorage';
 import { LifetimeStats } from '../achievements/AchievementTypes';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
+import { countFelledWardens, WARDEN_ROSTER_SIZE } from '../expedition/wardenIdentity';
 
 const STORAGE_KEY_HIDDEN_UNLOCKS = 'hiddenUnlocksV1';
 
@@ -389,6 +390,17 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
     predicate: ({ lifetime }) => lifetime.worldsConqueredTotal >= 5,
     getProgress: ({ lifetime }) => ({
       current: Math.min(5, lifetime.worldsConqueredTotal), target: 5,
+    }),
+  },
+  {
+    id: 'unlock_warden_roster',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_warden_vigil',
+    displayName: 'Warden Vigil',
+    hintText: 'Fell all twelve Wardens',
+    predicate: ({ lifetime }) => countFelledWardens(lifetime.wardensFelledMask) >= WARDEN_ROSTER_SIZE,
+    getProgress: ({ lifetime }) => ({
+      current: countFelledWardens(lifetime.wardensFelledMask), target: WARDEN_ROSTER_SIZE,
     }),
   },
 ];

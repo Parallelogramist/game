@@ -48,6 +48,9 @@ import { getShipRecord } from '../../meta/ShipRecords';
 import { getGradeColor } from '../../utils/PerformanceGrade';
 import { getAchievementManager } from '../../achievements';
 import { getBankedSeasons } from '../../expedition/ExpeditionSeasonStore';
+import {
+  countFelledWardens, describeWardenRoster, WARDEN_ROSTER_SIZE,
+} from '../../expedition/wardenIdentity';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -1809,7 +1812,14 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Hidden Sectors', value: lifetime.hiddenSectorsFoundTotal.toLocaleString() },
       { label: 'Lore Fragments',
         value: `${lifetime.loreFragmentsFound} / ${LORE_FRAGMENTS.length}` },
+      { label: 'Wardens Felled',
+        value: `${countFelledWardens(lifetime.wardensFelledMask)} / ${WARDEN_ROSTER_SIZE}` },
     ];
+
+    rows.push({ header: 'WARDENS' });
+    for (const warden of describeWardenRoster(lifetime.wardensFelledMask)) {
+      rows.push({ label: warden.name, value: warden.felled ? 'Felled' : 'Unbeaten' });
+    }
 
     rows.push({ header: 'BY SHIP' });
     for (const ship of SHIP_CHARACTERS) {

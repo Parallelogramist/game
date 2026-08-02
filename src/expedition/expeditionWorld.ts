@@ -17,7 +17,7 @@ import {
 import type { BankedSeason } from './ExpeditionSeasonStore';
 import { getDiscoveryManager } from './DiscoveryManager';
 import { isWorldConquered } from './WorldProfileStore';
-import { wardenBossNameForWorld } from './wardenIdentity';
+import { wardenBossIdForWorld, wardenBossNameForWorld } from './wardenIdentity';
 
 /** Three concealed rooms per world: enough that a run can stumble on one, few enough that
  *  finding one still reads as a find. */
@@ -43,6 +43,9 @@ export interface ExpeditionProgressSummary {
   knowableSectors: number;
   secretsFound: number;
   wardenName: string;
+  /** The id behind wardenName, so a caller can ask whether this guardian is already on the
+   *  roster without re-deriving it from the seed. */
+  wardenBossId: string;
   conquered: boolean;
 }
 
@@ -68,6 +71,7 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     knowableSectors: discovery.getKnowableSectorCount(),
     secretsFound: discovery.getFoundSecretCount(),
     wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
+    wardenBossId: wardenBossIdForWorld(seed, map.worldGenVersion),
     conquered: isWorldConquered(seed, map.worldGenVersion),
   };
 }
@@ -101,6 +105,10 @@ export interface ExpeditionWorldPreview {
   /** Who guards it. The one preview fact that is not a count: choosing a world is choosing a
    *  guardian, and it is fixed for that world forever. */
   wardenName: string;
+  /** The id behind wardenName. A pure function of (seed, generator version), which is what makes
+   *  it safe inside previewExpeditionWorlds' memo: "have you beaten it" is not, because it can
+   *  change within one session. */
+  wardenBossId: string;
 }
 
 /**
@@ -137,6 +145,7 @@ export function previewExpeditionWorld(seed: number): ExpeditionWorldPreview {
     deepestSectorDepth,
     deepestRegionName: getStageById(deepestBiomeId)?.name ?? deepestBiomeId,
     wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
+    wardenBossId: wardenBossIdForWorld(seed, map.worldGenVersion),
   };
 }
 

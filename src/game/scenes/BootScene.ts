@@ -62,7 +62,8 @@ import {
   getNextExpeditionSeedChoices,
   switchExpeditionWorld,
 } from '../../expedition/ExpeditionSeasonStore';
-import { wardenBossIdForWorld } from '../../expedition/wardenIdentity';
+import { isWardenFelled, wardenBossIdForWorld } from '../../expedition/wardenIdentity';
+import { getAchievementManager } from '../../achievements';
 import { WORLDGEN_VERSION } from '../../world/worldTypes';
 import type { RunModeKind } from '../world/WorldModeAdapter';
 import {
@@ -459,7 +460,10 @@ export class BootScene extends Phaser.Scene {
         `${encodeSeedCode(seed)}   ·   SEED ${seed}`,
         `${preview.secretSlots} secrets   ·   ${preview.cacheSlots} caches`
           + `   ·   ${preview.deepestSectorDepth} sectors out   ·   ${preview.deepestRegionName}`
-          + `   ·   ${preview.wardenName}`,
+          + `   ·   ${preview.wardenName}`
+          + (isWardenFelled(
+            getAchievementManager().getLifetimeStats().wardensFelledMask, preview.wardenBossId,
+          ) ? '' : ' (NEW)'),
         '',
         `Leaving world ${summary.seasonIndex} banks it with its chart, so you can`,
         'return to it. Traversal abilities and quest keys are kept.',
@@ -577,12 +581,16 @@ export class BootScene extends Phaser.Scene {
       const banked = describeBankedWorlds(getBankedSeasons());
       const choices = getNextExpeditionSeedChoices();
       const previews = previewExpeditionWorlds(choices);
+      const felledMask = getAchievementManager().getLifetimeStats().wardensFelledMask;
+      const wardenClause = (bossTypeId: string, name: string) => (
+        isWardenFelled(felledMask, bossTypeId) ? name : `${name} (NEW)`
+      );
       const lines = [
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
           + `   ·   ${summary.secretsFound} secrets`,
-        `Warden: ${summary.wardenName}`,
+        `Warden: ${wardenClause(summary.wardenBossId, summary.wardenName)}`,
         '',
         'A new world resets the chart, the leads and every broken wall.',
         'The world you leave is banked and can be returned to.',
@@ -597,7 +605,7 @@ export class BootScene extends Phaser.Scene {
           + `   ·   ${preview.cacheSlots} caches`
           + `   ·   ${preview.deepestSectorDepth} sectors out`
           + `   ·   ${preview.deepestRegionName}`
-          + `   ·   ${preview.wardenName}`,
+          + `   ·   ${wardenClause(preview.wardenBossId, preview.wardenName)}`,
         );
       }
       if (banked.length > 0) {

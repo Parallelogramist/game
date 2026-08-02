@@ -9327,6 +9327,11 @@ export class GameScene extends Phaser.Scene {
     if (markWorldConquered(map.seed, map.worldGenVersion)) {
       getAchievementManager().recordWorldConquered();
     }
+    // Outside the markWorldConquered guard on purpose: the roster is about which guardian died,
+    // not about which world. Re-conquering a world still fells its Warden, and a Warden already
+    // on the roster is a no-op.
+    const wardenBossTypeId = this.expeditionWardenBossTypeId();
+    if (wardenBossTypeId) getAchievementManager().recordWardenFelled(wardenBossTypeId);
     // The Warden is dead whether or not the profile write landed, so the chain counts the kill
     // rather than the save. Raised as notices: showVictory is the caller's very next statement.
     this.recordExpeditionQuest({ kind: 'conquerWorld', firstConquest: !alreadyConquered }, true);

@@ -33,3 +33,47 @@ export function wardenBossNameForWorld(worldSeed: number, worldGenVersion: numbe
   const boss = getEnemyType(wardenBossIdForWorld(worldSeed, worldGenVersion));
   return boss?.name ?? WARDEN_FALLBACK_NAME;
 }
+
+/** How many distinct guardians a profile can ever fell. */
+export const WARDEN_ROSTER_SIZE = WARDEN_BOSS_ORDER.length;
+
+/** Every bit a stored roster mask may legitimately carry, so a tampered value cannot make the
+ *  roster read as more than twelve. */
+export const WARDEN_MASK_ALL = (1 << WARDEN_ROSTER_SIZE) - 1;
+
+/** 0 for an id that is not in the rotation order, so an unknown boss records nothing rather
+ *  than colliding with roster slot 0. */
+export function wardenFelledBit(bossTypeId: string): number {
+  const rosterIndex = WARDEN_BOSS_ORDER.indexOf(bossTypeId);
+  return rosterIndex < 0 ? 0 : 1 << rosterIndex;
+}
+
+export function isWardenFelled(felledMask: number, bossTypeId: string): boolean {
+  const bit = wardenFelledBit(bossTypeId);
+  return bit !== 0 && (felledMask & bit) !== 0;
+}
+
+export function countFelledWardens(felledMask: number): number {
+  let remaining = felledMask & WARDEN_MASK_ALL;
+  let felled = 0;
+  while (remaining !== 0) {
+    remaining &= remaining - 1;
+    felled++;
+  }
+  return felled;
+}
+
+export interface WardenRosterRow {
+  bossTypeId: string;
+  name: string;
+  felled: boolean;
+}
+
+/** The twelve in rotation order, which is the order every other Warden surface already uses. */
+export function describeWardenRoster(felledMask: number): readonly WardenRosterRow[] {
+  return WARDEN_BOSS_ORDER.map(bossTypeId => ({
+    bossTypeId,
+    name: getEnemyType(bossTypeId)?.name ?? WARDEN_FALLBACK_NAME,
+    felled: isWardenFelled(felledMask, bossTypeId),
+  }));
+}
