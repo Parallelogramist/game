@@ -2808,6 +2808,27 @@ chance of one shared contract, a feel call that wants play), `BUG-QUEST-INFERNO-
 is three) and `FEAT-QUEST-SECRET-PUZZLE-TIER` (`SecretTier` carries `'puzzle'` but no producer
 emits it).
 
+**442889a gave the sigil rings a name the quest system knows.** `SecretCacheManager.claimCache`
+rolled the puzzle reward table for a sealed cache and then, four lines later, told the quest
+system the same claim was a plain walk-in, so `'puzzle'` was a `SecretTier` with a reward table,
+a toast title, a whole ring-solving interaction and **zero** producers: a `findSecret secretKind:
+'puzzle'` step could never tick, which is what `seasonQuests.test.ts` had been asserting. The
+claim now reports `cache.puzzle ? 'puzzle' : 'cache'`, the branch the reward roll and the toast
+were already reading. **The correctness half is the subtype rule, and it is what protects shipped
+content:** `secretRewards.ts` defines a puzzle cache as a walk-in the player earned, so one clause
+in `triggerMatches` makes a solved ring count for a step asking for `'cache'` while a walk-in
+never counts for a step asking for `'puzzle'`, and `'hiddenSector'` satisfies neither. Without it,
+telling the truth about the tier would have silently stopped `q_secret_02` and the `homefront`
+contract from counting about 30% of the caches they count today, and no test would have gone red.
+**The bound on the new `cipher` contract is measured, not chosen:** `PUZZLE_SHARE_PERCENT` is 30
+with no depth term, and over 300 seeds through the real `generateExpeditionWorld` a world holds
+min 2 / p10 4 / median 7 / max 17 rings (12/18/24/38 Secret slots), with zero worlds under two and
+11 of 300 at exactly two. Contract steps are sequential, so a two-ring template would need three
+in the worst case and be uncompletable in ~3.7% of worlds, the shape
+`BUG-QUEST-INFERNO-SWEEP-TARGET` already records. So `cipher` asks for exactly one ring and then
+four plain caches, whose floor is twelve slots, taking the pool to thirteen templates drawn three
+per world.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -7502,6 +7523,9 @@ exploring pays is the end of Phase 5.
   re-roll reads as a returning fixture or as the game running out of ideas is a feel judgement,
   and the pool has now been sized twice without a browser. Value: a fresh world's set reads as
   new. Deps: none, but it wants play rather than a third guess at the pool size.
+  `FEAT-QUEST-SECRET-PUZZLE-TIER` (442889a) took the pool to thirteen with the draw still three,
+  which moves that figure from 62% to 58% (`1 - C(10,3)/C(13,3)` = 1 - 120/286): the ask here is
+  unchanged, since a 58% repeat rate is still a feel call that wants play.
 
 - [ ] **BUG-QUEST-INFERNO-SWEEP-TARGET** (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
   the authored `q_gatecrash_02.s5` asks for six Inferno sectors, and Inferno's measured minimum
@@ -7512,13 +7536,62 @@ exploring pays is the end of Phase 5.
   against the live seed only (Inferno 16), which is why the floor was never seen. Value: an
   authored objective that every world can actually supply. Deps: none.
 
-- [ ] **FEAT-QUEST-SECRET-PUZZLE-TIER** (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
+- [x] **FEAT-QUEST-SECRET-PUZZLE-TIER** (done, 442889a, 2026-08-02) (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
   `SecretTier` carries `'puzzle'` and `src/world/secretRewards.ts` pays a `puzzle` tier, but no
   `findSecret` producer ever emits it: `SecretCacheManager.ts:365` reports every claim as
   `'cache'`, walk-in and sigil-ring alike, so a `findSecret secretKind: 'puzzle'` step would
   never tick. Either the manager should report the tier it actually paid, or the union member
   should go. Value: a quest can ask for the one find-shape the player solves with their hands.
   Deps: none.
+  **What shipped:** `SecretCacheManager.claimCache` reported
+  `recordExpeditionQuest({ kind: 'findSecret', secretKind: 'cache' })` for every claim while the
+  reward roll one screen up (`SecretCacheManager.ts:144`) already rolled
+  `tier: puzzle ? 'puzzle' : 'cache'`, so the same function paid the puzzle reward table and told
+  the quest system the player had walked into an open cache. The claim now reports
+  `cache.puzzle ? 'puzzle' : 'cache'`, the same branch the toast title at `:359` had been
+  reading all along. Before this, `'puzzle'` had **zero** producers, which is exactly why
+  `seasonQuests.test.ts` asserted that no template could name it: an inert union member with a
+  reward table and no way to reach it. **The subtype rule is the correctness half, and it
+  protects shipped content.** `secretRewards.ts:24` states the taxonomy in its own words, a
+  puzzle cache is a walk-in that made the player earn it, so `puzzle` is a subtype of `cache`
+  while `hiddenSector` is a different taxonomy row. One clause in `triggerMatches` encodes that:
+  a step asking for `'cache'` still counts a solved ring, a step asking for `'puzzle'` never
+  counts a walk-in, and `'hiddenSector'` satisfies neither direction. Without it, reporting the
+  true tier would have silently cut roughly 30% of the finds that `q_secret_02`
+  (`ExpeditionQuests.ts:302`) and the `homefront` contract (`seasonQuests.ts:288`) count today,
+  with no existing test going red. **The measurement, so nobody re-derives it:**
+  `PUZZLE_SHARE_PERCENT` is 30 and `buildSecretPuzzle` applies no depth term to the share, so
+  ring count tracks `PoiKind.Secret` slot count. Over 300 seeds through the real
+  `generateExpeditionWorld` a world holds min 2 / p10 4 / median 7 / p90 11 / max 17 sigil rings
+  against 12 / 18 / 24 / 30 / 38 Secret slots, with zero worlds under two rings and 11 of 300 at
+  exactly two. **That floor is why the new `cipher` contract asks for one ring and then four
+  plain caches:** contract steps are sequential, so a two-ring template would need three rings in
+  the worst case and be uncompletable in the ~3.7% of worlds that hold only two, the same defect
+  `BUG-QUEST-INFERNO-SWEEP-TARGET` records against an authored step. The cache step's floor is 12
+  slots per world, and it is the second consumer of the subtype rule, since a solved ring counts
+  toward it. The pool went 12 to 13 templates with the draw untouched at three per world.
+  Econ-neutral and version-free on the `a8c1d38` / `0806256` precedent: step gold 160 and 210 sit
+  inside 60 to 260, completion 300 inside 120 to 350, everything rides the existing `pendingGold`
+  rail, so `FEAT-ECON-WARDS` stays parked; no storage key and no `SAVE_VERSION`,
+  `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION`
+  moved; arena, daily, weekly, practice and gauntlet are untouched by construction, because
+  `SecretCacheManager` is expedition-only and `questCatalog()` is read on the expedition path
+  only. Files two follow-ups: `FEAT-QUEST-PUZZLE-AUTHORED-STEP` and
+  `BALANCE-CONTRACT-CIPHER-RING-TARGET`.
+
+- [ ] **FEAT-QUEST-PUZZLE-AUTHORED-STEP** (new 2026-08-02, from FEAT-QUEST-SECRET-PUZZLE-TIER):
+  the `puzzle` tier now has a producer and one generated consumer (the `cipher` contract), but no
+  authored chain in `src/data/ExpeditionQuests.ts` names it. Not done in that session on purpose:
+  adding or retargeting a step in a once-per-profile chain is a balance change to shipped
+  content, and the generated contract is the consumer the item needed. Value: the authored chains
+  get to use the one find-shape the player solves with their hands. Deps: none.
+
+- [ ] **BALANCE-CONTRACT-CIPHER-RING-TARGET** (new 2026-08-02, from FEAT-QUEST-SECRET-PUZZLE-TIER):
+  one ring in one expedition is measured against the generator (every world holds at least two,
+  median seven) but never played. Whether a run charts enough of a world to *meet* a sealed
+  cache, and whether a 3 or 4 pylon ring reads as a puzzle or as a walk in a circle, are feel
+  judgements. Value: a contract step whose ask matches what one expedition actually reaches.
+  Deps: none, but it wants play rather than a second guess.
 
 - [x] **FEAT-SEASON-SEED-SHARE** (done, afd403c): a world can be handed to another player. The
   CHART dialog carries a CODE button onto a WORLD CODE dialog that prints this world's code

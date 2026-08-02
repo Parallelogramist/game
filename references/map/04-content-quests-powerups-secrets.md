@@ -1098,6 +1098,27 @@ objectives. A world now issues its own. Six points:
    260, completions 120 to 350), same `pendingGold` rail, section 6 stays parked, and no storage
    key or version constant moved.
 
+### As built (FEAT-QUEST-SECRET-PUZZLE-TIER, 442889a, 2026-08-02)
+
+1. **The tenth kind's third tier gained its producer.** `claimCache` now reports
+   `cache.puzzle ? 'puzzle' : 'cache'`, the same branch the reward roll had used since
+   `0da9243`, instead of hardcoding `'cache'` for every claim. So the method no longer pays the
+   puzzle table and tells the quest system it was a walk-in in the same breath. Section 5's
+   taxonomy row 3 was fully built; only the trigger side was blind to it, which left `'puzzle'`
+   a `SecretTier` member with a reward table and no producer.
+2. **`puzzle` satisfies a `cache` step, never the reverse.** One clause in `triggerMatches`, on
+   the taxonomy's own wording that a puzzle cache is a walk-in the player earned, with
+   `hiddenSector` satisfying neither direction. It is what keeps the two shipped
+   `secretKind: 'cache'` steps (`q_secret_02` and the `homefront` contract) counting the ~30% of
+   slots that seal, a regression no existing test would have caught.
+3. **`cipher` is the first generated contract to name it**, and asks for exactly one ring, then
+   four plain caches. The bound is measured, not chosen: 300 seeds through the real
+   `generateExpeditionWorld` give min 2 / p10 4 / median 7 / max 17 rings per world with zero
+   worlds under two, steps are sequential, and a two-ring template would need three in the worst
+   case. The pool is thirteen templates, still drawn three per world.
+4. **Econ-neutral and version-free**, on the `a8c1d38` precedent: same reward band, same
+   `pendingGold` rail, section 6 stays parked, no storage key or version constant moved.
+
 ---
 
 ## 5. Secrets
@@ -1289,7 +1310,11 @@ Three tiers, cheapest first:
   found-state is `markSecretFound` on the slot id the cache already occupies: no `SecretLedger`,
   no `survivor-secrets-found` key, no save field and no version bump were needed, and the
   completion percent, the lead chain, the `findSecret` quest trigger and
-  `LifetimeStats.secretsFoundTotal` all keep working untouched. **The row's `GameScene.ts:4017`
+  `LifetimeStats.secretsFoundTotal` all keep working untouched. **That was true of the count and
+  false of the kind:** the trigger kept firing for every solved ring, but `claimCache` reported
+  every one of them as a plain `'cache'` walk-in, so the `'puzzle'` tier stayed unreachable to a
+  quest step until `FEAT-QUEST-SECRET-PUZZLE-TIER` (`442889a`) named it. **The row's
+  `GameScene.ts:4017`
   shrine-pattern pointer is stale**: the walk-in shape it names now lives in `claimSecretCache` /
   `updateSecretCaches`, and the puzzle reuses those rather than the shrine spawner.
 - **The hint half is the tier-2 lead, not a second grammar.** `SecretLead.sigils` carries
