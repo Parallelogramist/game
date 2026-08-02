@@ -7859,12 +7859,57 @@ exploring pays is the end of Phase 5.
   only. Files two follow-ups: `FEAT-QUEST-PUZZLE-AUTHORED-STEP` and
   `BALANCE-CONTRACT-CIPHER-RING-TARGET`.
 
-- [ ] **FEAT-QUEST-PUZZLE-AUTHORED-STEP** (new 2026-08-02, from FEAT-QUEST-SECRET-PUZZLE-TIER):
-  the `puzzle` tier now has a producer and one generated consumer (the `cipher` contract), but no
-  authored chain in `src/data/ExpeditionQuests.ts` names it. Not done in that session on purpose:
-  adding or retargeting a step in a once-per-profile chain is a balance change to shipped
-  content, and the generated contract is the consumer the item needed. Value: the authored chains
-  get to use the one find-shape the player solves with their hands. Deps: none.
+- [x] **FEAT-QUEST-PUZZLE-AUTHORED-STEP** (done, 3743d0d): the `puzzle` tier now has a producer and
+  one generated consumer (the `cipher` contract), but no authored chain in
+  `src/data/ExpeditionQuests.ts` named it. Value: the authored chains get to use the one find-shape
+  the player solves with their hands.
+  1. **What shipped**: the two-quest chain `quest_sigil_01` ("Sigil Work", 2 steps) →
+     `quest_sigil_02` ("The Sealed Choir", 3 steps), appended to `EXPEDITION_QUESTS`. Five steps
+     total, three of which name `secretKind: 'puzzle'`; 1030 gold across the steps plus 560 across
+     the two completions. Sigil Work asks for one ring on an expedition and three across them; The
+     Sealed Choir asks for eight rings, twenty secrets of any kind and twenty-four charted rooms.
+  2. **A new chain, never an edit to a shipped one**, which is exactly the reason this was cut from
+     `FEAT-QUEST-SECRET-PUZZLE-TIER`: adding or retargeting a step inside a once-per-profile chain
+     is a balance change to shipped content, and it moves an in-flight objective under a player who
+     is already partway through it. An independent chain satisfies the item without touching a
+     single shipped quest.
+  3. **No key, no worldgen change**: neither quest carries `grantsKeyId`, on purpose and with a
+     comment saying so. `EXPEDITION_QUEST_KEY_ORDER` is derived from catalog order and is fed to the
+     generator as `WorldGenInputs.questKeyOrder`, so a fifth key would move `KeyDoor` placement in
+     every generated world. The array is byte-identical (`quest_key_survey`, `quest_key_gatecrash`,
+     `quest_key_secret`, `quest_key_purge`), so **no `WORLDGEN_VERSION` bump was needed** and every
+     existing profile keeps its discovery state. No storage key and no `SAVE_VERSION` /
+     `DISCOVERY_VERSION` move either: quest state is sanitized against the catalog on load, so the
+     two new ids simply start appearing.
+  4. **Appended, not inserted**: `seedQuestStates` walks `defs` in catalog order and seeds unheld
+     non-successor chain heads up to `ACTIVE_EXPEDITION_QUEST_LIMIT = 3`, so a cold profile is still
+     handed `quest_survey_01` / `quest_gatecrash_01` / `quest_secret_01` exactly as before, and the
+     sigil chain seeds later when a slot frees. Inserting anywhere earlier would have changed what a
+     brand-new profile is handed, which is the balance change point 2 exists to avoid.
+  5. **One run-scope ring step, target 1**: `seasonQuests.ts:50-52` records the measurement that
+     about 30% of a world's cache slots seal behind a ring and that over 300 seeds the thinnest
+     world seals only two, median seven. A run-scope target of 2 would still pass the integrity
+     test's `<= 3` bound and be unreachable in a thin world in one flight, so `q_sigil_01.s1` is the
+     chain's only `run` step and asks for exactly one. Every other ring step is `persistent` and
+     accumulates across runs. Econ-neutral on the shipped precedent: step gold 110 to 260 sits
+     inside the authored catalog's 60 to 280 and completions 220/340 inside 120 to 350, so
+     `FEAT-ECON-WARDS` stays parked.
+  6. **No new test**: `referentialIntegrity.test.ts`'s `expedition quest data rules` block already
+     pins every rule this data must satisfy: id prefix and uniqueness, the `q_<name>.sN` step-id
+     form, `nextQuestId` resolving as a successor exactly once, chains acyclic and `<= 3` long,
+     positive targets and gold, the run-scope `findSecret` bound of 3, the persistent `reachSector`
+     ceiling of 24, icon keys resolving in `ICON_MAP` without fallback, and
+     `EXPEDITION_QUEST_KEY_ORDER` equalling the granted-key list in catalog order. Re-asserting
+     those on two more rows would be coverage-chasing. Files one follow-up,
+     `BALANCE-QUEST-SIGIL-TARGETS`.
+
+- [ ] **BALANCE-QUEST-SIGIL-TARGETS** (new 2026-08-02, from FEAT-QUEST-PUZZLE-AUTHORED-STEP):
+  3, 8 and 20 are designed guesses against the generator, never played. About 30% of a world's
+  cache slots seal behind a ring (`secretPuzzles.ts:61`) and over 300 seeds a world seals a
+  median of seven, so eight rings is roughly a world and a half of thorough play and twenty
+  secrets spans several. Whether that reads as an arc or as a grind is what a run answers and a
+  count cannot. Value: the ring chain paces like an objective rather than a tally. Deps: none,
+  but it wants play rather than a second guess.
 
 - [ ] **BALANCE-CONTRACT-CIPHER-RING-TARGET** (new 2026-08-02, from FEAT-QUEST-SECRET-PUZZLE-TIER):
   one ring in one expedition is measured against the generator (every world holds at least two,
@@ -8777,7 +8822,12 @@ shipped band-1 and band-2 items, plus band 3's `FEAT-WORLDGEN-STREAM` slices, of
 `FEAT-WORLDGEN-STREAM-POI-RETIRE` is now **done (2de1840)** and should not be re-picked. Its
 structures remainder is **done (0759bb6)** too, so every `FEAT-WORLDGEN-STREAM` slice shipped so
 far is complete and the remaining `FEAT-WORLDGEN-STREAM` scope is `FEAT-WORLDGEN-STREAM-EXEMPT-API`
-and `FEAT-WORLDGEN-STREAM-DIRECTOR`.
+and `FEAT-WORLDGEN-STREAM-DIRECTOR`. Both of those stay closed to an agent, so do not re-derive the
+routing: `EXEMPT-API` still has no consumer even after `FEAT-CARGO-PICKUP-ENTITY` shipped (building
+it is speculative surface), and `DIRECTOR` is explicitly waiting on an operator call. Among the
+cuts, `FEAT-QUEST-PUZZLE-AUTHORED-STEP` is now **done (3743d0d)**: the authored catalog carries the
+`quest_sigil_01` → `quest_sigil_02` ring chain, so the `puzzle` secret tier finally has a permanent
+objective behind it and the item should not be re-picked.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
