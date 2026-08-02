@@ -10085,6 +10085,54 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   the 3-accept cap, accepting finally means something, and `FEAT-MAPUI-DOORS-05` closed with
   `0be97f5`, so the board is blocked on nothing but its own walk-in UI.
 
+- [x] **FEAT-QUEST-WARDEN-CHAIN** (done, 0a1f9e0) (new 2026-08-02): the objective system could
+  not name the run's climax. `FEAT-EXPEDITION-WARDEN-THRONE` (a14e1ae) made the world's boss a
+  place you fly to on purpose and made conquest a permanent property of the world, and
+  `FEAT-QUEST-TRIGGERS-REST` (840753d) closed doc 04's ten trigger kinds, but nothing listened to
+  the conquest, so the chain that should exist could not be authored. Value: an objective chain
+  that pins the Warden's arena, pays for taking the world's boss, and chases repeat conquests
+  across seasons.
+  1. **A twelfth trigger kind on the `clearHazard` precedent**: `conquerWorld` listens to a signal
+     the game already emits, `GameScene.recordWorldConquered`, which is the same false→true
+     transition `LifetimeStats.worldsConqueredTotal` counts. The producer is one line at the
+     existing victory branch, so arena, daily, weekly, gauntlet and practice are excluded by the
+     two guards that were already there (`recordWorldConquered` returns early with no world map,
+     and `recordExpeditionQuest` refuses an event without one).
+  2. **`distinctWorlds` needs no visited-set, and that is why it is the narrowing that shipped.**
+     A world can only be first-conquered once, so counting first conquests IS counting distinct
+     worlds, with no per-world state to persist and no way for the quest and the codex to disagree.
+     A re-win of a conquered world still feeds a plain `conquerWorld` step.
+  3. **The chain: two quests, four steps.** `quest_warden_01` "The Heart of the World" sends the
+     ship to the arena (`reachSector` `boss-arena`, run scope) and then asks for the world;
+     `quest_warden_02` "Crown of Wardens" asks for three Wardens and then for two different
+     worlds. Chain length 2, inside the catalog's 3 limit.
+  4. **A live conquest step pins the arena.** `buildQuestMarkers` emits a `boss-arena` marker for
+     it, so the chart pin, the OBJECTIVES row and the radar bearing all light up through the
+     shipped `buildQuestPins` path. It is guidance, not a promise: the patient timed spawn can
+     still field the boss wherever the ship stands.
+  5. **The payoff is routed to the victory screen, not to a toast nobody sees.** `showVictory` is
+     the statement after the producer and it pauses the scene and draws over the HUD, the fact
+     `FEAT-WARDEN-VICTORY-OVERLAY-LINE` recorded. New `ToastManager.recordNotice` files the
+     conquest's OBJECTIVE COMPLETE / QUEST COMPLETE / NEW OBJECTIVE toasts as run-end notices, so
+     `buildRunNotices` reports them as rows on the screen the player is actually looking at.
+  6. **Econ-neutral and version-free**, on the `FEAT-QUEST-CATALOG-DEPTH` precedent: every reward
+     sits inside the shipped band (steps 60 to 260, completions 120 to 350), no new payout rail
+     exists, `FEAT-ECON-WARDS` stays parked and untouched, and neither quest grants a key, because
+     a fifth entry in `EXPEDITION_QUEST_KEY_ORDER` reshapes the sealed regions and costs a
+     `WORLDGEN_VERSION` bump. No save field, no storage key, no version constant moved: quest
+     state is keyed by quest id under `survivor-expedition-quests`, so appended quests need no
+     migration and every existing profile keeps its progress.
+  7. **Two tests, and no more**: the `distinctWorlds` narrowing (a re-win must not count) and the
+     authoring trap that a run-scope conquest target above 1 is unreachable. Nothing else here is
+     non-obvious enough to pin.
+
+- [ ] **BALANCE-WARDEN-CHAIN-TARGETS** (new 2026-08-02, from FEAT-QUEST-WARDEN-CHAIN): three
+  Wardens then two different worlds, at 160/260/240/260 gold, are designed numbers, not played
+  ones. Two different worlds means two season re-rolls or two adopted seeds, which is a chase
+  measured in sessions rather than runs; whether that reads as the game's long spine or as a wall
+  is a feel judgement. Value: the chain's length matches how often a player actually finishes a
+  world. Deps: play.
+
 - [ ] **BALANCE-QUEST-HAZARD-TARGETS** (new 2026-07-31, from FEAT-QUEST-CATALOG-DEPTH): 2 hives
   on one expedition, then 6, then 1 lair, then 10 risk rooms. The supply is measured (300 run
   salts at seed 20260727: mean 3.7 nests per full-world run, p10 2, 240 of 300 runs with a
@@ -11465,6 +11513,17 @@ Never agent work. The fleet must not do any of these.
   Crystal Caves is the third region of every world, so a dark stretch is guaranteed once per
   expedition: is one dark region the right dose, or does the world want a second one deeper in.
   Deps: play.
+
+- [ ] **POLISH-WARDEN-CHAIN** (new 2026-08-02, from FEAT-QUEST-WARDEN-CHAIN). Value: the chain is
+  authored against numbers no browser has seen. Agents have no browser. Reach it: play an
+  expedition until `The Heart of the World` activates (it is the sixth chain head, so it waits on
+  a free slot of the three, or take it at a quest board). Check: (a) **the arena pin**: does the
+  chart pin for a conquest step read as "go here" or as clutter beside the throne's own `warden`
+  hazard tell on the same room? (b) **the victory rows**: after the kill, do the OBJECTIVE
+  COMPLETE / QUEST COMPLETE rows actually appear in the victory screen's notice list, and do they
+  read there or get lost under the earnings block? (c) **the chase**: three Wardens then two
+  different worlds: too long, about right, or too short? (d) **the copy**: does "Take the Warden
+  and conquer the world" read as an objective or as flavour text?
 
 - [ ] **POLISH-VICTORY-CONQUEST-KICKER** (new 2026-08-02, from
   FEAT-WARDEN-VICTORY-OVERLAY-LINE). Value: the expedition's biggest moment should land as a

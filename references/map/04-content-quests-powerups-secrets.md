@@ -1125,6 +1125,32 @@ objectives. A world now issues its own. Six points:
 4. **Econ-neutral and version-free**, on the `a8c1d38` precedent: same reward band, same
    `pendingGold` rail, section 6 stays parked, no storage key or version constant moved.
 
+### As built (FEAT-QUEST-WARDEN-CHAIN, 0a1f9e0, 2026-08-02)
+
+`conquerWorld` is the **twelfth** trigger kind, and like `clearHazard` it is not in this section's
+list: doc 04 predates the warden throne. The rule the two share is that a trigger for a signal the
+game already emits beats a kind nothing produces.
+
+1. **Shape**: `{ kind: 'conquerWorld'; distinctWorlds?: true }` as the trigger,
+   `{ kind: 'conquerWorld'; firstConquest: boolean }` as the event. The producer is
+   `GameScene.recordWorldConquered`, the existing victory branch, which already computes the
+   false→true transition for the victory kicker and for `worldsConqueredTotal`.
+2. **`distinctWorlds` carries no visited-set on purpose.** A world can only be first-conquered
+   once, so counting first conquests is counting distinct worlds. Contrast `reachSector`, which
+   needs `visitedSectorKeys` plus a world stamp because a room can be re-entered forever.
+3. **A conquest step names a place.** `buildQuestMarkers` emits a `boss-arena` marker for it, so
+   section 4's marker feed reaches the chart pin, the OBJECTIVES panel and the radar bearing with
+   no consumer change. It is guidance rather than a requirement: the patient timed spawn can still
+   field the boss outside the arena.
+4. **The completion is reported on the victory screen, not by a toast.** `showVictory` follows the
+   producer immediately and draws over the HUD, so `ToastManager.recordNotice` files the chain's
+   toasts as run-end notices and `buildRunNotices` renders them as rows.
+5. **The chain**: `quest_warden_01` "The Heart of the World" (find the arena, run scope; conquer
+   the world) hands off to `quest_warden_02` "Crown of Wardens" (three Wardens; two different
+   worlds). Four new steps of pure data, no key granted.
+6. **Econ-neutral and version-free**, the `a8c1d38` / `6bfd119` precedent: same reward band, same
+   `pendingGold` rail, section 6 stays parked, no storage key or version constant moved.
+
 ---
 
 ## 5. Secrets
