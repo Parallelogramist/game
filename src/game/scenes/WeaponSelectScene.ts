@@ -20,7 +20,10 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
-import { resolveMenuFontScale, scaledInt, computeRowStackFit } from '../../utils/HudScale';
+import {
+  resolveMenuFontScale, scaledInt, computeRowStackFit,
+  computeGridFit, MENU_GRID_MIN_SCALE,
+} from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 import {
   ACCENT_COLORS,
@@ -800,11 +803,12 @@ export class WeaponSelectScene extends Phaser.Scene {
   ) {
     const centerX = this.scale.width / 2;
     const scaledCardWidth = cardWidth * this.menuScale;
+    const availableWidth = this.scale.width - 32;
     // Cap columns to what fits the viewport width so portrait (720) wraps
     // instead of overflowing; wide viewports keep the requested max.
     const fitColumns = Math.max(
       1,
-      Math.floor((this.scale.width - 32) / (scaledCardWidth + cardSpacing * this.menuScale)),
+      Math.floor(availableWidth / (scaledCardWidth + cardSpacing * this.menuScale)),
     );
     const columns = Math.min(count, maxColumns, fitColumns);
     const rows = Math.ceil(count / columns);
@@ -817,10 +821,18 @@ export class WeaponSelectScene extends Phaser.Scene {
       cardSpacing * this.menuScale,
       availableHeight,
     );
-    // A grid that already overflows at design size (29 weapons at a full codex)
-    // keeps today's size rather than shrinking further into illegibility; only
-    // grids that fit take the density boost.
+    // `scale` floors at design size so a grid that fits is never shrunk. When the floor
+    // actually bites — menuScale * heightFit below 1 — the grid is taller than the band
+    // and centring it paints outside the canvas: 29 weapons is 956 units of grid in a
+    // 460-unit band, which put the whole first row above y=0.
     const scale = Math.max(Math.min(1, this.menuScale), this.menuScale * heightFit);
+
+    if (this.menuScale * heightFit < 1) {
+      return this.computeFittedGridLayout(
+        count, cardWidth, cardHeight, cardSpacing, maxColumns,
+        availableWidth, availableHeight,
+      );
+    }
 
     const scaledWidth = cardWidth * scale;
     const scaledHeight = cardHeight * scale;
@@ -829,6 +841,63 @@ export class WeaponSelectScene extends Phaser.Scene {
     const totalGridHeight = rows * scaledHeight + (rows - 1) * scaledSpacing;
     const startX = centerX - totalGridWidth / 2 + scaledWidth / 2;
     const startY = this.scale.height / 2 - totalGridHeight / 2 + yOffset * scale;
+
+    return {
+      columns,
+      scale,
+      totalGridWidth,
+      totalGridHeight,
+      startY,
+      positionAt: (index: number) => ({
+        x: startX + (index % columns) * (scaledWidth + scaledSpacing),
+        y: startY + Math.floor(index / columns) * (scaledHeight + scaledSpacing),
+      }),
+    };
+  }
+
+  /**
+   * The band-fitting layout an over-tall grid falls back to. It may exceed the caller's
+   * preferred `maxColumns`, because at a full codex no column count at or below 7 leaves
+   * the cards legible: 29 weapons resolve to 10 columns at 0.768 rather than 7 at 0.481.
+   */
+  private computeFittedGridLayout(
+    count: number,
+    cardWidth: number,
+    cardHeight: number,
+    cardSpacing: number,
+    maxColumns: number,
+    availableWidth: number,
+    availableHeight: number,
+  ) {
+    const widestColumns = Math.floor(
+      (availableWidth + cardSpacing * MENU_GRID_MIN_SCALE)
+      / ((cardWidth + cardSpacing) * MENU_GRID_MIN_SCALE),
+    );
+    const fit = computeGridFit({
+      count,
+      cardWidth,
+      cardHeight,
+      columnGap: cardSpacing,
+      rowGap: cardSpacing,
+      availableWidth,
+      availableHeight,
+      maxColumns: Math.max(maxColumns, widestColumns),
+      maxScale: this.menuScale,
+      minScale: MENU_GRID_MIN_SCALE,
+    });
+
+    const { columns, scale } = fit;
+    const scaledWidth = cardWidth * scale;
+    const scaledHeight = cardHeight * scale;
+    const scaledSpacing = cardSpacing * scale;
+    const totalGridWidth = columns * scaledWidth + (columns - 1) * scaledSpacing;
+    const totalGridHeight = fit.rows * scaledHeight + (fit.rows - 1) * scaledSpacing;
+    const startX = this.scale.width / 2 - totalGridWidth / 2 + scaledWidth / 2;
+    // Centred in the band rather than on the canvas: the reserves are asymmetric, and
+    // canvas-centring is exactly what pushed the first row above the header.
+    const startY = GRID_TOP_RESERVE * this.menuScale
+      + Math.max(0, (availableHeight - totalGridHeight) / 2)
+      + scaledHeight / 2;
 
     return {
       columns,
