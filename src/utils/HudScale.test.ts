@@ -19,6 +19,7 @@ import {
   computeCardGridInBand,
   fitTextWidth,
   computeScrollViewMetrics,
+  fitMenuScale,
 } from './HudScale';
 
 // Node env: window is undefined, so densityCompensation resolves to 1 and
@@ -308,5 +309,28 @@ describe('computeScrollViewMetrics (density-scaled scroll band)', () => {
   test('the band shrinks as the chrome grows, on the same canvas', () => {
     expect(computeScrollViewMetrics(2000, 720, 1).height)
       .toBeGreaterThan(computeScrollViewMetrics(2000, 720, 1.6).height);
+  });
+});
+
+describe('fitMenuScale (a composed block capped by the space it has)', () => {
+  test('a viewport with no density to spend keeps its design geometry', () => {
+    // The byte-identity guarantee the whole density sweep rests on.
+    expect(fitMenuScale(1, 720, 582)).toBe(1);
+    expect(fitMenuScale(0.7, 720, 582)).toBe(1);
+  });
+
+  test('a density-compressed viewport takes the scale its budget allows', () => {
+    // CreditsScene on a 2000x720 landscape phone: 92 top + 360 card + 130 bottom.
+    expect(fitMenuScale(1.6, 720, 582)).toBeCloseTo(1.237113, 5);
+  });
+
+  test('the density scale still wins when the budget is roomier than it', () => {
+    // CreditsScene stacked on a 720x1280 portrait phone: the column fits at 1.32.
+    expect(fitMenuScale(1.2, 1280, 970)).toBe(1.2);
+  });
+
+  test('a zero or negative design extent cannot divide', () => {
+    expect(fitMenuScale(1.6, 720, 0)).toBe(1.6);
+    expect(fitMenuScale(0.8, 720, -10)).toBe(1);
   });
 });

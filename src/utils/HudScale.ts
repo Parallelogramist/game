@@ -522,3 +522,15 @@ export function computeScrollViewMetrics(
     contentWidth: canvasWidth / menuScale,
   };
 }
+
+/**
+ * The largest scale a composed block may take without outgrowing the space it has.
+ *
+ * Floored at 1 on purpose: a viewport with no density compensation to spend must come out
+ * byte-identical to the pre-sweep layout, and that is a structural guarantee here rather than
+ * an arithmetic one, because every `scaledInt(1, k)` returns `k` unchanged.
+ */
+export function fitMenuScale(menuScale: number, available: number, design: number): number {
+  if (design <= 0) return Math.max(1, menuScale);
+  return Math.max(1, Math.min(menuScale, available / design));
+}
