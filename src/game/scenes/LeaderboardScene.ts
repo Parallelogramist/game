@@ -24,8 +24,22 @@ import {
   BODY_COLORS,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
+import { fitMenuScale, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 const ENTRIES_TO_SHOW = 30;
+const BESTS_TILE_COUNT = 6;
+const BESTS_TILE_WIDTH = 160;
+const BESTS_TILE_HEIGHT = 70;
+const BESTS_TILE_GAP = 12;
+const LEADERBOARD_TAB_COUNT = 7;
+const LEADERBOARD_TAB_WIDTH = 110;
+const LEADERBOARD_TAB_SPACING = 8;
+/** The list anchor (240) plus its header gap (28) plus six 36-unit rows plus the back reserve. */
+const LEADERBOARD_COLUMN_HEIGHT = 542;
+/** The back button's centre offset from the canvas bottom (36) plus half its height (22). */
+const LEADERBOARD_BACK_RESERVE = 58;
+const LEADERBOARD_MAX_ROWS = 12;
 
 type FilterMode = 'all' | 'daily' | 'weekly' | 'victory' | 'gauntlet' | 'runner' | 'endless';
 
@@ -58,6 +72,10 @@ export class LeaderboardScene extends Phaser.Scene {
   private menuTabs: MenuTabs | null = null;
   private backButton!: MenuButton;
   private listStartY = 240;
+  private menuScale = 1;
+  private tabScale = 1;
+  private bestsPerRow = BESTS_TILE_COUNT;
+  private maxListRows = LEADERBOARD_MAX_ROWS;
 
   constructor() {
     super({ key: 'LeaderboardScene' });
@@ -66,6 +84,27 @@ export class LeaderboardScene extends Phaser.Scene {
   create(): void {
     const centerX = this.cameras.main.centerX;
     const screenHeight = this.cameras.main.height;
+
+    // The bests strip wraps by width, the wrap feeds the vertical budget, and the budget sets the
+    // scale that sets the tile width. Measured at the uncapped candidate to break the loop: the
+    // capped scale is never larger, so the wrap count can only be conservative, never overflow.
+    const menuScale = resolveMenuFontScale(
+      this.scale.width, screenHeight, getSettingsManager().getUiScale(),
+    );
+    this.bestsPerRow = Math.max(1, Math.min(BESTS_TILE_COUNT, Math.floor(
+      (this.scale.width - scaledInt(menuScale, 32))
+      / scaledInt(menuScale, BESTS_TILE_WIDTH + BESTS_TILE_GAP),
+    )));
+    const bestsExtraHeight = (Math.ceil(BESTS_TILE_COUNT / this.bestsPerRow) - 1)
+      * (BESTS_TILE_HEIGHT + BESTS_TILE_GAP);
+    this.menuScale = fitMenuScale(
+      menuScale, screenHeight, LEADERBOARD_COLUMN_HEIGHT + bestsExtraHeight,
+    );
+    // The 7-tab strip is 818 design units against a 720-unit portrait canvas, so two tabs were
+    // already off-canvas at scale 1. Desktop's cap is 1.545, so this resolves to 1.0 there.
+    this.tabScale = Math.min(this.menuScale, (this.scale.width - 16)
+      / (LEADERBOARD_TAB_COUNT * LEADERBOARD_TAB_WIDTH
+         + (LEADERBOARD_TAB_COUNT - 1) * LEADERBOARD_TAB_SPACING));
 
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
@@ -78,22 +117,31 @@ export class LeaderboardScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    const title = makeDisplayText(this, centerX, 32, 'LEADERBOARD', {
-      fontSize: 30,
+    const title = makeDisplayText(this, centerX, scaledInt(this.menuScale, 32), 'LEADERBOARD', {
+      fontSize: scaledInt(this.menuScale, 30),
       color: ACCENT_COLORS_STR.gold,
-      strokeWidth: 5,
-      letterSpacing: 4,
+      strokeWidth: scaledInt(this.menuScale, 5),
+      letterSpacing: 4 * this.menuScale,
     });
 
-    const subtitle = makeBodyText(this, centerX, 64, 'Personal bests + challenge history', {
-      fontSize: 12,
-      color: TEXT_COLORS.muted,
-    });
+    const subtitle = makeBodyText(this, centerX, scaledInt(this.menuScale, 64),
+      'Personal bests + challenge history', {
+        fontSize: scaledInt(this.menuScale, 12),
+        color: TEXT_COLORS.muted,
+      });
 
-    // Extra bests rows (narrow viewports) push the tabs and list down.
-    const bestsExtraHeight = this.renderPersonalBestsStrip(centerX, 110);
-    this.renderFilterTabs(centerX, 192 + bestsExtraHeight);
-    this.listStartY = 240 + bestsExtraHeight;
+    this.renderPersonalBestsStrip(centerX, scaledInt(this.menuScale, 110));
+    this.renderFilterTabs(centerX, scaledInt(this.menuScale, 192 + bestsExtraHeight));
+    this.listStartY = scaledInt(this.menuScale, 240 + bestsExtraHeight);
+
+    // The 12-row constant painted row 11 under the BACK button on desktop; the count now comes
+    // from the band that is actually free below the list.
+    const firstRowY = this.listStartY + scaledInt(this.menuScale, 28);
+    const rowPitch = scaledInt(this.menuScale, 36);
+    this.maxListRows = Math.max(1, Math.min(LEADERBOARD_MAX_ROWS, 1 + Math.floor(
+      (screenHeight - scaledInt(this.menuScale, LEADERBOARD_BACK_RESERVE)
+       - scaledInt(this.menuScale, 15) - firstRowY) / rowPitch,
+    )));
 
     this.allEntries = getRecentLeaderboardEntries(ENTRIES_TO_SHOW);
     this.gauntletEntries = getGauntletRuns();
@@ -104,12 +152,12 @@ export class LeaderboardScene extends Phaser.Scene {
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: screenHeight - 36,
-      width: 200,
-      height: 44,
+      y: screenHeight - scaledInt(this.menuScale, 36),
+      width: scaledInt(this.menuScale, 200),
+      height: scaledInt(this.menuScale, 44),
       label: '← BACK',
       variant: 'neutral',
-      fontSize: 16,
+      fontSize: scaledInt(this.menuScale, 16),
       onActivate: () => this.returnToMenu(),
     });
     this.backButton.card.hitZone.on('pointerover', () => this.backButton.setHoverState(true));
@@ -148,9 +196,9 @@ export class LeaderboardScene extends Phaser.Scene {
 
   /**
    * Six personal-bests tiles using small menu cards. Wraps into multiple rows
-   * on narrow viewports; returns the extra height beyond a single row.
+   * on narrow viewports.
    */
-  private renderPersonalBestsStrip(centerX: number, topY: number): number {
+  private renderPersonalBestsStrip(centerX: number, topY: number): void {
     const lifetimeStats = getAchievementManager().getLifetimeStats();
     const accountLevel = getMetaProgressionManager().getAccountLevel();
 
@@ -163,24 +211,24 @@ export class LeaderboardScene extends Phaser.Scene {
       { label: 'ACCOUNT LV', value: String(accountLevel), role: 'teal' },
     ];
 
-    const tileWidth = 160;
-    const tileHeight = 70;
-    const gap = 12;
-    const tilesPerRow = Math.max(1, Math.min(tiles.length, Math.floor((this.scale.width - 32) / (tileWidth + gap))));
+    const scale = this.menuScale;
+    const tileWidth = BESTS_TILE_WIDTH * scale;
+    const columnPitch = (BESTS_TILE_WIDTH + BESTS_TILE_GAP) * scale;
+    const rowPitch = (BESTS_TILE_HEIGHT + BESTS_TILE_GAP) * scale;
 
     tiles.forEach((tile, index) => {
-      const rowIndex = Math.floor(index / tilesPerRow);
-      const tilesInRow = Math.min(tilesPerRow, tiles.length - rowIndex * tilesPerRow);
-      const rowWidth = tilesInRow * tileWidth + (tilesInRow - 1) * gap;
-      const x = centerX - rowWidth / 2 + tileWidth / 2 + (index % tilesPerRow) * (tileWidth + gap);
-      const y = topY + rowIndex * (tileHeight + gap);
+      const rowIndex = Math.floor(index / this.bestsPerRow);
+      const tilesInRow = Math.min(this.bestsPerRow, tiles.length - rowIndex * this.bestsPerRow);
+      const rowWidth = tilesInRow * tileWidth + (tilesInRow - 1) * BESTS_TILE_GAP * scale;
+      const x = centerX - rowWidth / 2 + tileWidth / 2 + (index % this.bestsPerRow) * columnPitch;
+      const y = topY + rowIndex * rowPitch;
       const role = tile.role;
       const bodyKey = role === 'safe' ? 'safe' : role === 'primary' ? 'primary' : role === 'gold' ? 'gold' : role === 'magenta' ? 'magenta' : 'teal';
       const card = createMenuCard(this, {
         x,
         y,
-        width: tileWidth,
-        height: tileHeight,
+        width: BESTS_TILE_WIDTH,
+        height: BESTS_TILE_HEIGHT,
         pulseSeed: index * 0.7,
         bodyFillColor: BODY_COLORS[bodyKey as keyof typeof BODY_COLORS],
         accentColor: roleAccent(role),
@@ -204,10 +252,9 @@ export class LeaderboardScene extends Phaser.Scene {
       });
       card.frame.add(valueText);
 
+      card.container.setScale(scale);
       this.bestsCards.push(card);
     });
-
-    return (Math.ceil(tiles.length / tilesPerRow) - 1) * (tileHeight + gap);
   }
 
   private renderFilterTabs(centerX: number, tabY: number): void {
@@ -227,10 +274,10 @@ export class LeaderboardScene extends Phaser.Scene {
       x: centerX,
       y: tabY,
       tabs: tabs.map((t) => ({ id: t.mode, label: t.label, accentRole: t.accentRole })),
-      tabWidth: 110,
-      tabHeight: 32,
-      spacing: 8,
-      fontSize: 13,
+      tabWidth: scaledInt(this.tabScale, LEADERBOARD_TAB_WIDTH),
+      tabHeight: scaledInt(this.tabScale, 32),
+      spacing: scaledInt(this.tabScale, LEADERBOARD_TAB_SPACING),
+      fontSize: scaledInt(this.tabScale, 13),
       initialActiveId: this.currentFilter,
       onChange: (id) => {
         this.currentFilter = id as FilterMode;
@@ -247,10 +294,10 @@ export class LeaderboardScene extends Phaser.Scene {
 
     if (this.currentFilter === 'gauntlet') {
       if (this.gauntletEntries.length === 0) {
-        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + 40,
+        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + scaledInt(this.menuScale, 40),
           'No gauntlet runs yet — try the GAUNTLET boss rush!',
           {
-            fontSize: 16,
+            fontSize: scaledInt(this.menuScale, 16),
             color: TEXT_COLORS.dim,
           });
         this.entryListChildren.push(emptyText);
@@ -262,10 +309,10 @@ export class LeaderboardScene extends Phaser.Scene {
 
     if (this.currentFilter === 'runner') {
       if (this.runnerEntries.length === 0) {
-        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + 40,
+        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + scaledInt(this.menuScale, 40),
           'No runner scores yet — try the RUNNER mode!',
           {
-            fontSize: 16,
+            fontSize: scaledInt(this.menuScale, 16),
             color: TEXT_COLORS.dim,
           });
         this.entryListChildren.push(emptyText);
@@ -277,10 +324,10 @@ export class LeaderboardScene extends Phaser.Scene {
 
     if (this.currentFilter === 'endless') {
       if (this.endlessEntries.length === 0) {
-        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + 40,
+        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + scaledInt(this.menuScale, 40),
           'No endless runs yet — win a run, then continue into ENDLESS!',
           {
-            fontSize: 16,
+            fontSize: scaledInt(this.menuScale, 16),
             color: TEXT_COLORS.dim,
           });
         this.entryListChildren.push(emptyText);
@@ -292,12 +339,12 @@ export class LeaderboardScene extends Phaser.Scene {
 
     const filtered = filterEntries(this.allEntries, this.currentFilter);
     if (filtered.length === 0) {
-      const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + 40,
+      const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + scaledInt(this.menuScale, 40),
         this.currentFilter === 'all'
           ? 'No attempts yet — try a daily or weekly run!'
           : 'No runs match this filter.',
         {
-          fontSize: 16,
+          fontSize: scaledInt(this.menuScale, 16),
           color: TEXT_COLORS.dim,
         });
       this.entryListChildren.push(emptyText);
@@ -309,10 +356,14 @@ export class LeaderboardScene extends Phaser.Scene {
 
   private renderEntries(entries: DailyLeaderboardEntry[], centerX: number): void {
     const listStartY = this.listStartY;
-    const rowHeight = 36;
-    const maxRows = 12;
+    const rowHeight = scaledInt(this.menuScale, 36);
+    const maxRows = entries.length > this.maxListRows
+      ? Math.max(1, this.maxListRows - 1)
+      : this.maxListRows;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = Math.min(800, this.scale.width - 32);
+    const rowWidth = Math.min(
+      scaledInt(this.menuScale, 800), this.scale.width - scaledInt(this.menuScale, 32),
+    );
     const leftX = centerX - rowWidth / 2;
     // Column anchors are fractions of the 800px design width so narrow
     // viewports compress proportionally; at rowWidth 800 they are unchanged.
@@ -330,7 +381,7 @@ export class LeaderboardScene extends Phaser.Scene {
     ];
     for (const header of headerLabels) {
       const t = makeDisplayText(this, header.x, listStartY, header.text, {
-        fontSize: 11,
+        fontSize: scaledInt(this.menuScale, 11),
         color: TEXT_COLORS.muted,
         letterSpacing: 1,
       });
@@ -338,7 +389,7 @@ export class LeaderboardScene extends Phaser.Scene {
     }
 
     displayEntries.forEach((entry, index) => {
-      const rowY = listStartY + 28 + index * rowHeight;
+      const rowY = listStartY + scaledInt(this.menuScale, 28) + index * rowHeight;
       const isWeekly = entry.challengeType === 'weekly';
       const role: 'gold' | 'magenta' | 'safe' = entry.wasVictory ? 'safe' : isWeekly ? 'magenta' : 'gold';
 
@@ -346,7 +397,7 @@ export class LeaderboardScene extends Phaser.Scene {
         x: centerX,
         y: rowY,
         width: rowWidth,
-        height: 30,
+        height: scaledInt(this.menuScale, 30),
         bodyFillColor: BODY_COLORS[role],
         accentColor: roleAccent(role),
         bannerHeight: 0,
@@ -371,16 +422,18 @@ export class LeaderboardScene extends Phaser.Scene {
       ];
       for (const cell of cells) {
         const t = cell.emphasis
-          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
-          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, letterSpacing: 1 })
+          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, align: 'center' });
         card.frame.add(t);
       }
     });
 
     if (entries.length > displayEntries.length) {
-      const moreText = makeBodyText(this, centerX, listStartY + 28 + displayEntries.length * rowHeight + 8,
+      const moreText = makeBodyText(this, centerX,
+        listStartY + scaledInt(this.menuScale, 28) + displayEntries.length * rowHeight
+        + scaledInt(this.menuScale, 8),
         `... ${entries.length - displayEntries.length} more`, {
-          fontSize: 11,
+          fontSize: scaledInt(this.menuScale, 11),
           color: TEXT_COLORS.dim,
         });
       this.entryListChildren.push(moreText);
@@ -389,10 +442,14 @@ export class LeaderboardScene extends Phaser.Scene {
 
   private renderGauntletEntries(entries: GauntletRunEntry[], centerX: number): void {
     const listStartY = this.listStartY;
-    const rowHeight = 36;
-    const maxRows = 12;
+    const rowHeight = scaledInt(this.menuScale, 36);
+    const maxRows = entries.length > this.maxListRows
+      ? Math.max(1, this.maxListRows - 1)
+      : this.maxListRows;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = Math.min(800, this.scale.width - 32);
+    const rowWidth = Math.min(
+      scaledInt(this.menuScale, 800), this.scale.width - scaledInt(this.menuScale, 32),
+    );
     const leftX = centerX - rowWidth / 2;
     const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
 
@@ -406,7 +463,7 @@ export class LeaderboardScene extends Phaser.Scene {
     ];
     for (const header of headerLabels) {
       const t = makeDisplayText(this, header.x, listStartY, header.text, {
-        fontSize: 11,
+        fontSize: scaledInt(this.menuScale, 11),
         color: TEXT_COLORS.muted,
         letterSpacing: 1,
       });
@@ -414,14 +471,14 @@ export class LeaderboardScene extends Phaser.Scene {
     }
 
     displayEntries.forEach((entry, index) => {
-      const rowY = listStartY + 28 + index * rowHeight;
+      const rowY = listStartY + scaledInt(this.menuScale, 28) + index * rowHeight;
       const role: 'gold' | 'teal' = index === 0 ? 'gold' : 'teal';
 
       const card = createMenuCard(this, {
         x: centerX,
         y: rowY,
         width: rowWidth,
-        height: 30,
+        height: scaledInt(this.menuScale, 30),
         bodyFillColor: BODY_COLORS[role],
         accentColor: roleAccent(role),
         bannerHeight: 0,
@@ -445,16 +502,18 @@ export class LeaderboardScene extends Phaser.Scene {
       ];
       for (const cell of cells) {
         const t = cell.emphasis
-          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
-          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, letterSpacing: 1 })
+          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, align: 'center' });
         card.frame.add(t);
       }
     });
 
     if (entries.length > displayEntries.length) {
-      const moreText = makeBodyText(this, centerX, listStartY + 28 + displayEntries.length * rowHeight + 8,
+      const moreText = makeBodyText(this, centerX,
+        listStartY + scaledInt(this.menuScale, 28) + displayEntries.length * rowHeight
+        + scaledInt(this.menuScale, 8),
         `... ${entries.length - displayEntries.length} more`, {
-          fontSize: 11,
+          fontSize: scaledInt(this.menuScale, 11),
           color: TEXT_COLORS.dim,
         });
       this.entryListChildren.push(moreText);
@@ -463,10 +522,14 @@ export class LeaderboardScene extends Phaser.Scene {
 
   private renderRunnerEntries(entries: RunnerRunEntry[], centerX: number): void {
     const listStartY = this.listStartY;
-    const rowHeight = 36;
-    const maxRows = 12;
+    const rowHeight = scaledInt(this.menuScale, 36);
+    const maxRows = entries.length > this.maxListRows
+      ? Math.max(1, this.maxListRows - 1)
+      : this.maxListRows;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = Math.min(800, this.scale.width - 32);
+    const rowWidth = Math.min(
+      scaledInt(this.menuScale, 800), this.scale.width - scaledInt(this.menuScale, 32),
+    );
     const leftX = centerX - rowWidth / 2;
     const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
 
@@ -479,7 +542,7 @@ export class LeaderboardScene extends Phaser.Scene {
     ];
     for (const header of headerLabels) {
       const t = makeDisplayText(this, header.x, listStartY, header.text, {
-        fontSize: 11,
+        fontSize: scaledInt(this.menuScale, 11),
         color: TEXT_COLORS.muted,
         letterSpacing: 1,
       });
@@ -487,14 +550,14 @@ export class LeaderboardScene extends Phaser.Scene {
     }
 
     displayEntries.forEach((entry, index) => {
-      const rowY = listStartY + 28 + index * rowHeight;
+      const rowY = listStartY + scaledInt(this.menuScale, 28) + index * rowHeight;
       const role: 'gold' | 'primary' = index === 0 ? 'gold' : 'primary';
 
       const card = createMenuCard(this, {
         x: centerX,
         y: rowY,
         width: rowWidth,
-        height: 30,
+        height: scaledInt(this.menuScale, 30),
         bodyFillColor: BODY_COLORS[role],
         accentColor: roleAccent(role),
         bannerHeight: 0,
@@ -517,16 +580,18 @@ export class LeaderboardScene extends Phaser.Scene {
       ];
       for (const cell of cells) {
         const t = cell.emphasis
-          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
-          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, letterSpacing: 1 })
+          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, align: 'center' });
         card.frame.add(t);
       }
     });
 
     if (entries.length > displayEntries.length) {
-      const moreText = makeBodyText(this, centerX, listStartY + 28 + displayEntries.length * rowHeight + 8,
+      const moreText = makeBodyText(this, centerX,
+        listStartY + scaledInt(this.menuScale, 28) + displayEntries.length * rowHeight
+        + scaledInt(this.menuScale, 8),
         `... ${entries.length - displayEntries.length} more`, {
-          fontSize: 11,
+          fontSize: scaledInt(this.menuScale, 11),
           color: TEXT_COLORS.dim,
         });
       this.entryListChildren.push(moreText);
@@ -535,10 +600,14 @@ export class LeaderboardScene extends Phaser.Scene {
 
   private renderEndlessEntries(entries: EndlessRunEntry[], centerX: number): void {
     const listStartY = this.listStartY;
-    const rowHeight = 36;
-    const maxRows = 12;
+    const rowHeight = scaledInt(this.menuScale, 36);
+    const maxRows = entries.length > this.maxListRows
+      ? Math.max(1, this.maxListRows - 1)
+      : this.maxListRows;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = Math.min(800, this.scale.width - 32);
+    const rowWidth = Math.min(
+      scaledInt(this.menuScale, 800), this.scale.width - scaledInt(this.menuScale, 32),
+    );
     const leftX = centerX - rowWidth / 2;
     const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
 
@@ -552,7 +621,7 @@ export class LeaderboardScene extends Phaser.Scene {
     ];
     for (const header of headerLabels) {
       const t = makeDisplayText(this, header.x, listStartY, header.text, {
-        fontSize: 11,
+        fontSize: scaledInt(this.menuScale, 11),
         color: TEXT_COLORS.muted,
         letterSpacing: 1,
       });
@@ -560,14 +629,14 @@ export class LeaderboardScene extends Phaser.Scene {
     }
 
     displayEntries.forEach((entry, index) => {
-      const rowY = listStartY + 28 + index * rowHeight;
+      const rowY = listStartY + scaledInt(this.menuScale, 28) + index * rowHeight;
       const role: 'gold' | 'magenta' = index === 0 ? 'gold' : 'magenta';
 
       const card = createMenuCard(this, {
         x: centerX,
         y: rowY,
         width: rowWidth,
-        height: 30,
+        height: scaledInt(this.menuScale, 30),
         bodyFillColor: BODY_COLORS[role],
         accentColor: roleAccent(role),
         bannerHeight: 0,
@@ -591,16 +660,18 @@ export class LeaderboardScene extends Phaser.Scene {
       ];
       for (const cell of cells) {
         const t = cell.emphasis
-          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
-          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, letterSpacing: 1 })
+          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: scaledInt(this.menuScale, 12), color: cell.color, align: 'center' });
         card.frame.add(t);
       }
     });
 
     if (entries.length > displayEntries.length) {
-      const moreText = makeBodyText(this, centerX, listStartY + 28 + displayEntries.length * rowHeight + 8,
+      const moreText = makeBodyText(this, centerX,
+        listStartY + scaledInt(this.menuScale, 28) + displayEntries.length * rowHeight
+        + scaledInt(this.menuScale, 8),
         `... ${entries.length - displayEntries.length} more`, {
-          fontSize: 11,
+          fontSize: scaledInt(this.menuScale, 11),
           color: TEXT_COLORS.dim,
         });
       this.entryListChildren.push(moreText);
