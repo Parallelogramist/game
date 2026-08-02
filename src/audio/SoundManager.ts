@@ -305,6 +305,29 @@ export class SoundManager {
   }
 
   /**
+   * Play the run-end permanent-unlock sting: a low bloom that opens into a bright octave.
+   * Voiced on PICKUP_HEALTH, the one sample no other run-end cue touches, so an unlock is
+   * heard as its own event beside the game-over doom, the victory fanfare and the
+   * card-reveal chime rather than as another sparkle.
+   */
+  playUnlockEarned(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // Low bloom: C3 + G3.
+    this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[0], volume: volume * 0.7 });
+    this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[3], volume: volume * 0.5 });
+    // The octave opens: C4 + G4.
+    this.scene.time.delayedCall(150, () => {
+      this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[5], volume: volume * 0.9 });
+      this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[8], volume: volume * 0.7 });
+    });
+    // Resolve on C5, with an E5 sparkle riding it.
+    this.scene.time.delayedCall(320, () => {
+      this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[10], volume: volume * 1.0 });
+      this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[12], volume: volume * 0.6 });
+    });
+  }
+
+  /**
    * Play combo tier-up stinger — ascending two-note chime that rises per tier.
    * Uses higher pitches for higher tiers to reflect escalating intensity.
    */

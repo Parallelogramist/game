@@ -30,6 +30,8 @@ const UNLOCK_TARGET_TAGS: Record<'weapon' | 'ship' | 'cosmetic' | 'stage', RunEa
   cosmetic: 'COSMETIC',
 };
 
+const PERMANENT_UNLOCK_TAGS: ReadonlySet<RunEarningTag> = new Set(Object.values(UNLOCK_TARGET_TAGS));
+
 export interface RunEarningSources {
   unlocks: { displayName: string; hintText: string; target: 'weapon' | 'ship' | 'cosmetic' | 'stage' }[];
   achievements: { name: string; detail: string }[];
@@ -59,6 +61,16 @@ export function buildRunEarnings(sources: RunEarningSources): RunEarning[] {
       detail: `+${quest.gold} gold`,
     })),
   ];
+}
+
+/**
+ * Whether a run earned a permanent unlock: the rarest earning kind, and the only one with no
+ * sound of its own, since the achievement callback stings as it fires while the hidden-unlock
+ * callback deliberately raises a toast that the end overlay covers. Read from
+ * UNLOCK_TARGET_TAGS so a new unlock target cannot drop out of it silently.
+ */
+export function hasPermanentUnlock(earnings: RunEarning[]): boolean {
+  return earnings.some((earning) => PERMANENT_UNLOCK_TAGS.has(earning.tag));
 }
 
 /** Names shown inline on the victory overlay before the count takes over. */

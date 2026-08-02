@@ -20,7 +20,7 @@ import { getDailyQuestBoard, getLiveDailyQuestBoard, previewDailyQuestSettle, se
 import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestDefinition, type DailyQuestRunData } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
-import { buildRunEarnings, formatRunEarningsLine, type EarlyRunEndRecord, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
+import { buildRunEarnings, formatRunEarningsLine, hasPermanentUnlock, type EarlyRunEndRecord, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
 import { buildVictoryKicker, type VictoryConquest } from '../runend/victoryKicker';
 
 /**
@@ -1723,6 +1723,12 @@ export class PauseMenuManager {
       this.scene.scale.height - 100 - questBoardReserve
     );
 
+    // Nothing on this dialog staggers, so the sting waits only long enough not to land on the
+    // Confirm click that swapped this screen in.
+    if (hasPermanentUnlock(earnings)) {
+      this.scene.time.delayedCall(180, () => this.soundManager.playUnlockEarned());
+    }
+
     // Dropped rather than clipped when the panel's own minimum row count ate the reserve on a
     // short viewport. 86 = Continue's centre offset 49 plus its half-height 25 plus a 12 margin.
     let contentBottomY = panelBottomY;
@@ -1995,6 +2001,12 @@ export class PauseMenuManager {
       earningsText.setOrigin(0.5);
       earningsText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
       earningsText.setName('victoryEarned');
+    }
+
+    // 760 ms clears both the victory fanfare's last note (540 ms) and the card-reveal chime's
+    // tail (520 ms), so the rarest thing the win paid is the last thing heard.
+    if (hasPermanentUnlock(data.runEarnings ?? [])) {
+      this.scene.time.delayedCall(760, () => this.soundManager.playUnlockEarned());
     }
 
     // The finds sit one line under the earnings, still inside the free band that ends at
@@ -2604,10 +2616,14 @@ export class PauseMenuManager {
     // under this overlay, so this panel is the only place they are reported — as is
     // everything the toast diet suppressed during the run.
     const runRows = [...(data.runEarnings ?? []), ...(data.runNotices ?? [])];
+    let unlockStingSlot = -1;
     if (runRows.length > 0) {
       // Whatever still has to fit underneath: the restart hint always, plus each optional
       // button below (REMATCH, COPY RESULT) at its 20 + 38 slot.
       const tailReserve = 40 + (data.rematch ? 58 : 0) + (data.daily ? 58 : 0);
+      // The panel's background is the very next element registered, so its stagger slot is
+      // the frame the unlock row starts fading in.
+      if (hasPermanentUnlock(data.runEarnings ?? [])) unlockStingSlot = animatedElements.length;
       contentBottomY = this.createRunEarningsPanel(
         runRows,
         centerX,
@@ -2731,6 +2747,15 @@ export class PauseMenuManager {
         reveal.playGlowPulse();
         // Discovery chime lands with the halo, well after the game-over sting.
         this.soundManager.playAchievementUnlock();
+      });
+    }
+
+    // The sting rides the panel's own fade-in, so it lands seconds after the game-over doom
+    // chord instead of underneath it. The card reveal registers earlier, so a run that did
+    // both is heard as discovery and then unlock, never as one noise.
+    if (unlockStingSlot >= 0) {
+      this.scene.time.delayedCall(unlockStingSlot * staggerDelay + 300, () => {
+        this.soundManager.playUnlockEarned();
       });
     }
 
