@@ -1401,6 +1401,15 @@ construction (no gold, arena relic table at the arena rate, already-capped `FIEL
 the gold row and both fragment rows were cut to `FEAT-SECRET-REWARD-GOLD` and
 `FEAT-SECRET-REWARD-FRAGMENTS`, so do not re-derive why they are absent.
 
+**`FEAT-WORLD-AMBIENT-STIR` (`7291ff6`) took README section 6's last cheaply reachable unbuilt
+bullet, ambient world state.** Three rooms per expedition now grow fresh hazard ground, keyed on a
+new per-world `expeditionCount`, so a charted room is not the room the profile left. The "a wall
+collapsed" half of that bullet is cut to `FEAT-STIR-COLLAPSE` on a mechanical reason (blocking
+geometry needs a reachability proof, non-blocking hazard ground needs none); do not re-derive it.
+Of that section's remaining bullets, moving walls and low-gravity drift stay deferred on their own
+merits, the arena retune and completion-percentage-as-a-metric want play, and boss rooms as gates
+would change how a boss is summoned rather than how a room is built.
+
 `FEAT-SECRET-HIDDEN-LIFETIME` (cf08619) closed the last gap in that chain: breaking into a
 hidden sector now feeds its own lifetime counter, `hiddenSectorsFoundTotal`, kept deliberately
 apart from `secretsFoundTotal` so the shipped cache thresholds could not move, and two cosmetic
@@ -7424,6 +7433,76 @@ exploring pays is the end of Phase 5.
   touched: `COMBO_TIER_LIGHT_RADIUS` already scales it with combo tier and a second knob is a
   feel call, filed as question (b) of `POLISH-REGION-DARK`.
 
+- [x] **FEAT-WORLD-AMBIENT-STIR** (done, 7291ff6) (new 2026-08-02, from
+  `references/map/README.md` section 6's last unbuilt bullet): the world stopped being the same
+  world every life. Every expedition, three rooms grow fresh hazard ground that was not there
+  last time, chosen deterministically from (world seed, generator version, expedition ordinal),
+  so a charted room is a different room when you fly back into it.
+  **What shipped.** New pure `src/world/ambientStir.ts` picks the rooms and paints
+  `BLOOM_STRIPS_PER_SECTOR` (4) extra 3x1 `TileKind.HazardFloor` runs into each, in the same 3x1
+  shape and the same search box `sectorInterior.stampHazardStrips` uses, so a bloom and a
+  generated strip are indistinguishable to the renderer and to the radar. It is applied as the
+  fifth pass of `ExpeditionModeAdapter`'s existing replay block, after `applyEarnedQuestKeys`,
+  which is the `applyBrokenBarriers` idiom: an overlay run before the renderer, the collision
+  index or the flow field ever look at the grid.
+  **The safety argument is the whole reason this slice is the bloom half and not the wall half.**
+  `TileKind.HazardFloor` is non-blocking at every consumer (`staticCollision.ts:123` and `:151`,
+  `flowField.ts:88`, `securityGrids.ts:41`, `voidGaps.ts:32`), and the painter writes only over
+  `TileKind.Open`, so reachability provably cannot move: no POI can be stranded, no route closed,
+  no run soft-locked. Geometry that BLOCKS needs a `sealHoldsUp`-shaped proof and is cut to
+  `FEAT-STIR-COLLAPSE`, not smuggled in here.
+  **Protection is one rule plus one radius.** Open-only already protects every other pass without
+  naming any of them, because a breakable pocket, a secret shell, a void gap, a shrine fence, a
+  corridor grid band and a closed gate are all non-Open. On top of it, a Chebyshev radius of 2
+  around every POI slot and every doorway entry tile is kept clear, one wider than the
+  generator's own `openNeighbourhood`, because a bloom lands on ground the player has already
+  learned. The hangar, the boss arena and hidden rooms never bloom at all.
+  **Two surfaces say so.** The sector banner takes a third line, `THE GROUND HAS BLOOMED`, on
+  arrival in a bloomed room (its own line rather than a fourth clause on the region signature: a
+  bloom is a fact about the room, the signature is a rule about the region). The chart's sector
+  readout adds `Bloomed ground · fresh hazard strips` under the same VISITED gate the corridor
+  grid rows take, so a room the profile has only charted as an outline never has its interior
+  named.
+  **No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `WORLD_PROFILE_VERSION`.** The
+  one new persisted number is `expeditionCount` on `WorldProfileState`, optional in storage on the
+  `conquered` precedent, so an existing profile reads 0 and keeps every remembered wall.
+  `WORLDGEN_VERSION` does not move because the bloom is not generation and moves no sector key,
+  edge id, POI id or breakable rect id. The ordinal is bumped in `GameScene.init` on the fresh
+  expedition path only, before `createWorldMode`, so a refresh restore rebuilds the identical
+  world under a ship already standing in it.
+  **Arena, daily, weekly, gauntlet and practice are untouched by construction:** they run
+  `ArenaModeAdapter`, whose new `bloomedSectorKeys()` returns a frozen empty array, and nothing in
+  `ambientStir.ts` is reachable from them. Five tests pin the invariants that fail silently
+  (Open-to-HazardFloor only, POI and doorway clearance, the three excluded room kinds,
+  determinism across a refresh, and that only rooms that actually grew ground are reported).
+  Files `POLISH-WORLD-AMBIENT-BLOOM`, `FEAT-STIR-COLLAPSE`, `FEAT-STIR-CHART-CELL` and
+  `BALANCE-STIR-BLOOM-SPREAD`.
+
+- [ ] **FEAT-STIR-COLLAPSE** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): the other half of
+  README section 6's bullet, a wall that collapsed between expeditions. Cut on a mechanical
+  reason, not a preference: hazard ground never blocks, so the bloom needed no reachability
+  argument at all, while a new wall can strand a POI or close the only route to a region and
+  therefore needs the `sealHoldsUp`-shaped proof `FEAT-GRID-FENCE-CORRIDOR` built for corridor
+  bands. The opposite direction (a seam that opens between expeditions) has the mirror problem:
+  it would have to agree with `brokenBreakableIds`, which is a per-profile memory of walls the
+  player broke. Value: a route that was not there last life. Deps: none, but it wants
+  `POLISH-WORLD-AMBIENT-BLOOM`'s answer on whether ambient change reads as alive or as noise.
+
+- [ ] **FEAT-STIR-CHART-CELL** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): a bloomed room is
+  named in the focused-sector readout but carries no mark on the chart cell, so finding which
+  charted room changed still means focusing cells one at a time. Cut for exactly the reason
+  `FEAT-GRID-BAND-CHART-CELL` was: the cell already carries a cleared notch, a hint badge, an
+  objective-updated badge, sector marks and POI icons, so another mark needs a legend row and a
+  placement the chart has not budgeted. Value: a room that changed is a place, not a line you
+  have to go looking for. Deps: the same chart-crowding call `FEAT-GRID-BAND-CHART-CELL` waits on.
+
+- [ ] **BALANCE-STIR-BLOOM-SPREAD** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): three rooms
+  per expedition and four extra 3x1 runs per room are measured against the generator (a sector is
+  32x18 tiles and its own deepest band paints at most two runs), never played. Whether a bloom
+  reads as the world breathing or as a room that got worse for no reason depends on how often a
+  real expedition crosses one. Value: ambient change that reads as alive. Deps: none, but it wants
+  play rather than a second guess.
+
 - [ ] **FEAT-REGION-DARK-SIGNATURE-CLAUSE** (new 2026-08-02, from FEAT-BIOME-REGION-DARK): the
   banner names what a region sends and what its ground grows, and says nothing about a region
   that has taken the lights out, which is the most immediately felt thing about it. A `RUNS
@@ -11520,6 +11599,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-WORLD-AMBIENT-BLOOM** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR). Value: three
+  rooms per expedition now grow four extra hazard runs each and none of it has been seen in a
+  browser. Questions for the operator, in a real expedition and then a second one in the same
+  world: (a) does re-entering a charted room and finding new ground read as the world being alive,
+  or as the game moving the goalposts? (b) is `THE GROUND HAS BLOOMED` on the banner enough of a
+  tell, or does the arrival want a sound? (c) does a three-line banner (region border plus bloom in
+  one room) still read on a phone in portrait? (d) is four runs per room too few to notice or
+  enough to route around? (e) does the chart readout row belong there, or does a bloom want the
+  cell mark `FEAT-STIR-CHART-CELL` describes? All five constants are pure geometry validated in
+  tests, never in a browser: do not retune them blind.
 
 - [ ] **POLISH-EXPEDITION-SORTIE** (new 2026-08-02, from FEAT-EXPEDITION-SORTIE). Value: the
   return leg should feel like a decision, not a free undo. Everything about it was designed and

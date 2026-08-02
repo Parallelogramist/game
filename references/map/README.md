@@ -374,6 +374,16 @@ first.
 - **Ambient world state.** Sectors that change between runs (a wall collapsed, a new
   hazard bloom) using the existing event system, so a persistent world does not read
   as a static one.
+  **First slice shipped as `FEAT-WORLD-AMBIENT-STIR` (`7291ff6`, 2026-08-02):** the hazard-bloom
+  half. `src/world/ambientStir.ts` picks three rooms per expedition from (world seed, generator
+  version, expedition ordinal) and paints four extra 3x1 `TileKind.HazardFloor` runs into each,
+  applied as the fifth pass of `ExpeditionModeAdapter`'s replay block in the `applyBrokenBarriers`
+  mould. The ordinal is a new optional `expeditionCount` on `WorldProfileState`, so no storage key
+  and no version constant moved, and `WORLDGEN_VERSION` did not move because a bloom is an overlay
+  rather than generation. It needed no reachability proof: `TileKind.HazardFloor` is non-blocking
+  at every consumer and the painter writes only over `TileKind.Open`, so no route can close. The
+  "a wall collapsed" half does block and therefore needs a `sealHoldsUp`-shaped proof; it is filed
+  as `FEAT-STIR-COLLAPSE`.
 - **Map annotation.** Player-placed pins on the map screen, the single most requested
   feature of every Metroid-style map ever shipped.
   **Built by `FEAT-MAPUI-SECTOR-MARKS` (`4fd97c3`, 2026-08-01):** `P` or gamepad **A** on
