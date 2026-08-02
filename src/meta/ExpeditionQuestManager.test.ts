@@ -20,9 +20,12 @@ import {
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
   getExpeditionQuestStates,
+  getExpeditionQuestFromCatalog,
   loadExpeditionQuestCargo,
   ACTIVE_EXPEDITION_QUEST_LIMIT,
 } from './ExpeditionQuestManager';
+import { buildSeasonQuests } from '../expedition/seasonQuests';
+import { getCurrentExpeditionSeed } from '../expedition/ExpeditionSeasonStore';
 
 const STORAGE_KEY = 'survivor-expedition-quests';
 
@@ -130,5 +133,17 @@ describe('ExpeditionQuestManager', () => {
       pendingGold: 0,
     }));
     expect(getExpeditionQuestStates()[0].droneEscorting).toBeUndefined();
+  });
+
+  test('the catalog lookup answers for a season contract, not only for an authored chain', () => {
+    const contracts = buildSeasonQuests(getCurrentExpeditionSeed());
+    expect(contracts.length).toBeGreaterThan(0);
+    for (const contract of contracts) {
+      expect(getExpeditionQuestFromCatalog(contract.id)).toEqual(contract);
+    }
+    for (const authored of EXPEDITION_QUESTS) {
+      expect(getExpeditionQuestFromCatalog(authored.id)).toEqual(authored);
+    }
+    expect(getExpeditionQuestFromCatalog('quest_does_not_exist')).toBeUndefined();
   });
 });

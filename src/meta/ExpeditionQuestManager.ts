@@ -222,6 +222,15 @@ export function getExpeditionQuestStates(): QuestInstanceState[] {
   return load().states;
 }
 
+/** The definition behind an id a fold just reported. Resolved against `questCatalog()` and
+ *  never against `EXPEDITION_QUESTS` alone: a season contract is not in the authored catalog,
+ *  so an authored-only lookup answers `undefined` and its caller silently announces nothing. */
+export function getExpeditionQuestFromCatalog(
+  questId: string,
+): ExpeditionQuestDefinition | undefined {
+  return questCatalog().find((quest) => quest.id === questId);
+}
+
 /** Keys earned by completed quests. Derived, never stored: a second copy of "which quests
  *  finished" is how a door and its quest log disagree. */
 export function getEarnedQuestKeyIds(): string[] {

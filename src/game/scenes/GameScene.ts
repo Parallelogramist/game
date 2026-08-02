@@ -162,8 +162,9 @@ import {
   loadExpeditionQuestCargo,
   reclaimExpeditionQuestCargo,
   dropExpeditionQuestCargo,
+  getExpeditionQuestFromCatalog,
 } from '../../meta/ExpeditionQuestManager';
-import { cargoLabelOf, droneLabelOf, getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
+import { cargoLabelOf, droneLabelOf, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import type { ExpeditionQuestStep } from '../../data/ExpeditionQuests';
 import { effectiveStepTarget, questWorldStamp, renderStepDescription } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
@@ -9998,7 +9999,7 @@ export class GameScene extends Phaser.Scene {
     for (const questId of rewards.activatedQuestIds) discovery.noteObjectiveUpdated(questId);
 
     for (const completion of rewards.stepCompletions) {
-      const quest = getExpeditionQuest(completion.questId);
+      const quest = getExpeditionQuestFromCatalog(completion.questId);
       const step = quest?.steps.find((entry) => entry.id === completion.stepId);
       if (!quest || !step) continue;
       this.raiseQuestToast({
@@ -10011,7 +10012,7 @@ export class GameScene extends Phaser.Scene {
       }, asNotice);
     }
     for (const completion of rewards.questCompletions) {
-      const quest = getExpeditionQuest(completion.questId);
+      const quest = getExpeditionQuestFromCatalog(completion.questId);
       if (!quest) continue;
       const grantedKeyId = quest.grantsKeyId;
       if (grantedKeyId !== undefined) {
@@ -10029,7 +10030,7 @@ export class GameScene extends Phaser.Scene {
       }, asNotice);
     }
     for (const questId of rewards.activatedQuestIds) {
-      const quest = getExpeditionQuest(questId);
+      const quest = getExpeditionQuestFromCatalog(questId);
       if (!quest) continue;
       this.raiseQuestToast({
         tier: 'notable',

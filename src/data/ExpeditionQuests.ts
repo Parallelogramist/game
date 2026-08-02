@@ -548,9 +548,9 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
   },
 ];
 
-export function getExpeditionQuest(questId: string): ExpeditionQuestDefinition | undefined {
-  return EXPEDITION_QUESTS.find((quest) => quest.id === questId);
-}
+/** No `getExpeditionQuest(id)` lives here on purpose. A quest id may name a season contract,
+ *  which is generated per world and is not in this array, so the only correct lookup is
+ *  `ExpeditionQuestManager.getExpeditionQuestFromCatalog`. */
 
 /** 'cargo_ledger_core' -> 'LEDGER CORE'. Derived rather than a second catalog field, because a
  *  display name beside the id is two sources of truth for one thing.
