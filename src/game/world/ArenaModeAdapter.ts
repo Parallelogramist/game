@@ -28,6 +28,7 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  * cannot acquire a flow field, so chaseHeading hands its steering back unchanged.
  */
 const NO_BLOOMED_SECTORS: readonly string[] = Object.freeze([]);
+const NO_SHIFTED_SECTORS: readonly string[] = Object.freeze([]);
 
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -90,6 +91,10 @@ export class ArenaModeAdapter implements WorldModeAdapter {
 
   bloomedSectorKeys(): readonly string[] {
     return NO_BLOOMED_SECTORS;
+  }
+
+  shiftedSectorKeys(): readonly string[] {
+    return NO_SHIFTED_SECTORS;
   }
 
   navigationContext(): NavigationContext | null {

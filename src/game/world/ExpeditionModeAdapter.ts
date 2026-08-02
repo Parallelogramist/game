@@ -26,7 +26,7 @@ import { getEarnedQuestKeyIds } from '../../meta/ExpeditionQuestManager';
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
 import { applyDownedSecurityGrids } from '../../world/securityGrids';
-import { applyAmbientBloom } from '../../world/ambientStir';
+import { applyAmbientBloom, applyAmbientShift } from '../../world/ambientStir';
 import { generateExpeditionWorld } from '../../expedition/expeditionWorld';
 import { getCurrentExpeditionSeed } from '../../expedition/ExpeditionSeasonStore';
 import {
@@ -110,6 +110,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
   /** Tiles flipped to GateClosed by the boss seal, with their prior kinds for the revert. */
   private readonly sealedTiles: { sector: SectorDef; index: number; kind: number }[] = [];
   private readonly bloomedKeys: readonly string[];
+  private readonly shiftedKeys: readonly string[];
   private appliedCameraWidth = 0;
   private appliedCameraHeight = 0;
 
@@ -146,6 +147,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     // undo any of them. profile.expeditionCount, not a fresh bump: GameScene.init owns the bump
     // so a refresh-restore rebuilds this exact world.
     this.bloomedKeys = applyAmbientBloom(this.map, profile.expeditionCount);
+    // After the bloom, so the shipped bloom placement is byte-identical. It writes only Solid over
+    // Open and Open over Solid, and proves per run that the room's reachable area moved by exactly
+    // the tiles it wrote, so it can neither strand a POI nor open a sealed pocket.
+    this.shiftedKeys = applyAmbientShift(this.map, profile.expeditionCount);
     this.world = worldBoundsRect(this.map);
   }
 
@@ -279,6 +284,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
 
   bloomedSectorKeys(): readonly string[] {
     return this.bloomedKeys;
+  }
+
+  shiftedSectorKeys(): readonly string[] {
+    return this.shiftedKeys;
   }
 
   navigationContext(): NavigationContext | null {

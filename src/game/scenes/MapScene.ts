@@ -70,6 +70,10 @@ export interface MapSceneData {
    *  re-derived here for the same reason ownedAbilityIds is: GameScene already owns it, and
    *  re-deriving would need the profile store, which is a SecureStorage decrypt. */
   bloomedSectors: readonly string[];
+  /** Rooms this expedition's ambient shift changed the shape of. Passed in for the same reason
+   *  bloomedSectors is: GameScene already owns it, and re-deriving would need the profile store,
+   *  which is a SecureStorage decrypt. */
+  shiftedSectors: readonly string[];
   /** False while a boss seal holds the room. Passed in because only GameScene knows: a recall
    *  out of a sealed fight would strand the lock. */
   recallAvailable: boolean;
@@ -172,6 +176,7 @@ export class MapScene extends Phaser.Scene {
   private hazardSectorKinds: ReadonlyMap<string, PoiHazardKind> = new Map();
   private spentNestSectorKeys: ReadonlySet<string> = new Set();
   private bloomedSectorKeys: ReadonlySet<string> = new Set();
+  private shiftedSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private revealPlan: MapRevealPlan | null = null;
   private revealElapsedMs = 0;
@@ -216,6 +221,7 @@ export class MapScene extends Phaser.Scene {
     );
     this.spentNestSectorKeys = new Set(data.spentNestSectorKeys ?? []);
     this.bloomedSectorKeys = new Set(data.bloomedSectors ?? []);
+    this.shiftedSectorKeys = new Set(data.shiftedSectors ?? []);
     this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
     this.sortieAvailable = data.sortieAvailable === true;
     this.closed = false;
@@ -788,6 +794,7 @@ export class MapScene extends Phaser.Scene {
       hintedSectorKeys: this.hintedSectorKeys,
       hazardSectorKinds: this.hazardSectorKinds,
       bloomedSectorKeys: this.bloomedSectorKeys,
+      shiftedSectorKeys: this.shiftedSectorKeys,
     }) : null;
 
     if (!detail) {

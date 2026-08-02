@@ -117,6 +117,13 @@ export interface WorldModeAdapter {
   bloomedSectorKeys(): readonly string[];
 
   /**
+   * Rooms this expedition's ambient shift opened a seam in or dropped rubble across. Arena has
+   * none, so the banner and the chart readout both fall through to what they printed before this
+   * shipped.
+   */
+  shiftedSectorKeys(): readonly string[];
+
+  /**
    * Geometry queries the enemy AI steers by, or null for a mode with no geometry. Null is what
    * keeps arena steering the direct player vector it has always been.
    */

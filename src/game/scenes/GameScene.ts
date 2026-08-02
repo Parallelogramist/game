@@ -1151,7 +1151,9 @@ export class GameScene extends Phaser.Scene {
     }
     if (sector && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.showSectorBanner(
-        sector, regionChanged, this.worldMode.bloomedSectorKeys().includes(payload.sectorKey),
+        sector, regionChanged,
+        this.worldMode.bloomedSectorKeys().includes(payload.sectorKey),
+        this.worldMode.shiftedSectorKeys().includes(payload.sectorKey),
       );
     }
     this.runDecryptorScan(payload.sectorKey);
@@ -1304,6 +1306,7 @@ export class GameScene extends Phaser.Scene {
       hazardSectors: this.dormantHazardSectors(),
       spentNestSectorKeys: this.spentAmbushNestSectorKeys(),
       bloomedSectors: this.worldMode.bloomedSectorKeys(),
+      shiftedSectors: this.worldMode.shiftedSectorKeys(),
       recallAvailable: !this.worldMode.isSectorLocked(),
       sortieAvailable: this.sortieAnchor !== null,
     });
@@ -6430,7 +6433,9 @@ export class GameScene extends Phaser.Scene {
    * The second line states the region's pack and the hazard its ground grows, and only fires on
    * a region change: repeating it per room would make a rule read as noise.
    */
-  private showSectorBanner(sector: SectorDef, regionChanged: boolean, bloomed: boolean): void {
+  private showSectorBanner(
+    sector: SectorDef, regionChanged: boolean, bloomed: boolean, shifted: boolean,
+  ): void {
     const hudScale = computeHudScale(
       this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
     );
@@ -6446,6 +6451,7 @@ export class GameScene extends Phaser.Scene {
     const lines = [headline];
     if (signature !== null) lines.push(signature);
     if (bloomed) lines.push('THE GROUND HAS BLOOMED');
+    if (shifted) lines.push('THE WALLS HAVE SHIFTED');
     const banner = this.add.text(
       this.scale.width / 2,
       this.scale.height - Math.round((96 + 40 + 26) * hudScale),

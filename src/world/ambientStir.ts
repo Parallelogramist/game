@@ -14,8 +14,11 @@
  */
 
 import { hashStringToSeed, mulberry32 } from '../utils/dailySeed';
-import { SECTOR_TILE_COLS, SECTOR_TILE_ROWS, TileKind, tileIndex } from './worldTypes';
-import type { SectorDef, WorldMap } from './worldTypes';
+import { countReached, floodInterior } from './sectorInterior';
+import {
+  EDGE_DIRECTIONS, SECTOR_TILE_COLS, SECTOR_TILE_ROWS, TileKind, tileIndex,
+} from './worldTypes';
+import type { SectorDef, TileCoord, WorldMap } from './worldTypes';
 
 /** Rooms that bloom per expedition. Three is enough that a returning player meets one without
  *  hunting, few enough that a bloom still reads as a change rather than as the weather. */
@@ -37,16 +40,33 @@ const STRIP_WIDTH = 3;
 
 const BLOOM_PLACEMENT_ATTEMPTS = 24;
 
+/** Rooms whose walls shift per expedition, on the bloom's own reasoning: enough that a returning
+ *  player meets one without hunting, few enough that it still reads as a change. */
+export const SHIFTED_SECTORS_PER_EXPEDITION = 3;
+
+/** Runs of rock a shifted room opens into floor, then runs of floor it drops rubble across. The
+ *  seam pass runs FIRST and that ordering is the design: a pinch that was a room's only route can
+ *  legally take rubble once the seam has opened an alternate, so the pair re-routes a room instead
+ *  of only decorating it. */
+export const BREACH_RUNS_PER_SECTOR = 2;
+export const COLLAPSE_RUNS_PER_SECTOR = 3;
+
+/** Same 2-tile run the generator falls back to for a breakable pocket, so a shifted room's new
+ *  geometry is shaped like geometry the player has already learned to read. */
+const SHIFT_RUN_LENGTH = 2;
+
+const SHIFT_PLACEMENT_ATTEMPTS = 24;
+
 /**
- * The rooms that bloom, sorted, with no side effect. Separate from applyAmbientBloom so a caller
- * that only needs the names never mutates a map.
+ * The rooms an ambient pass touches, sorted, with no side effect. Separate from the appliers so a
+ * caller that only needs the names never mutates a map.
  *
- * The hangar, the boss arena and hidden rooms never bloom: the hangar is the one room a recall
+ * The hangar, the boss arena and hidden rooms are never picked: the hangar is the one room a recall
  * guarantees is safe, the arena's floor is scripted by its own seal, and a hidden room's first
  * entry is already its own event.
  */
-export function resolveBloomedSectorKeys(
-  map: WorldMap, expeditionOrdinal: number,
+function pickStirredSectorKeys(
+  map: WorldMap, salt: string, expeditionOrdinal: number, count: number,
 ): string[] {
   // Sorted before the draw: Map iteration order must never reach a result the save has to agree
   // with across a refresh.
@@ -55,13 +75,25 @@ export function resolveBloomedSectorKeys(
     .map(sector => sector.key)
     .sort();
   const rng = mulberry32(hashStringToSeed(
-    `ambientBloom:${map.seed}:${map.worldGenVersion}:${expeditionOrdinal}`));
+    `${salt}:${map.seed}:${map.worldGenVersion}:${expeditionOrdinal}`));
   const picked: string[] = [];
-  const count = Math.min(BLOOMED_SECTORS_PER_EXPEDITION, eligible.length);
-  for (let index = 0; index < count; index++) {
+  const drawn = Math.min(count, eligible.length);
+  for (let index = 0; index < drawn; index++) {
     picked.push(eligible.splice(Math.floor(rng() * eligible.length), 1)[0]);
   }
   return picked.sort();
+}
+
+export function resolveBloomedSectorKeys(map: WorldMap, expeditionOrdinal: number): string[] {
+  return pickStirredSectorKeys(
+    map, 'ambientBloom', expeditionOrdinal, BLOOMED_SECTORS_PER_EXPEDITION);
+}
+
+/** Rooms whose walls shift this expedition. Its own draw rather than the bloom's, so twice as much
+ *  of the world stirs; a room that lands in both prints both clauses. */
+export function resolveShiftedSectorKeys(map: WorldMap, expeditionOrdinal: number): string[] {
+  return pickStirredSectorKeys(
+    map, 'ambientShift', expeditionOrdinal, SHIFTED_SECTORS_PER_EXPEDITION);
 }
 
 /**
@@ -131,6 +163,128 @@ function isBloomRunLegal(
     const index = tileIndex(x, tileY);
     if (tiles[index] !== TileKind.Open) return false;
     if (blocked.has(index)) return false;
+  }
+  return true;
+}
+
+/**
+ * Opens seams of rock and drops rubble in this expedition's shifted rooms, and returns the rooms
+ * that actually changed. A room whose every candidate run was illegal or unprovable is NOT
+ * returned, so no surface can promise a shift a room did not take.
+ *
+ * Rubble is TileKind.Solid and never TileKind.Breakable: a breakable needs a BreakableRect id, and
+ * ids have to agree with WorldProfileStore.brokenBreakableIds, a per-profile memory that outlives
+ * the expedition ordinal. Solid rubble has no id and is persisted nowhere.
+ */
+export function applyAmbientShift(map: WorldMap, expeditionOrdinal: number): string[] {
+  const shifted: string[] = [];
+  for (const key of resolveShiftedSectorKeys(map, expeditionOrdinal)) {
+    const sector = map.sectors.get(key);
+    if (!sector) continue;
+    if (stampShift(sector, map.seed, expeditionOrdinal)) shifted.push(key);
+  }
+  return shifted;
+}
+
+function stampShift(sector: SectorDef, worldSeed: number, ordinal: number): boolean {
+  let floodSeed: TileCoord | undefined;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = sector.entryTiles[direction];
+    if (entry) { floodSeed = entry; break; }
+  }
+  if (!floodSeed) return false;
+
+  const blocked = protectedTileIndices(sector);
+  const rng = mulberry32(hashStringToSeed(
+    `ambientShift:${worldSeed}:${ordinal}:${sector.key}`));
+  let changed = false;
+  changed = stampRuns(sector, floodSeed, blocked, rng, BREACH_RUNS_PER_SECTOR,
+    TileKind.Solid, TileKind.Open) || changed;
+  changed = stampRuns(sector, floodSeed, blocked, rng, COLLAPSE_RUNS_PER_SECTOR,
+    TileKind.Open, TileKind.Solid) || changed;
+  return changed;
+}
+
+function stampRuns(
+  sector: SectorDef,
+  floodSeed: TileCoord,
+  blocked: ReadonlySet<number>,
+  rng: () => number,
+  runs: number,
+  fromKind: number,
+  toKind: number,
+): boolean {
+  const delta = toKind === TileKind.Open ? SHIFT_RUN_LENGTH : -SHIFT_RUN_LENGTH;
+  let changed = false;
+  for (let run = 0; run < runs; run++) {
+    // Recomputed per run, never hoisted: a failed attempt is fully reverted, so the tiles this
+    // measures are the tiles the next attempt writes over.
+    const reachedBefore = floodInterior(sector.tiles, floodSeed);
+    for (let attempt = 0; attempt < SHIFT_PLACEMENT_ATTEMPTS; attempt++) {
+      const vertical = rng() < 0.5;
+      const tileX = 2 + Math.floor(rng() * (SECTOR_TILE_COLS - 4));
+      const tileY = 2 + Math.floor(rng() * (SECTOR_TILE_ROWS - 4));
+      const indices = shiftRunIndices(sector.tiles, tileX, tileY, vertical, fromKind, blocked);
+      if (!indices) continue;
+      for (const index of indices) sector.tiles[index] = toKind;
+      if (shiftHoldsUp(sector, floodSeed, reachedBefore, delta)) { changed = true; break; }
+      for (const index of indices) sector.tiles[index] = fromKind;
+    }
+  }
+  return changed;
+}
+
+/**
+ * The run's tile indices when every cell is legal, else null. The single-kind rule is what protects
+ * every other pass's work without naming any of them: a breakable pocket, a secret shell, a void
+ * gap, a shrine fence, a corridor grid band, a closed gate and bloomed ground are none of them the
+ * kind this pass reads, so none can be overwritten and none needs its own clause here.
+ */
+function shiftRunIndices(
+  tiles: Uint8Array,
+  tileX: number,
+  tileY: number,
+  vertical: boolean,
+  fromKind: number,
+  blocked: ReadonlySet<number>,
+): number[] | null {
+  const indices: number[] = [];
+  for (let offset = 0; offset < SHIFT_RUN_LENGTH; offset++) {
+    const x = vertical ? tileX : tileX + offset;
+    const y = vertical ? tileY + offset : tileY;
+    // Two tiles of margin, so a seam can never breach the room's outer wall into the void between
+    // sectors and rubble can never land on the border ring.
+    if (x < 2 || x > SECTOR_TILE_COLS - 3) return null;
+    if (y < 2 || y > SECTOR_TILE_ROWS - 3) return null;
+    const index = tileIndex(x, y);
+    if (tiles[index] !== fromKind) return null;
+    if (blocked.has(index)) return null;
+    indices.push(index);
+  }
+  return indices;
+}
+
+/**
+ * Whether a run already written to the sector changed reachability by exactly the tiles it wrote
+ * and nothing else. The exact count is the proof, on sealHoldsUp's own reasoning: a spot check
+ * would pass a seam that also connected a sealed secret pocket, or rubble that also orphaned a
+ * corridor, and either is a run the player cannot finish.
+ */
+function shiftHoldsUp(
+  sector: SectorDef,
+  floodSeed: TileCoord,
+  reachedBefore: Uint8Array,
+  expectedDelta: number,
+): boolean {
+  const reachedAfter = floodInterior(sector.tiles, floodSeed);
+  if (countReached(reachedAfter) !== countReached(reachedBefore) + expectedDelta) return false;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = sector.entryTiles[direction];
+    if (entry && reachedAfter[tileIndex(entry.tileX, entry.tileY)] !== 1) return false;
+  }
+  for (const slot of sector.poiSlots) {
+    const index = tileIndex(slot.tileX, slot.tileY);
+    if (reachedBefore[index] === 1 && reachedAfter[index] !== 1) return false;
   }
   return true;
 }

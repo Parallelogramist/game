@@ -381,7 +381,7 @@ function isPassable(kind: number): boolean {
   return kind === TileKind.Open || kind === TileKind.HazardFloor;
 }
 
-function floodInterior(tiles: Uint8Array, seed: TileCoord): Uint8Array {
+export function floodInterior(tiles: Uint8Array, seed: TileCoord): Uint8Array {
   const reached = new Uint8Array(SECTOR_TILE_COUNT);
   const seedIndex = tileIndex(seed.tileX, seed.tileY);
   if (!isPassable(tiles[seedIndex])) return reached;
@@ -729,7 +729,7 @@ function sealHoldsUp(
   return true;
 }
 
-function countReached(reached: Uint8Array): number {
+export function countReached(reached: Uint8Array): number {
   let total = 0;
   for (let index = 0; index < SECTOR_TILE_COUNT; index++) total += reached[index];
   return total;

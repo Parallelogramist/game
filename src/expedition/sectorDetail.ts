@@ -49,6 +49,10 @@ export interface SectorDetailInputs {
    *  optional, on the hazardSectorKinds precedent: a call site that forgets it is a compile error
    *  rather than a chart that silently stops naming a room that changed. */
   bloomedSectorKeys: ReadonlySet<string>;
+  /** Rooms this expedition's ambient shift changed the shape of. Required rather than optional, on
+   *  the bloomedSectorKeys precedent: a call site that forgets it is a compile error rather than a
+   *  chart that silently stops naming a room that changed. */
+  shiftedSectorKeys: ReadonlySet<string>;
 }
 
 export interface SectorDetailView {
@@ -201,6 +205,13 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
   if (inputs.bloomedSectorKeys.has(sector.key)
     && (inputs.sectorFlagsOf(sector.key) & SectorFlags.VISITED) !== 0) {
     lines.push('Bloomed ground · fresh hazard strips');
+  }
+  // Same VISITED rule the bloom row above takes, and for the same reason: a shifted wall is an
+  // interior fact, and naming it in a room the profile has only charted as an outline would
+  // describe an interior the chart refuses to draw.
+  if (inputs.shiftedSectorKeys.has(sector.key)
+    && (inputs.sectorFlagsOf(sector.key) & SectorFlags.VISITED) !== 0) {
+    lines.push('Shifted walls · the room changed shape');
   }
   const hazard = inputs.hazardSectorKinds.get(sector.key);
   // The run-scoped nest line would restate the slot line above it, which is slot-precise and
