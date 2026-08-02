@@ -929,6 +929,28 @@ quest state is a caller-supplied `questStateOf` predicate, required rather than 
 `MinimapSectorUnderlay.impassable` precedent, because `src/expedition/` never imports
 `src/meta/`, where the quest store lives.
 
+**As built (`FEAT-GRID-BAND-CHART-TELL`, 11a1ffe, 2026-08-02).** `FEAT-GRID-FENCE-CORRIDOR`
+gave the Phase Cloak a second thing to open, a 1 to 3 tile band across a corridor pinch, and wired
+no map surface at all: seed 20260727 puts 8 lit bands in 8 of its 48 sectors and this panel counted
+zero of them, so the to-do list was wrong by omission one commit after the bands landed. A row now
+carries a third counter, `shortcuts`, beside `doors` and `sites` (`PHASE CLOAK · 2 SITES ·
+8 SHORTCUTS · VAULT 3 SECTORS OUT`), and the focused-sector readout gains a `Corridor grid ·
+blocking a shortcut` line that becomes `· shortcut open to you` once the cloak is held. A band is
+deliberately neither a door nor a site: `doors` counts KNOWN sector *borders* and `sites` counts
+charted *reward* sites, and a route through a room's own rock is neither, so folding it into either
+would have made a shipped number mean two things.
+
+**The leak rule for a band is `SectorFlags.VISITED`, and it is a fourth rule rather than an
+application of the three above.** A band has no POI slot, so the `PoiFlags.SEEN` gate every other
+row in both modules uses does not exist for it, and a merely `DISCOVERED` sector (seen from a
+neighbour, never entered) must not have its interior named at all. `VISITED` is already documented
+as "the ship has been inside it, so its interior may render", which is exactly the fact being
+spent. Both `lockouts.ts` and `sectorDetail.ts` take the same branch, so the panel and the readout
+cannot disagree about a shortcut. The count itself comes from the pure
+`countIntactGridBands(sector)` in `src/world/securityGrids.ts`, reading live tiles after
+`applyDownedSecurityGrids` has replayed the profile's tripped kill-switches, so a band the player
+already dropped stops being counted with no second store to keep in sync.
+
 ### As built (FEAT-SECRET-WALL-MAP-TELL + FEAT-SECRET-GAP-MAP-TELL, d5d012d, 2026-08-01)
 
 The lead badge this section's "secret badge" line names now carries one bit beyond "a lead

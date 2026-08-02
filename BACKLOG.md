@@ -8849,13 +8849,54 @@ exploring pays is the end of Phase 5.
   `reportSecurityGrid` all needed no edit. The GRID DOWN toast is the one string that branches.
   Filed as cuts: `FEAT-GRID-BAND-CHART-TELL` and `BALANCE-GRID-BAND-SHARE`.
 
-- [ ] **FEAT-GRID-BAND-CHART-TELL** (new 2026-08-02, from FEAT-GRID-FENCE-CORRIDOR): the chart says
-  nothing about a corridor band. `sectorDetail.ts` and `lockouts.ts` both reach a fence through
-  `isGridFenceIntact(sector, slot)`, which is POI-slot shaped, and a band has no slot; a band-shaped
-  overload plus a LOCKED OUT row is a second lookup path, not a clause. Cut deliberately: the band
-  is visible in the room, draws on the radar underlay and announces itself with the SECURITY GRID
-  notice, so it is findable without the chart. Value: a shortcut you have not opened yet is
-  somewhere you can plan a route to. Deps: none.
+- [x] **FEAT-GRID-BAND-CHART-TELL** (done, 11a1ffe) (new 2026-08-02, from
+  FEAT-GRID-FENCE-CORRIDOR): the chart now names a corridor band and the LOCKED OUT panel counts
+  it. Before this, `FEAT-GRID-FENCE-CORRIDOR` had put 8 lit bands into seed 20260727's 48 sectors
+  and every map surface counted zero of them, so the one panel whose whole job is "what am I
+  missing and what does it open" was wrong by omission one commit after the bands landed.
+  1. **What shipped**: pure `countIntactGridBands(sector)` in `src/world/securityGrids.ts`; a
+     third counter `shortcuts` on `LockoutRow` beside `doors` and `sites`, bumped once per lit
+     band; a `Corridor grid · blocking a shortcut` / `· shortcut open to you` line in
+     `sectorDetail.describeRewards` (pluralised past one); and one `N SHORTCUTS` clause in
+     `MapScene.describeLockoutRow`.
+  2. **`SectorFlags.VISITED` is the leak gate, and it is the whole correctness question.** A band
+     has no POI slot, so `PoiFlags.SEEN` (what every other row in both modules uses) does not
+     exist for it, and `DISCOVERED` is too weak: naming interior geometry in a room seen only
+     from a neighbour leaks structure the chart refuses to draw. `VISITED` is documented in
+     `DiscoveryTypes.ts` as "the ship has been inside it, so its interior may render", which is
+     exactly the fact being spent.
+  3. **A band is neither a door nor a site, so it got its own counter.** `doors` is documented as
+     KNOWN sector *borders* and `sites` as charted *reward* sites; a band is a route through a
+     room's own rock. Folding it into either would have made a shipped number mean two things.
+     The sort's opening count now reads `doors + sites + shortcuts`, so a cloak row that opens
+     eight shortcuts ranks like one that opens eight doors.
+  4. **No chart-cell mark, no legend row, no renderer change.** Filed as
+     `FEAT-GRID-BAND-CHART-CELL`: the cell already carries the cleared notch, the hint badge, the
+     objective badge, sector marks and POI icons, and a sixth mark is a legend-and-clutter
+     decision rather than a clause.
+  5. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump: both
+     readouts are projections over tiles the adapter has already replayed
+     (`applyDownedSecurityGrids`) and over discovery flags that already ship, so every existing
+     profile lights this up the moment the build lands. Arena, daily, gauntlet and practice are
+     untouched: their sectors carry no `gridBands` and `countIntactGridBands` answers 0.
+  It files `FEAT-GRID-BAND-CHART-CELL` and `BALANCE-LOCKOUT-SHORTCUT-CLAUSE`.
+
+- [ ] **FEAT-GRID-BAND-CHART-CELL** (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL): finding
+  *which* room holds a lit band still means focusing chart cells one at a time, because the
+  readout is per-focused-sector and the LOCKED OUT row carries a total with no place beside it.
+  A cell mark would answer it at a glance, and was cut rather than guessed: the cell already
+  carries a cleared notch (top-right), a hint badge (top-left), an objective-updated badge (pin
+  shoulder), sector marks and POI icons, so a sixth mark needs a legend row and a placement the
+  chart has not budgeted. Value: a shortcut you have not opened yet is a place, not a count.
+  Deps: none, but it wants `BALANCE-LOCKOUT-PANEL-ROWS`' play data on chart crowding first.
+
+- [ ] **BALANCE-LOCKOUT-SHORTCUT-CLAUSE** (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL):
+  counting one shortcut per lit band, and printing it as a third clause after `N SITES`, are
+  designed calls measured but never played. Seed 20260727 puts 8 bands in 8 of 48 sectors, so a
+  well-explored profile can show `8 SHORTCUTS` against 2 or 3 sites and dominate the row's sort;
+  whether that reads as "the cloak is the priority" or as a number drowning the payoff clause is
+  a feel judgement. The alternative unit is rooms-that-hold-them rather than bands. Value: the
+  panel's biggest number is the one worth acting on. Deps: playtest.
 
 - [ ] **BALANCE-LOCKOUT-PANEL-ROWS** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): the 4-row
   cap, the `doors + sites` sort and the `NEAREST N SECTORS OUT` clause are designed guesses,
