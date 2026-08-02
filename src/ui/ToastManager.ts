@@ -28,6 +28,22 @@ const TOAST_BORDER_COLOR = ACCENT_COLORS.neutral;
 const TOAST_TITLE_COLOR = MENU_COLORS.headingWhite;
 const TOAST_DESC_COLOR = MENU_COLORS.textBody;
 
+/**
+ * Top-right HUD objects a toast must not cover, by scene name. Ordered top to
+ * bottom for readability only: the anchor takes the lowest bottom edge of
+ * whichever ones the host scene actually built, so menus and the shop (which
+ * build none of them) keep the old top-margin rest position.
+ */
+const RIGHT_RAIL_HUD_NAMES = [
+  'pauseButtonBg',
+  'killCountText',
+  'goldPreviewText',
+  'paceDeltaText',
+  'relicStripContainer',
+] as const;
+
+type BoundedGameObject = Phaser.GameObjects.GameObject & { getBounds(): Phaser.Geom.Rectangle };
+
 export class ToastManager {
   private scene: Phaser.Scene;
   private toastQueue: ToastConfig[] = [];
@@ -46,6 +62,26 @@ export class ToastManager {
   /** Compute HUD scale factor for mobile screens. */
   private getHudScale(): number {
     return computeHudScale(this.scene.scale.width, this.scene.scale.height, getSettingsManager().getUiScale());
+  }
+
+  /**
+   * Vertical center of the toast's rest pose. Toasts used to rest at the top
+   * margin, which is exactly where the pause button and the kills/gold/pace
+   * stack live, so every toast covered the only touch route into the pause
+   * menu. These objects all carry scrollFactor 0, so their bounds are already
+   * screen coordinates.
+   */
+  private computeRestCenterY(toastHeight: number, toastMargin: number): number {
+    let railBottom = 0;
+    for (const name of RIGHT_RAIL_HUD_NAMES) {
+      const node = this.scene.children.getByName(name);
+      if (!node || typeof (node as Partial<BoundedGameObject>).getBounds !== 'function') continue;
+      const bounds = (node as BoundedGameObject).getBounds();
+      if (bounds.bottom > railBottom) railBottom = bounds.bottom;
+    }
+    const restTop = railBottom > 0 ? railBottom + toastMargin : toastMargin;
+    const lowestTop = this.scene.cameras.main.height - toastMargin - toastHeight;
+    return Math.max(toastMargin, Math.min(restTop, lowestTop)) + toastHeight / 2;
   }
 
   /**
@@ -154,8 +190,35 @@ export class ToastManager {
       Math.round(BASE_TOAST_WIDTH * hudScale),
       screenWidth - toastMargin * 2,
     );
-    const toastHeight = Math.round(BASE_TOAST_HEIGHT * hudScale);
     const toastPadding = Math.round(BASE_TOAST_PADDING * hudScale);
+    const textX = -toastWidth / 2 + toastPadding + Math.round(48 * hudScale);
+
+    // Text is built before the panel, because the panel is sized from it: the
+    // body used to be a fixed 78 units and any description of 3 lines or more
+    // spilled straight out of it.
+    const title = this.scene.add.text(textX, 0, config.title, {
+      fontSize: `${Math.round(15 * hudScale)}px`,
+      color: TOAST_TITLE_COLOR,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    });
+    title.setLetterSpacing(1.5);
+
+    const desc = this.scene.add.text(textX, 0, config.description, {
+      fontSize: `${Math.round(11 * hudScale)}px`,
+      color: TOAST_DESC_COLOR,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      wordWrap: { width: toastWidth - Math.round(80 * hudScale) },
+    });
+
+    const titleDescGap = 4;
+    const textBlockHeight = title.height + titleDescGap + desc.height;
+    const toastHeight = Math.max(
+      Math.round(BASE_TOAST_HEIGHT * hudScale),
+      Math.round(textBlockHeight + toastPadding * 2),
+    );
 
     // Create toast container
     const container = this.scene.add.container(0, 0);
@@ -165,7 +228,7 @@ export class ToastManager {
     // minus margin minus half width — the panel's RIGHT edge is flush).
     const startX = screenWidth + toastWidth;
     const endX = screenWidth - toastMargin - toastWidth / 2;
-    const y = toastMargin + toastHeight / 2;
+    const y = this.computeRestCenterY(toastHeight, toastMargin);
 
     container.setPosition(startX, y);
 
@@ -224,37 +287,14 @@ export class ToastManager {
       container.add(fallbackIcon);
     }
 
-    // Title — display style.
-    const textX = -toastWidth / 2 + toastPadding + Math.round(48 * hudScale);
-    const title = this.scene.add.text(textX, 0, config.title, {
-      fontSize: `${Math.round(15 * hudScale)}px`,
-      color: TOAST_TITLE_COLOR,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
-    title.setLetterSpacing(1.5);
+    // Vertically center the measured block inside the panel it just sized.
+    const blockTop = -textBlockHeight / 2;
 
-    // Description text (can be multi-line).
-    const desc = this.scene.add.text(textX, 0, config.description, {
-      fontSize: `${Math.round(11 * hudScale)}px`,
-      color: TOAST_DESC_COLOR,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      wordWrap: { width: toastWidth - Math.round(80 * hudScale) },
-    });
-
-    // Calculate vertical centering based on actual text heights
-    const gap = 4;
-    const totalHeight = title.height + gap + desc.height;
-    const blockTop = -totalHeight / 2;
-
-    // Position title and description with vertical centering origin
     title.setOrigin(0, 0.5);
     title.setY(blockTop + title.height / 2);
 
     desc.setOrigin(0, 0.5);
-    desc.setY(blockTop + title.height + gap + desc.height / 2);
+    desc.setY(blockTop + title.height + titleDescGap + desc.height / 2);
 
     container.add(title);
     container.add(desc);

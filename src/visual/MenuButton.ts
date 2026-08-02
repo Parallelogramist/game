@@ -96,8 +96,22 @@ export function createMenuButton(opts: MenuButtonOptions): MenuButton {
   let enabled = true;
 
   if (onActivate) {
+    // A bare pointerup fires whenever a pointer is RELEASED over the button,
+    // even when the press began elsewhere, so a finger dragged across a menu
+    // triggered whichever button it happened to lift off. Same
+    // down-then-up-on-the-same-target idiom WeaponSelectScene's cards use
+    // (its `pressedCardId`, WeaponSelectScene.ts:1103-1117).
+    let pressBeganHere = false;
+    card.hitZone.on('pointerdown', () => {
+      pressBeganHere = true;
+    });
+    card.hitZone.on('pointerout', () => {
+      pressBeganHere = false;
+    });
     card.hitZone.on('pointerup', () => {
-      if (enabled) onActivate();
+      const activate = pressBeganHere;
+      pressBeganHere = false;
+      if (activate && enabled) onActivate();
     });
   }
 

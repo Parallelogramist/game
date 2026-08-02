@@ -1919,6 +1919,7 @@ export class HUDManager {
     const rightX = this.scene.scale.width - scaledPadding;
 
     this.relicStripContainer = this.scene.add.container(rightX, topY);
+    this.relicStripContainer.setName('relicStripContainer');
     this.relicStripContainer.setDepth(HUD_DEPTH);
     this.relicStripContainer.setScrollFactor(0);
     this.relicStripContainer.setAlpha(HUD_ALPHA);

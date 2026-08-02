@@ -358,25 +358,31 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   const fleckLayer = scene.add.container(0, 0);
   frame.add(fleckLayer);
   fleckLayer.setVisible(false);
-  for (let fleckIndex = 0; fleckIndex < fleckPoolSize; fleckIndex++) {
-    const fleckGraphics = scene.add.graphics();
-    fleckGraphics.setVisible(false);
-    fleckLayer.add(fleckGraphics);
-    flecks.push({
-      active: false,
-      spawnX: 0,
-      spawnY: 0,
-      normalX: 0,
-      normalY: 0,
-      tangentX: 0,
-      tangentY: 0,
-      tangentSpeed: 0,
-      age: 0,
-      lifetime: 0,
-      baseRadius: FLECK_BASE_RADIUS,
-      graphics: fleckGraphics,
-    });
-  }
+  // Built on first hover/focus rather than at construction: a card-heavy scene
+  // shows 24 cards at once, and eagerly pooling 20 to 48 hidden Graphics each
+  // cost 400 to 900 objects up front, nearly all on cards never pointed at.
+  const ensureFleckPool = (): void => {
+    if (flecks.length >= fleckPoolSize) return;
+    for (let fleckIndex = 0; fleckIndex < fleckPoolSize; fleckIndex++) {
+      const fleckGraphics = scene.add.graphics();
+      fleckGraphics.setVisible(false);
+      fleckLayer.add(fleckGraphics);
+      flecks.push({
+        active: false,
+        spawnX: 0,
+        spawnY: 0,
+        normalX: 0,
+        normalY: 0,
+        tangentX: 0,
+        tangentY: 0,
+        tangentSpeed: 0,
+        age: 0,
+        lifetime: 0,
+        baseRadius: FLECK_BASE_RADIUS,
+        graphics: fleckGraphics,
+      });
+    }
+  };
 
   const emitFleck = (): void => {
     let inactiveSlot = -1;
@@ -456,6 +462,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       glow.setAlpha(REDUCED_MOTION_GLOW_ALPHA);
       rim.setAlpha(REDUCED_MOTION_RIM_ALPHA);
     } else {
+      ensureFleckPool();
       fleckLayer.setVisible(true);
     }
   };

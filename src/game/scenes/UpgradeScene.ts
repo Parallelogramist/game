@@ -209,11 +209,18 @@ export class UpgradeScene extends Phaser.Scene {
       warningCard.container.setDepth(2);
       warningCard.container.setScale(this.menuScale);
       const warningLabel = makeDisplayText(this, 0, this.weaponSlotsInfo ? -8 : 0,
-        '⚠ FINAL WEAPON SLOT — Choose wisely!', {
+        'FINAL WEAPON SLOT: Choose wisely!', {
           fontSize: 16,
           color: ACCENT_COLORS_STR.focus,
         });
       warningCard.frame.add(warningLabel);
+      warningCard.frame.add(createIcon(this, {
+        x: -196,
+        y: this.weaponSlotsInfo ? -8 : 0,
+        iconKey: 'warning',
+        size: 20,
+        tint: ACCENT_COLORS.focus,
+      }));
       if (this.weaponSlotsInfo) {
         const slotText = makeBodyText(this, 0, 10,
           `Weapons: ${this.weaponSlotsInfo.current}/${this.weaponSlotsInfo.max}`, {
@@ -450,7 +457,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     if (this.isBanishMode) {
       this.banishModeText = makeDisplayText(this, this.scale.width / 2, scaledInt(this.menuScale, 215),
-        '🚫 BANISH MODE — Click an upgrade to remove it permanently', {
+        'BANISH MODE: Click an upgrade to remove it permanently', {
           fontSize: scaledInt(this.menuScale, 16),
           color: ACCENT_COLORS_STR.danger,
         });

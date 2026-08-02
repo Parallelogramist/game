@@ -957,21 +957,34 @@ export class WeaponSelectScene extends Phaser.Scene {
       y: randomButtonY,
       width: scaledInt(scale, 200),
       height: scaledInt(scale, 48),
-      label: '🎲 RANDOM',
+      label: 'RANDOM',
       variant: 'gold',
       fontSize: scaledInt(scale, 18),
       onActivate: pickRandom,
     });
+    // Atlas icon, not a die emoji: the rest of this UI is vector line art and a
+    // platform emoji font renders as a colored sticker or as tofu.
+    const randomIcon = createIcon(this, {
+      x: -scaledInt(scale, 62),
+      y: 0,
+      iconKey: 'dice',
+      size: scaledInt(scale, 22),
+      tint: ACCENT_COLORS.gold,
+    });
+    randomButton.card.frame.add(randomIcon);
     randomButton.card.hitZone.on('pointerover', () => randomButton.setHoverState(true));
     randomButton.card.hitZone.on('pointerout', () => randomButton.setHoverState(false));
     this.stepButtons.push(randomButton);
 
-    const hint = makeBodyText(this, centerX, this.scale.height - scaledInt(scale, 22),
-      'Press 1-9 to quick select  |  R for random', {
-        fontSize: scaledInt(scale, 11),
-        color: TEXT_COLORS.dim,
-      });
-    this.stepObjects.push(hint);
+    const isTouchInput = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+    if (!isTouchInput) {
+      const hint = makeBodyText(this, centerX, this.scale.height - scaledInt(scale, 22),
+        'Press 1-9 to quick select  |  R for random', {
+          fontSize: scaledInt(scale, 11),
+          color: TEXT_COLORS.dim,
+        });
+      this.stepObjects.push(hint);
+    }
 
     const navigableItems: { onFocus: () => void; onBlur: () => void; onActivate: () => void }[] = this.weaponCardRefs.map((cardRef) => ({
       onFocus: () => this.focusWeaponCard(cardRef),
