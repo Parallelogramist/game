@@ -475,10 +475,17 @@ only mean something once a board can accept and claim a quest, which is `FEAT-QU
 *No `giverPoiTag` shipped, so `QuestGiver` POI slots stay inert and quests auto-activate.
 Walk-in accept is the board's job by name.*
 
-*No `completionRelicRoll` shipped. Its odds sit on the table `FEAT-ECON-WARDS` is about to
-lock, and econ rule 1 says exploration grants more rolls and never better odds, so authoring
-a roll now would author it against a table that is about to move. Filed as
-`FEAT-QUEST-COMPLETION-RELIC`.*
+*`completionRelicRoll` shipped on the six chain tails (`FEAT-QUEST-COMPLETION-RELIC`,
+`a73cc3e`). It has no odds of its own to author: the roll goes to the UNCHANGED standard relic
+table through the draft the chest pipeline already uses, which is econ rule 1 ("more rolls,
+never better odds") satisfied by construction rather than spent, the same call
+`FEAT-SECRET-CACHE` (`756f346`) already made. `FEAT-ECON-WARDS` is therefore untouched and stays
+parked: no table moves and no gold budget grows. The roll banks in the store's
+`pendingRelicRolls` beside `pendingGold` rather than being granted where it is earned, because
+`quest_warden_02` completes one statement before `showVictory()` and the draft queue refuses to
+open once `hasWon` is set; a banked roll is claimed at the next expedition's start. Season
+contracts deliberately set the field nowhere: they re-issue every world, so a roll on each would
+be a faucet rather than a one-time chain payoff.*
 
 *The run-scope clear moved. This section's death rule is unchanged in effect, but the clear
 runs at the START of the next expedition (`beginExpeditionQuestRun`) rather than at the

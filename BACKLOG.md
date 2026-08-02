@@ -10258,10 +10258,64 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   a feel judgement about how punishing a refresh should be. Value: a refresh is not a way to skip a
   siege wave. Deps: none, but the second option wants play rather than a guess.
 
-- [ ] **FEAT-QUEST-COMPLETION-RELIC**: `completionRelicRoll` on a chain's final quest, one
-  roll on the STANDARD relic table. Deliberately cut from `FEAT-QUEST-CHAINS` so the odds are
-  authored after `FEAT-ECON-WARDS` locks them (econ rule 1: exploration grants more rolls and
-  never better odds). Deps: `FEAT-ECON-WARDS`. Spec: doc 04 sections 4 and 6.
+- [x] **FEAT-QUEST-COMPLETION-RELIC** (done, `a73cc3e`): `completionRelicRoll` on a chain's final
+  quest, one roll on the STANDARD relic table. Value: the game's longest commitment, a chain that
+  can span several expeditions, now pays a build-changing reward instead of only gold.
+  **What shipped:** the six authored chain tails (`quest_survey_03`, `quest_gatecrash_02`,
+  `quest_secret_02`, `quest_purge_02`, `quest_sigil_02`, `quest_warden_02`) carry
+  `completionRelicRoll: true`; `QuestCompletion` carries the flag straight through from the
+  definition; `ExpeditionQuestManager` banks a roll per flagged completion into a new
+  `pendingRelicRolls` counter and hands it out through `claimExpeditionQuestRelicRolls()`;
+  `GameScene` claims and grants at both ends (`recordExpeditionQuest` for an in-flight tail,
+  `startExpeditionQuestRun` for a carried-over one); the QUEST COMPLETE toast appends
+  `· relic recovered`, the exact wording the NEMESIS SLAIN award already uses for the same
+  `grantRelicChoice(1)`; and the walk-in board card reads `12 / 24 · 600 G + RELIC LEFT` so the
+  reward is visible before the player commits to the chain.
+  **The dep discharge, settled:** `FEAT-ECON-WARDS` was never a real blocker for a roll on the
+  **unchanged standard table**. Doc 04 section 6 rule 1 is literally "exploration grants more
+  rolls, never better odds", and `FEAT-SECRET-CACHE` (`756f346`) already shipped a payout on that
+  exact argument. A roll on the standard table satisfies rule 1 by construction rather than
+  spending it. `FEAT-ECON-WARDS` stays parked and untouched: this change adds no gold, moves no
+  odds, and touches no reward table.
+  **Scope: six one-time rolls per profile, ever.** A completed quest holds `status: 'complete'`
+  for good (`seedQuestStates` never re-activates it) and its id survives a world re-roll, so no
+  roll ever repeats. That is less than one special chest per hour of play.
+  **Season contracts pay no relic, on purpose.** `seasonQuests.ts` builds its definitions from
+  templates that never set the field, so `completionRelicRoll` is `undefined` there. Contracts
+  re-issue for every world, so a roll on each would be a repeating relic faucet rather than a
+  one-time chain payoff, and that would be a real econ change.
+  **Why the roll is banked rather than granted inline:** `quest_warden_02` completes only on
+  `conquerWorld`, fired by `recordWorldConquered()` whose caller's very next statement is
+  `showVictory()` (`GameScene.ts:4500`), and `processRelicChoiceQueue` refuses to open a draft
+  once `hasWon` is set, so an inline grant would have paid that chain nothing. The same hole
+  swallowed any tail completing on the frame the player died. The five in-flight tails still pay
+  in the run that earned them; only a roll banked past a run end waits for the next expedition's
+  start, where it arrives behind a QUEST REWARD toast.
+  **No storage key, no `ALL_STORAGE_KEYS` entry, and no `SAVE_VERSION` / `WORLDGEN_VERSION` /
+  `DISCOVERY_VERSION` bump**: `pendingRelicRolls` rides the existing `survivor-expedition-quests`
+  payload and `sanitizeCount` reads an absent field as 0.
+  **Arena, daily, weekly, gauntlet and practice are untouched by construction**: both
+  `recordExpeditionQuest` and `startExpeditionQuestRun` return early on
+  `worldMode.worldMap() === null`.
+  **Two tests, deliberately:** the pure flag-through in `QuestProgress.test.ts` and a chain-tail
+  authoring guard inside the existing `referentialIntegrity` chain test (a seventh chain added
+  without the flag would otherwise ship a payout-free ending and nothing would go red). None for
+  the three Phaser-coupled surfaces, per `CLAUDE.md`.
+
+- [ ] **CHORE-QUEST-CONTRACT-COMPLETE-TOAST** (new 2026-08-02, from FEAT-QUEST-COMPLETION-RELIC):
+  a season contract that completes raises **no toast at all**. Both loops in
+  `GameScene.recordExpeditionQuest` resolve the definition with `getExpeditionQuest`
+  (`ExpeditionQuests.ts:541`), which searches only `EXPEDITION_QUESTS` and returns `undefined`
+  for every `quest_contract_*` id, so the `continue` above the toast swallows it: contract gold is
+  paid silently and the step and completion announcements never fire. The fix is a lookup that
+  reads the same `questCatalog()` the manager folds against, not a second catalog. Value: a
+  contract that pays says so. Deps: none.
+
+- [ ] **BALANCE-QUEST-COMPLETION-RELIC-SPREAD** (new 2026-08-02, from FEAT-QUEST-COMPLETION-RELIC):
+  one roll on each of six chain tails is a designed call, measured against the catalog and never
+  played. Whether a chain that took several expeditions should pay one roll or two, and whether
+  the four short two-quest chains deserve the same payout as the seven-step survey chain, is what
+  a real profile answers. Deps: play.
 
 - [ ] **CHORE-QUEST-RUNEND-SETTLE**: if any run-end surface ever shows quest progress (the
   END RUN dialog, the death screen), the run-scope counters it displays will be the dying
@@ -11795,6 +11849,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-QUEST-COMPLETION-RELIC** (new 2026-08-02, from FEAT-QUEST-COMPLETION-RELIC). None of
+  it has been seen in a browser. Questions for the operator: (a) a chain tail completing mid-flight
+  now opens a pausing relic draft on the next safe frame: does that read as a payoff or as an
+  ambush during a fight? (b) the board card now reads `12 / 24  ·  600 G + RELIC LEFT`: does that
+  parse, or does the reward want its own line? (c) after a victory the roll arrives at the
+  **start** of the next expedition behind a `QUEST REWARD` toast: does that land as a gift carried
+  forward, or as a draft the player has forgotten the reason for? (d) with all six relic slots
+  full the award becomes a reinforce round (`FEAT-RELIC-REINFORCE`) and with everything capped it
+  is dropped entirely: is a silently dropped chain payout acceptable, or should it fall back to
+  gold? Deps: play.
 
 - [ ] **POLISH-FLOW-REFRESH-FEEL** (new 2026-08-02, from PERF-FLOW-REFRESH). Value: enemies now
   steer on a field centred up to 160 px behind the ship and rebuilt on a geometry change, a
