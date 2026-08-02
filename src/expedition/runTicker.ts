@@ -15,6 +15,19 @@ import type { SecretLead } from './secretHints';
  *  round trip past half a minute. Two holds the worst case at five rows. */
 export const MAX_TICKER_LEADS = 2;
 
+/** A live siege as the line needs to read it. The caller owns the clock and the cap, so this
+ *  module never sees gameTime and never learns where a besieger is counted. */
+export interface RunTickerSiege {
+  /** Besiegers this siege still has standing. */
+  liveBesiegers: number;
+  /** The ceiling that holds the next wave back until the room thins out. */
+  maxBesiegers: number;
+  /** Whole seconds until the next wave, already clamped at 0 by the caller. */
+  secondsToNextWave: number;
+  /** A boss owns the room, so no wave is coming while it lives. */
+  suppressedByBoss: boolean;
+}
+
 export interface RunTickerInputs {
   /** Active quest steps, in the order the map screen's OBJECTIVES panel lists them. */
   views: readonly QuestStepView[];
@@ -24,12 +37,18 @@ export interface RunTickerInputs {
   /** Open leads, nearest first. The caller sorts, so the ticker and the LEADS panel cannot
    *  disagree about which lead is closest. */
   leads: readonly SecretLead[];
+  /** The live siege, or null while no room is answering. */
+  siege?: RunTickerSiege | null;
 }
 
 /**
  * Objectives first, then leads: an objective is a directive and a lead is an invitation. An
  * empty result means the line renders empty, which is what a run with no objectives and no
  * open leads should say.
+ *
+ * A siege is neither. It is happening to the player right now, so it takes the first slot and
+ * then every other one: one row in a cycle that can run half a minute long would be an
+ * announcement, and what a siege needs is a standing tell.
  */
 export function buildRunTickerRows(inputs: RunTickerInputs): string[] {
   const rows: string[] = [];
@@ -42,5 +61,23 @@ export function buildRunTickerRows(inputs: RunTickerInputs): string[] {
   for (const lead of inputs.leads.slice(0, MAX_TICKER_LEADS)) {
     rows.push(`LEAD · ${lead.fragment.title.toUpperCase()} · ${lead.riddle}`);
   }
-  return rows;
+  const siege = inputs.siege ?? null;
+  if (siege === null) return rows;
+  const siegeLine = describeSiege(siege);
+  if (rows.length === 0) return [siegeLine];
+  const interleaved: string[] = [];
+  for (const row of rows) {
+    interleaved.push(siegeLine, row);
+  }
+  return interleaved;
+}
+
+/** The two reasons a wave is NOT coming outrank the countdown: a timer that runs to zero while
+ *  nothing arrives is the one thing this line must not say. */
+function describeSiege(siege: RunTickerSiege): string {
+  if (siege.suppressedByBoss) return 'SIEGE · THE ROOM ANSWERS · HELD OFF WHILE THE BOSS LIVES';
+  if (siege.liveBesiegers >= siege.maxBesiegers) {
+    return `SIEGE · THE ROOM ANSWERS · ${siege.liveBesiegers} STILL STANDING`;
+  }
+  return `SIEGE · THE ROOM ANSWERS · NEXT WAVE ${siege.secondsToNextWave}S`;
 }

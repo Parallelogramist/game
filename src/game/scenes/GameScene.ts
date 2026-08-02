@@ -104,6 +104,7 @@ import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { buildRunTickerRows } from '../../expedition/runTicker';
+import type { RunTickerSiege } from '../../expedition/runTicker';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
 import { PoiFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
@@ -7121,6 +7122,7 @@ export class GameScene extends Phaser.Scene {
         // here would retire the chart badge within a second of the step that raised it.
         updatedQuestIds: getDiscoveryManager().getUpdatedObjectiveQuestIds(),
         leads: this.buildTickerLeads(map),
+        siege: this.buildTickerSiege(),
       });
     }
     if (this.expeditionTickerRows.length === 0) {
@@ -7136,6 +7138,19 @@ export class GameScene extends Phaser.Scene {
 
     this.bountyText.setText(
       this.expeditionTickerRows[this.questTickerIndex % this.expeditionTickerRows.length]);
+  }
+
+  /** The live siege as the ticker needs it, or null while no room is answering. The cap and the
+   *  boss are the two reasons a wave does NOT come, and updateExpeditionSiege returns on both, so
+   *  the line must be able to say so rather than count down to a wave that will not land. */
+  private buildTickerSiege(): RunTickerSiege | null {
+    if (this.siegeSectorKey === null) return null;
+    return {
+      liveBesiegers: this.siegeBesiegerIds.length,
+      maxBesiegers: SIEGE_MAX_LIVE_BESIEGERS,
+      secondsToNextWave: Math.max(0, Math.ceil(this.siegeNextWaveAtSeconds - this.gameTime)),
+      suppressedByBoss: this.bossFightDirector.isBossActive(),
+    };
   }
 
   /** Open leads, nearest first, resolved through the same buildSecretLead the map screen's
@@ -9911,12 +9926,19 @@ export class GameScene extends Phaser.Scene {
     this.spawnSiegeWave(sector.depth);
   }
 
-  /** One announcement per room. Sound and toast only: the ticker already reads `42/60`, and a
-   *  siege line of its own is a HUD-layout change larger than the feature. */
+  /** One announcement per room, and then a standing tell. The toast is the moment; the ticker's
+   *  `SIEGE ·` row is what is still there thirty seconds later, and it costs no new HUD line
+   *  because buildRunTickerRows deals it into the line the bounty and the objectives already
+   *  share. */
   private beginExpeditionSiege(sectorKey: string): void {
     this.siegeSectorKey = sectorKey;
     this.siegeNextWaveAtSeconds = this.gameTime;
     this.siegeBesiegerIds = [];
+    // The row lands with the toast rather than up to a full cycle later: rebuild next frame and
+    // open the cycle on slot 0, which is the siege row while a siege is live.
+    this.questTickerRefreshTimer = 0;
+    this.questTickerIndex = 0;
+    this.questTickerCycleTimer = QUEST_TICKER_CYCLE_SECONDS;
     this.soundManager.playBossWarning();
     this.toastManager?.showToast({
       tier: 'ambient',
@@ -9936,6 +9958,7 @@ export class GameScene extends Phaser.Scene {
     this.siegeSectorKey = null;
     this.siegeNextWaveAtSeconds = 0;
     this.siegeBesiegerIds = [];
+    this.questTickerRefreshTimer = 0;
   }
 
   /** The nest's pack, entering from the room's edges instead of standing up in a ring: a siege
