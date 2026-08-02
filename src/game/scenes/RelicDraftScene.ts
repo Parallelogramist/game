@@ -7,6 +7,8 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, MENU_FONT, TEXT_COLORS } from '../../visual/MenuStyle';
+import { computeCardGridInBand, fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 /** Data passed to RelicDraftScene by GameScene.processRelicChoiceQueue(). */
 export interface RelicDraftSceneData {
@@ -32,6 +34,23 @@ const RARITY_LABEL: Record<string, string> = {
   legendary: 'LEGENDARY',
 };
 
+const RELIC_CARD_WIDTH = 264;
+const RELIC_CARD_HEIGHT = 320;
+const RELIC_CARD_SPACING = 34;
+const RELIC_MAX_COLUMNS = 3;
+/** Total horizontal margin the card row keeps off the two canvas edges (the legacy 60 per side). */
+const RELIC_EDGE_MARGIN = 120;
+/** Design-space units the title and subtitle occupy above the card band (subtitle baseline 134 plus half its 22px line, plus clearance). */
+const RELIC_HEADER_RESERVE = 150;
+/** Design-space units kept clear below it. The draft has no footer button: this is breathing room only. */
+const RELIC_FOOTER_RESERVE = 40;
+/**
+ * `computeCardGridInBand`'s anchorOffset is measured against a grid TOP edge while the row was
+ * composed as a centre at `height / 2 + 20`, so the offset carries half a card. For a single row
+ * the half-card cancels and the anchor resolves to exactly `canvasHeight / 2 + 20 * scale`.
+ */
+const RELIC_ROW_ANCHOR_OFFSET = 20 + RELIC_CARD_HEIGHT / 2;
+
 /**
  * RelicDraftScene — in-run 1-of-N relic pick (FEAT-RELIC-DRAFT).
  *
@@ -53,6 +72,8 @@ export class RelicDraftScene extends Phaser.Scene {
   private menuOverlay: MenuOverlay | null = null;
   private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
   private cardScaleFactor: number = 1;
+  private menuScale: number = 1;
+  private gridColumns: number = 1;
   private entranceComplete: boolean = false;
   private selectionMade: boolean = false;
 
@@ -73,6 +94,10 @@ export class RelicDraftScene extends Phaser.Scene {
   create(): void {
     this.cardEntries = [];
     this.cardScaleFactor = 1;
+    this.gridColumns = 1;
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
     this.soundManager = new SoundManager(this);
     this.input.setTopOnly(true);
 
@@ -85,25 +110,31 @@ export class RelicDraftScene extends Phaser.Scene {
     };
     this.events.on('update', this.overlayUpdateHandler);
 
-    const title = makeDisplayText(this, this.scale.width / 2, 84, this.titleText, {
-      fontSize: 48,
-      color: ACCENT_COLORS_STR.focus,
-      strokeWidth: 6,
-      letterSpacing: 3,
-    });
+    const title = makeDisplayText(
+      this, this.scale.width / 2, scaledInt(this.menuScale, 84), this.titleText, {
+        fontSize: scaledInt(this.menuScale, 48),
+        color: ACCENT_COLORS_STR.focus,
+        strokeWidth: scaledInt(this.menuScale, 6),
+        letterSpacing: 3 * this.menuScale,
+      },
+    );
     title.setDepth(1);
+    fitTextWidth(title, this.scale.width - 24);
 
-    const subtitle = makeBodyText(this, this.scale.width / 2, 134, this.subtitleText, {
-      fontSize: 22,
-      color: TEXT_COLORS.muted,
-    });
+    const subtitle = makeBodyText(
+      this, this.scale.width / 2, scaledInt(this.menuScale, 134), this.subtitleText, {
+        fontSize: scaledInt(this.menuScale, 22),
+        color: TEXT_COLORS.muted,
+      },
+    );
     subtitle.setDepth(1);
+    fitTextWidth(subtitle, this.scale.width - 24);
 
     this.createRelicCards();
 
     this.cardNavigator = new MenuNavigator({
       scene: this,
-      columns: Math.max(1, this.cardEntries.length),
+      columns: Math.max(1, this.gridColumns),
       items: this.cardEntries.map((entry) => ({
         onFocus: () => this.applyCardHover(entry.index, true),
         onBlur: () => this.applyCardHover(entry.index, false),
@@ -132,27 +163,35 @@ export class RelicDraftScene extends Phaser.Scene {
   }
 
   private createRelicCards(): void {
-    const baseCardWidth = 264;
-    const baseCardHeight = 320;
-    const baseCardSpacing = 34;
-    const horizontalMargin = 60;
     const count = Math.max(1, this.choices.length);
-
-    const baseRowWidth = count * baseCardWidth + (count - 1) * baseCardSpacing;
-    const availableWidth = this.scale.width - horizontalMargin * 2;
-    const scaleFactor = Math.min(1, availableWidth / baseRowWidth);
-    this.cardScaleFactor = scaleFactor;
-
-    const cardWidth = baseCardWidth * scaleFactor;
-    const cardSpacing = baseCardSpacing * scaleFactor;
-    const rowWidth = this.choices.length * cardWidth + (this.choices.length - 1) * cardSpacing;
-    const startX = (this.scale.width - rowWidth) / 2 + cardWidth / 2;
-    const rowY = this.scale.height / 2 + 20;
+    const grid = computeCardGridInBand({
+      count,
+      cardWidth: RELIC_CARD_WIDTH,
+      cardHeight: RELIC_CARD_HEIGHT,
+      cardSpacing: RELIC_CARD_SPACING,
+      maxColumns: RELIC_MAX_COLUMNS,
+      canvasWidth: this.scale.width,
+      canvasHeight: this.scale.height,
+      edgeMargin: RELIC_EDGE_MARGIN,
+      topReserve: RELIC_HEADER_RESERVE,
+      bottomReserve: RELIC_FOOTER_RESERVE,
+      menuScale: this.menuScale,
+      anchorOffset: RELIC_ROW_ANCHOR_OFFSET,
+    });
+    this.cardScaleFactor = grid.scale;
+    this.gridColumns = grid.columns;
 
     this.choices.forEach((relic, index) => {
-      const cardX = startX + index * (cardWidth + cardSpacing);
-      const entry = this.createCardEntry(cardX, rowY, baseCardWidth, baseCardHeight, relic, index);
-      entry.card.container.setScale(scaleFactor);
+      const rowIndex = Math.floor(index / grid.columns);
+      const cardsInRow = Math.min(grid.columns, count - rowIndex * grid.columns);
+      // A short last row would otherwise sit left-aligned under a full one.
+      const rowInset = ((grid.columns - cardsInRow) * grid.columnPitch) / 2;
+      const cardX = grid.firstColumnX + rowInset + (index % grid.columns) * grid.columnPitch;
+      const cardY = grid.firstRowY + rowIndex * grid.rowPitch;
+      const entry = this.createCardEntry(
+        cardX, cardY, RELIC_CARD_WIDTH, RELIC_CARD_HEIGHT, relic, index,
+      );
+      entry.card.container.setScale(grid.scale);
       this.cardEntries.push(entry);
     });
   }
@@ -181,11 +220,10 @@ export class RelicDraftScene extends Phaser.Scene {
     });
     card.container.setDepth(2);
 
-    const textBoost = Math.min(1.2, 1 / this.cardScaleFactor);
     const halfH = height / 2;
 
     const bannerLabel = makeDisplayText(this, 0, card.bannerTopY + 22, relic.name.toUpperCase(), {
-      fontSize: Math.round(18 * textBoost),
+      fontSize: 18,
       color: TEXT_COLORS.heading,
       letterSpacing: 1,
     });
@@ -204,7 +242,7 @@ export class RelicDraftScene extends Phaser.Scene {
       iconY + 58,
       RARITY_LABEL[relic.rarity] ?? relic.rarity.toUpperCase(),
       {
-        fontSize: Math.round(13 * textBoost),
+        fontSize: 13,
         color: `#${accent.toString(16).padStart(6, '0')}`,
         letterSpacing: 2,
       },
@@ -214,7 +252,7 @@ export class RelicDraftScene extends Phaser.Scene {
     const rankLabel = this.rankLabels[relic.id];
     if (rankLabel) {
       const rankTag = makeDisplayText(this, 0, iconY + 80, rankLabel, {
-        fontSize: Math.round(14 * textBoost),
+        fontSize: 14,
         color: TEXT_COLORS.heading,
         letterSpacing: 2,
       });
@@ -222,7 +260,7 @@ export class RelicDraftScene extends Phaser.Scene {
     }
 
     const descriptionText = this.add.text(0, iconY + (rankLabel ? 126 : 108), relic.description, {
-      fontSize: `${Math.round(16 * textBoost)}px`,
+      fontSize: '16px',
       fontFamily: MENU_FONT,
       color: TEXT_COLORS.body,
       wordWrap: { width: width - 36 },
@@ -232,7 +270,7 @@ export class RelicDraftScene extends Phaser.Scene {
     card.frame.add(descriptionText);
 
     const keybindText = makeDisplayText(this, 0, halfH - 20, `[ ${index + 1} ]`, {
-      fontSize: Math.round(13 * textBoost),
+      fontSize: 13,
       color: TEXT_COLORS.muted,
       letterSpacing: 1,
     });

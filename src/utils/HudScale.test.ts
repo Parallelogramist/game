@@ -280,6 +280,29 @@ describe('computeCardGridInBand (the paint and quest-board grids)', () => {
     expect(topEdge).toBeCloseTo(168, 3);
     expect(bottomEdge).toBeCloseTo(640, 3);
   });
+
+  test('reproduces the relic draft row exactly on desktop', () => {
+    const grid = computeCardGridInBand({
+      count: 3,
+      cardWidth: 264,
+      cardHeight: 320,
+      cardSpacing: 34,
+      maxColumns: 3,
+      canvasWidth: 1280,
+      canvasHeight: 720,
+      edgeMargin: 120,
+      topReserve: 150,
+      bottomReserve: 40,
+      menuScale: 1,
+      anchorOffset: 180,
+    });
+    expect(grid.columns).toBe(3);
+    expect(grid.rows).toBe(1);
+    expect(grid.scale).toBe(1);
+    expect(grid.firstColumnX).toBe(342);
+    expect(grid.firstRowY).toBe(380);
+    expect(grid.columnPitch).toBe(298);
+  });
 });
 
 describe('computeScrollViewMetrics (density-scaled scroll band)', () => {
