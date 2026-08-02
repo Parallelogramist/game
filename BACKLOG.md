@@ -2911,6 +2911,40 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-WARDEN-ROSTER** (done, faa5190) (new 2026-08-02, from FEAT-WARDEN-IDENTITY): the twelve
+  Wardens become a lifetime chase. `FEAT-WARDEN-IDENTITY` made each world's guardian a fixed,
+  named property of that world, but nothing recorded which guardians a profile had actually
+  killed: `totalBossesKilled` counts every boss on every mode and `worldsConqueredTotal` counts
+  distinct worlds, so five worlds guarded by the same three bosses read exactly like five distinct
+  Wardens, and a candidate world's Warden name carried no information. Value: choosing the next
+  world is choosing a guardian you have never fought, and the roster says which of the twelve are
+  left.
+  1. **What shipped**: `wardensFelledMask` on `LifetimeStats`, a twelve-bit field over
+     `TUNING.bosses.order`, written by `AchievementManager.recordWardenFelled(bossTypeId)` from
+     `GameScene.recordWorldConquered()`; pure roster helpers on `src/expedition/wardenIdentity.ts`
+     (`wardenFelledBit`, `isWardenFelled`, `countFelledWardens`, `describeWardenRoster`,
+     `WARDEN_ROSTER_SIZE`, `WARDEN_MASK_ALL`); a `(NEW)` tag on the CHART dialog's Warden line, on
+     all three candidate rows and on a pasted seed's preview; a `Wardens Felled n / 12` record row
+     plus a `WARDENS` section listing all twelve as `Felled` / `Unbeaten` in the codex stats panel;
+     and one terminal unlock, `unlock_warden_roster` → the rank-24 `cosmetic_warden_vigil` paint.
+  2. **A bitfield, not a count and not a new store.** Twelve bosses fit in twelve bits, so the
+     whole roster is one number inside the achievements payload that `HiddenUnlocks` predicates
+     already receive: **no new storage key, no new module, no version bump**. A payload written
+     before this shipped reads 0 through `sanitizeLifetimeStats`, so every existing profile gets
+     the feature on its next Warden kill. The precedent is `loreFragmentsFound`, which is mirrored
+     into `LifetimeStats` for exactly this reason.
+  3. **The roster write sits OUTSIDE the `markWorldConquered` guard**, unlike
+     `recordWorldConquered()`: re-conquering a world still fells its Warden, and the mask write is
+     idempotent, so the two facts (distinct worlds, distinct guardians) stay independent.
+  4. **The preview carries `wardenBossId`, never a `felled` boolean.** `previewExpeditionWorlds`
+     memoises on the seed list, so a cached verdict would go stale the moment a Warden is felled
+     without the candidate list changing; an id is a pure function of (seed, generator version)
+     and cannot.
+  5. **One unlock tier, not two.** Conquest already pays paints at 1 and 5 worlds, and 12/12 is
+     the only tier that cannot be reached by beating the same guardian repeatedly.
+  6. **Deliberately cut:** no toast on a first fell (the victory kicker already names the
+     conquest), no per-Warden kill counts (the chase is which twelve, not how many times), and no
+     in-run HUD roster.
 - [x] **FEAT-WARDEN-IDENTITY** (done, ba625fa) (new 2026-08-02): every world gets its own Warden.
   The world's climax used to be whichever boss the player's global rotation was on:
   `wakeWardenThrone` calls `BossFightDirector.beginFight`, which read
@@ -12018,7 +12052,10 @@ Never agent work. The fleet must not do any of these.
   the operator: (a) the CHART dialog's candidate rows gained a fifth clause
   (`A   33 secrets   ·   61 caches   ·   13 sectors out   ·   Crystal Caves   ·   The Tessellator`):
   does that still fit on a portrait phone, or should the region or the Warden clause move to its
-  own line? (b) difficulty now varies per world instead of cycling, so a seed can deal a guardian
+  own line?
+  `FEAT-WARDEN-ROSTER` then appended ` (NEW)` to that same clause for a Warden this profile has
+  never felled, six more characters, so judge the row with the tag present.
+  (b) difficulty now varies per world instead of cycling, so a seed can deal a guardian
   that is a wall at the player's current build: is the world-choice preview enough of an answer,
   or does a world want a difficulty tell beside the name? (c) an expedition kill no longer
   advances the arena rotation, so a player who only flies expeditions sees a frozen `NEXT BOSS`
