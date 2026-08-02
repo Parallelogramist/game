@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 
 import { EXPEDITION_QUESTS } from '../data/ExpeditionQuests';
+import { STAGES } from '../data/Stages';
 import { ICON_MAP } from '../utils/IconMap';
 import { buildSeasonQuests, CONTRACTS_PER_WORLD } from './seasonQuests';
 
@@ -51,5 +52,77 @@ describe('seasonQuests', () => {
         }
       }
     }
+  });
+
+  // The bounds src/data/referentialIntegrity.test.ts holds the authored catalog to, applied
+  // to the generated one. A contract is issued unasked and cannot be set aside forever, so a
+  // template whose target the world cannot supply is an objective that never ticks.
+  test('every template obeys the catalog bounds and names only a guaranteed biome', () => {
+    // Depth region k is orderBiomesByHarshness(STAGES)[k] and that ordering reads no seed, so
+    // these four are in every world. Measured over 300 seeds: minimum non-hidden counts 2, 3,
+    // 6, 2 and zero worlds missing any. Deeper regions are absent from some worlds.
+    const guaranteedBiomeTags = new Set([
+      'boss-arena',
+      'biome:stage_deep_void',
+      'biome:stage_inferno',
+      'biome:stage_crystal_caves',
+      'biome:stage_ion_field',
+    ]);
+    const stageIds = new Set(STAGES.map((stage) => stage.id));
+    const seenKeys = new Set<string>();
+
+    for (let seed = 1; seed <= 400; seed += 1) {
+      for (const contract of buildSeasonQuests(seed)) {
+        seenKeys.add(contract.id.split('_').slice(3).join('_'));
+        for (const step of contract.steps) {
+          const trigger = step.trigger;
+          if (trigger.kind === 'surviveInSector') {
+            expect(step.target, step.id).toBeLessThanOrEqual(180);
+          }
+          if (trigger.kind === 'deliverItem') {
+            expect(step.target, step.id).toBeLessThanOrEqual(2);
+            expect(trigger.itemId.startsWith('cargo_'), step.id).toBe(true);
+          }
+          if (trigger.kind === 'escortDrone') {
+            expect(step.target, step.id).toBeLessThanOrEqual(2);
+            expect(trigger.droneId.startsWith('drone_'), step.id).toBe(true);
+          }
+          if (trigger.kind === 'findSecret') {
+            // 'puzzle' is in SecretTier but no producer emits it, so a step naming it could
+            // never tick.
+            expect(trigger.secretKind, step.id).not.toBe('puzzle');
+          }
+          const tag = trigger.kind === 'reachSector' ? trigger.sectorTag
+            : trigger.kind === 'surviveInSector' ? trigger.sectorTag
+            : trigger.kind === 'deliverItem' ? trigger.destinationTag
+            : trigger.kind === 'escortDrone' ? trigger.destinationTag
+            : undefined;
+          if (tag !== undefined) {
+            expect(guaranteedBiomeTags.has(tag), `${step.id} tag ${tag}`).toBe(true);
+            if (tag !== 'boss-arena') {
+              expect(stageIds.has(tag.slice('biome:'.length)), step.id).toBe(true);
+            }
+          }
+          if (step.scope !== 'run') continue;
+          if (trigger.kind === 'reachDepth') {
+            expect(step.target, step.id).toBeLessThanOrEqual(8);
+          }
+          if (trigger.kind === 'reachSector') {
+            expect(step.target, step.id).toBeLessThanOrEqual(12);
+          }
+          if (trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);
+          if (trigger.kind === 'openGate') expect(step.target, step.id).toBeLessThanOrEqual(4);
+          if (trigger.kind === 'findSecret') {
+            expect(step.target, step.id).toBeLessThanOrEqual(3);
+          }
+          if (trigger.kind === 'clearHazard') {
+            expect(step.target, step.id).toBeLessThanOrEqual(4);
+          }
+        }
+      }
+    }
+
+    // 400 seeds x 3 draws sees every template many times over; a miss means the pool shrank.
+    expect(seenKeys.size).toBe(12);
   });
 });

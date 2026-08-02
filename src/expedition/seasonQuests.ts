@@ -10,7 +10,12 @@
  * Pure and Phaser-free like the rest of src/expedition/, and deliberately WORLD-AGNOSTIC: a
  * contract is derived from the seed alone and never from the generated map, because the
  * catalog is rebuilt on the path every quest read takes and generateExpeditionWorld costs
- * 33 ms. 'boss-arena' is the one tag used, and every generated world has exactly one.
+ * 33 ms. Two tag families are safe here without generating anything: 'boss-arena', because
+ * every world sets exactly one, and the four shallowest biomes, because assignDangerAndBiomes
+ * maps depth region k to orderBiomesByHarshness(STAGES)[k] and that ordering reads no seed, so
+ * region 0-3 is always deep void, inferno, crystal caves, ion field. Measured over 300 seeds:
+ * 0 worlds lack any of the four (minimum non-hidden counts 2, 3, 6, 2), while verdant rot,
+ * molten vault and endless void are absent from some worlds and are never named.
  */
 
 import { hashStringToSeed, mulberry32 } from '../utils/dailySeed';
@@ -41,6 +46,8 @@ interface ContractTemplate {
  * by construction and FEAT-ECON-WARDS stays parked. Every trigger here has a shipped producer,
  * and none asks for a one-time act a finished profile can no longer perform: claimAbility is
  * absent on purpose, because a profile holding all six abilities can never claim a seventh.
+ * Every biome tag names one of the four regions guaranteed to exist (see the module header),
+ * and no template names 'puzzle': SecretTier carries that value but no producer emits it.
  */
 const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
   {
@@ -174,6 +181,154 @@ const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
       },
     ],
     completionGoldReward: 300,
+  },
+  {
+    key: 'courier',
+    name: 'Contract · Standing Delivery',
+    icon: 'backpack',
+    steps: [
+      {
+        description: "Deliver a relay core to the arena at this world's heart",
+        trigger: {
+          kind: 'deliverItem',
+          itemId: 'cargo_relay_core',
+          destinationTag: 'boss-arena',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 160,
+      },
+      {
+        description: 'Run two more deliveries into the Ion Field',
+        trigger: {
+          kind: 'deliverItem',
+          itemId: 'cargo_survey_ledger',
+          destinationTag: 'biome:stage_ion_field',
+        },
+        target: 2,
+        scope: 'persistent',
+        goldReward: 220,
+      },
+    ],
+    completionGoldReward: 310,
+  },
+  {
+    key: 'convoy',
+    name: 'Contract · Convoy Duty',
+    icon: 'drone',
+    steps: [
+      {
+        description: 'Escort a courier drone into the Crystal Caves',
+        trigger: {
+          kind: 'escortDrone',
+          droneId: 'drone_contract_courier',
+          destinationTag: 'biome:stage_crystal_caves',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 170,
+      },
+      {
+        description: 'Walk two more drones home through the Inferno',
+        trigger: {
+          kind: 'escortDrone',
+          droneId: 'drone_relay_probe',
+          destinationTag: 'biome:stage_inferno',
+        },
+        target: 2,
+        scope: 'persistent',
+        goldReward: 230,
+      },
+    ],
+    completionGoldReward: 320,
+  },
+  {
+    key: 'prospect',
+    name: 'Contract · Deep Prospect',
+    icon: 'crystal',
+    steps: [
+      {
+        description: 'Chart three Inferno rooms on one expedition',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_inferno' },
+        target: 3,
+        scope: 'run',
+        goldReward: 130,
+      },
+      {
+        description: 'Chart five rooms of the Crystal Caves',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_crystal_caves' },
+        target: 5,
+        scope: 'persistent',
+        goldReward: 200,
+      },
+    ],
+    completionGoldReward: 280,
+  },
+  {
+    key: 'bulwark',
+    name: 'Contract · Standing Watch',
+    icon: 'shield',
+    steps: [
+      {
+        description: 'Hold an Inferno room for sixty seconds',
+        trigger: { kind: 'surviveInSector', sectorTag: 'biome:stage_inferno' },
+        target: 60,
+        scope: 'run',
+        goldReward: 150,
+      },
+      {
+        description: 'Clear three nemesis lairs across your expeditions',
+        trigger: { kind: 'clearHazard', hazardKind: 'lair' },
+        target: 3,
+        scope: 'persistent',
+        goldReward: 200,
+      },
+    ],
+    completionGoldReward: 290,
+  },
+  {
+    key: 'homefront',
+    name: 'Contract · Home Front',
+    icon: 'eye',
+    steps: [
+      {
+        description: 'Uncover two caches on one expedition',
+        trigger: { kind: 'findSecret', secretKind: 'cache' },
+        target: 2,
+        scope: 'run',
+        goldReward: 140,
+      },
+      {
+        description: 'Chart two Deep Void rooms',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_deep_void' },
+        target: 2,
+        scope: 'persistent',
+        goldReward: 190,
+      },
+    ],
+    completionGoldReward: 280,
+  },
+  {
+    key: 'frontier',
+    name: 'Contract · Far Frontier',
+    icon: 'planet',
+    steps: [
+      {
+        description: 'Fly five sectors out from the hangar',
+        trigger: { kind: 'reachDepth' },
+        target: 5,
+        scope: 'run',
+        goldReward: 170,
+      },
+      {
+        description: 'Destroy nine hundred hostiles across your expeditions',
+        trigger: { kind: 'kill' },
+        target: 900,
+        scope: 'persistent',
+        goldReward: 220,
+      },
+    ],
+    completionGoldReward: 310,
   },
 ];
 
