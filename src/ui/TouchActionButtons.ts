@@ -124,12 +124,16 @@ export class TouchActionButtons {
     this.dashContainer.setInteractive(hitArea, Phaser.Geom.Circle.Contains);
     this.dashContainer.setName('dashButton');
 
-    this.dashContainer.on('pointerdown', () => {
+    const dashButton = this.dashContainer;
+    dashButton.on('pointerdown', () => {
       if (!this.enabled) return;
       this.options.onDash();
-      // Press feedback
+      // Press feedback. A yoyo returns to the scale it STARTED at, so stacked
+      // presses ratchet the button away from 1 and it sticks shrunk.
+      this.scene.tweens.killTweensOf(dashButton);
+      dashButton.setScale(1);
       this.scene.tweens.add({
-        targets: this.dashContainer,
+        targets: dashButton,
         scaleX: 0.85,
         scaleY: 0.85,
         duration: 50,
@@ -173,11 +177,16 @@ export class TouchActionButtons {
     this.ultimateContainer.setInteractive(hitArea, Phaser.Geom.Circle.Contains);
     this.ultimateContainer.setName('ultimateButton');
 
-    this.ultimateContainer.on('pointerdown', () => {
+    const ultimateButton = this.ultimateContainer;
+    ultimateButton.on('pointerdown', () => {
       if (!this.enabled) return;
       this.options.onUltimate();
+      // Same stacking bug as dash, and this container is also tweened by
+      // updateUltimateCharge's ready pop, so a press mid-pop must claim it.
+      this.scene.tweens.killTweensOf(ultimateButton);
+      ultimateButton.setScale(1);
       this.scene.tweens.add({
-        targets: this.ultimateContainer,
+        targets: ultimateButton,
         scaleX: 0.85,
         scaleY: 0.85,
         duration: 50,
@@ -285,11 +294,14 @@ export class TouchActionButtons {
     this.mapContainer.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
     this.mapContainer.setName('mapButton');
 
-    this.mapContainer.on('pointerdown', () => {
+    const mapButton = this.mapContainer;
+    mapButton.on('pointerdown', () => {
       if (!this.enabled) return;
       this.options.onOpenMap?.();
+      this.scene.tweens.killTweensOf(mapButton);
+      mapButton.setScale(1);
       this.scene.tweens.add({
-        targets: this.mapContainer,
+        targets: mapButton,
         scaleX: 0.85,
         scaleY: 0.85,
         duration: 50,

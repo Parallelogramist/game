@@ -123,6 +123,9 @@ const HUD_ALPHA = 0.75;
 const HUD_EDGE_PADDING = 16;
 const HUD_ELEMENT_SPACING = 8;
 const HP_DAMAGE_FLASH_MS = 80;
+const FPS_TEXT_INTERVAL_MS = 250;
+// Reproduces the old per-frame Linear(..., 0.1) exactly at 60Hz: 1 - e^(-6.32/60) = 0.1.
+const BOSS_BAR_DRAIN_RATE = 6.32;
 const WORLD_LEVEL_TEXT_HEIGHT = 18;
 
 // Module-level constants to avoid per-frame allocation
@@ -247,6 +250,7 @@ export class HUDManager {
   private fpsHistory: Float32Array = new Float32Array(60);
   private fpsHistoryIndex: number = 0;
   private fpsHistorySamples: number = 0;
+  private fpsTextAccumulatorMs: number = 0;
   private readonly FPS_HISTORY_SIZE = 60;
   private qualityUpgradeTimer: number = 0;
   private readonly QUALITY_UPGRADE_DELAY = 5.0; // seconds of sustained good FPS before upgrading
@@ -295,6 +299,7 @@ export class HUDManager {
   private lastTimerMinutes: number = -1;
   private lastTimerSeconds: number = -1;
   private lastKillCount: number = -1;
+  private wonTimerColorApplied: boolean = false;
   private lastDeathGold: number = -1;
   private lastBankedGold: number = -1;
   private lastPlayerLevel: number = -1;
@@ -904,7 +909,8 @@ export class HUDManager {
       }
 
       // Gold timer after victory to indicate "bonus time"
-      if (state.hasWon) {
+      if (state.hasWon && !this.wonTimerColorApplied) {
+        this.wonTimerColorApplied = true;
         this.timerTextRef.setColor('#ffdd44');
       }
     }
@@ -1276,9 +1282,11 @@ export class HUDManager {
         }
         bossBar.lastHP = bossData.currentHP;
 
-        // Smooth health bar decrease with lerp
+        // Smooth health bar decrease. The lerp factor is derived from the frame
+        // time, so the drain looks the same at 60Hz and at 144Hz.
         const targetWidth = barMaxWidth * bossProgress;
-        bossBar.barFill.width = Phaser.Math.Linear(bossBar.barFill.width, targetWidth, 0.1);
+        const drainFactor = 1 - Math.exp(-BOSS_BAR_DRAIN_RATE * state.deltaSeconds);
+        bossBar.barFill.width = Phaser.Math.Linear(bossBar.barFill.width, targetWidth, drainFactor);
 
         bossBar.healthText.setText(
           `${Math.ceil(bossData.currentHP)} / ${Math.ceil(bossData.maxHP)}`,
@@ -1301,6 +1309,11 @@ export class HUDManager {
     // Clear existing icons. Destroying a hovered icon never fires pointerout,
     // so force-hide the tooltip or it lingers with stale text.
     this.upgradeTooltip?.setVisible(false);
+    // Phaser does not retire a tween whose target was destroyed, so the
+    // highlight glow's repeat:-1 pulse would outlive every rebuild.
+    for (const iconChild of this.upgradeIconsContainer.list) {
+      this.scene.tweens.killTweensOf(iconChild);
+    }
     this.upgradeIconsContainer.removeAll(true);
 
     // Layout constants (scaled for mobile)
@@ -2168,11 +2181,17 @@ export class HUDManager {
     const fps = 1000 / delta;
     const deltaSeconds = delta * 0.001;
 
-    // Update FPS counter display and visibility
+    // Update FPS counter display and visibility. Throttled: a per-frame setText
+    // re-rasterizes the label every frame it is enabled, and a 60Hz readout is
+    // unreadable anyway.
     if (this.fpsText) {
-      const fpsEnabled = getSettingsManager().isFpsCounterEnabled();
-      this.fpsText.setVisible(fpsEnabled);
-      if (fpsEnabled) this.fpsText.setText(`FPS: ${Math.round(fps)}`);
+      this.fpsTextAccumulatorMs += delta;
+      if (this.fpsTextAccumulatorMs >= FPS_TEXT_INTERVAL_MS) {
+        this.fpsTextAccumulatorMs = 0;
+        const fpsEnabled = getSettingsManager().isFpsCounterEnabled();
+        this.fpsText.setVisible(fpsEnabled);
+        if (fpsEnabled) this.fpsText.setText(`FPS: ${Math.round(fps)}`);
+      }
     }
 
     // Circular buffer for FPS history (avoids O(n) shift)
