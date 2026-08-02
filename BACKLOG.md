@@ -6857,13 +6857,28 @@ exploring pays is the end of Phase 5.
   for instead of charting the world from the couch. Deps: none, but it is a balance question, so
   it wants numbers, not a guess.
 
-- [ ] **FEAT-SECRET-MAP-FRAGMENT-CODEX** (new 2026-07-31, from FEAT-SECRET-MAP-FRAGMENT): a
+- [x] **FEAT-SECRET-MAP-FRAGMENT-CODEX** (done, fade6f8) (new 2026-07-31, from FEAT-SECRET-MAP-FRAGMENT): a
   fragment currently spends itself into the chart and is never a thing the profile owns, unlike a
   lore fragment. A Codex entry per region charted plus a lifetime counter was cut for the reason
   `FEAT-SECRET-LORE` cut `loreFragmentsFound` at the time: the count is derivable from the
   discovery store, and a lifetime integer with no reader is a second source of truth waiting to
   disagree. Value: survey data becomes a collection the player can revisit rather than a toast
   that scrolls away. Deps: none.
+  **What shipped:** a SURVEY category in the Codex, one card per region in `STAGES`, sitting
+  between LORE and STATISTICS. `SurveyCodexEntry` (`src/codex/CodexTypes.ts`) carries
+  `discovered`, `discoveredAt`, `fragmentsRecovered` and `sectorsCharted`, keyed by
+  `StageDefinition.id`; `CodexManager.recordRegionSurveyed` is its single write path and
+  `sanitizeSurvey` rebuilds it from `STAGES` on load, so a corrupt payload cannot inflate a
+  counter or fake a region. `MapFragmentGrant` gained `stageId` (the unprefixed biome id) so the
+  call site does not do string surgery on `regionId`, and `GameScene.grantMapFragment` records the
+  survey after its `charted === 0` guard, so a grant that charted nothing new bumps nothing. The
+  "second source of truth" objection that cut this item is answered rather than dodged: the
+  per-world discovery store still owns which sectors are charted in THIS world, and the codex
+  entry owns what the profile has surveyed across all of them, which are different facts.
+  `CODEX_VERSION` was deliberately not bumped: `loadState` already rebuilds every sub-record from
+  known ids, so a payload with no `survey` key defaults in, and `state.version` is never branched
+  on. No test added: the sanitizer copies `sanitizeLore`'s shape, the accumulator adds two
+  integers, and the card rendering is Phaser-coupled (verified by play, per `CLAUDE.md`).
 
 - [x] **FEAT-BARRIER-BREACH** (done — 2dc76e1, 491c7cc, 31b17c3, 6df8acc): the expedition
   world's cracked walls stop being a lie. The generator has always carved `TileKind.Breakable`
@@ -11745,6 +11760,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-CODEX-SURVEY-TAB** (new 2026-08-02, from FEAT-SECRET-MAP-FRAGMENT-CODEX). Value: the
+  Codex tab strip went from 13 tabs to 14 and none of it has been seen on a real viewport.
+  Questions for the operator: (1) `createCategoryTabs` divides the screen width evenly, so a
+  1280-wide desktop tab drops from 88 to 81 units and every label loses 7 units of room: check
+  whether the longer names (`Statistics`, `Evolutions`, `Modifiers`) still read now that
+  `fitTextWidth` shrinks them further, and whether more tabs now hide their count. (2) the strip
+  was already unusable in portrait before this change (a 400-wide screen gave 20 units per tab at
+  13 tabs, 18 at 14), so if a scrolling or two-row tab strip is wanted, that is a redesign to
+  commission rather than a regression from this item. (3) the SURVEY card is 116 units tall
+  against LORE's 104 so the region description fits: confirm the extra 12 units do not make the
+  grid feel loose. (4) the card reuses the lore amber `0xcc8833` because both collections come out
+  of secret caches: confirm the two tabs are still distinguishable at a glance, or say which
+  accent SURVEY should take instead.
 
 - [ ] **POLISH-LOADOUT-CODE-BAR** (new 2026-08-02, from FEAT-LOADOUT-CODE-ENTRY-BUTTON). Value: the
   LOADOUTS build-code bar now carries three buttons instead of two, with shortened labels, and none
