@@ -2897,6 +2897,28 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-REGION-SIGNATURE-BANNER** (done, 10a396f) (new 2026-08-02): the third slice of
+  README section 6's "biome mechanics, not just tints", and the one that makes the first two
+  legible. `FEAT-BIOME-REGION-STAGE` (8c5ebb2) and `FEAT-BIOME-REGION-PACKS` (65b250a) gave a
+  region its own hazards, palette and pack, and **no surface stated the rule**: the only stage
+  text the game owns is `Stage.description`, shown twice in the pre-run funnel
+  (`WeaponSelectScene.ts:340`, `:440`), and it describes the multiplier half that
+  `FEAT-BIOME-REGION-MULTIPLIERS` established does not travel with a region. New pure
+  `src/systems/regionSignature.ts` reads the same `STAGE_SPAWN_BIASES` the director rolls
+  against and returns one line, so the banner cannot promise a pack the director does not
+  send: the two highest-boosted types and the single most-suppressed one, tie-broken by enemy
+  id so a region reads as one rule across entries. The sector banner (`showSectorBanner`)
+  prints it as a second line **only when the entry crossed a region border**, since repeating
+  it per room turns a rule into noise. No new UI surface: the banner is `setOrigin(0.5, 1)`, so
+  the line grows upward into empty play field. `applySectorStage` now returns whether the
+  region changed, which is the cue. **The banner also stopped lying about the home region**:
+  it named `sector.biomeId`, but a spine sector is stamped `stage_deep_void` while running the
+  funnel pick, so an Inferno run was announced as `DEEP VOID`; both the name and the signature
+  now come from `this.activeStageId`, the one id that decides the room's behaviour.
+  `stage_deep_void` has an empty bias row, so a Deep Void expedition and every arena mode print
+  exactly today's one-line banner. One test, on the describer: a wrong line still renders, so
+  the failure is silent. Value: a region border is a build decision, not a colour change.
+
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
   canvas, so outside the expedition start sector they all stopped working (done — ac99375,
   10ec649, 8685b35). `ProjectileWeapon` (Energy Darts, the weapon every run starts with),
@@ -7396,6 +7418,27 @@ exploring pays is the end of Phase 5.
   fix. Value: the region is the same place whichever strategy the run rolled. Deps: none, but
   it wants `BALANCE-BIOME-REGION-PACKS`' play data first.
 
+- [ ] **FEAT-REGION-SIGNATURE-HAZARDS** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER):
+  the other half of a signature. A region's hazard lean (`STAGE_HAZARD_BIASES`) is as much its
+  character as its pack, and a `BLOOMS ICE` clause would slot straight into
+  `describeRegionSignature`'s clause list. Cut for a mechanical reason, not a preference: that
+  table is module-private at `src/systems/HazardZoneSystem.ts:137` and that module's first
+  import is `import Phaser from 'phaser'`, so a pure Node-env test of the describer cannot
+  reach it. The honest route is extracting the table (and `DEFAULT_STAGE_BIAS`) into a pure
+  module both the system and the describer read, which is a relocation touching a live spawner
+  and is worth its own slice. Value: the banner names the ground as well as the pack.
+  Deps: none.
+
+- [ ] **FEAT-REGION-SIGNATURE-CHART** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER):
+  the signature is a threshold moment, so a player planning a route on the chart still cannot
+  read it. `describeRegionSignature` is pure and `src/expedition/sectorDetail.ts` already names
+  the biome in `describePlace`, so the wiring is trivial and the **placement is not**: the
+  detail bar is a fixed 104 px with three Text objects at +12, +40 and +74, its headline
+  already carries state, place, sector key, a mark label and a quoted note, and
+  `POLISH-MAP-DETAIL-BAR-PORTRAIT` is already filed for that line wrapping past its plate. So
+  this needs a layout call the operator owns rather than another clause appended blind. Value:
+  the route is chosen on the chart, where the signature is not. Deps: a layout call.
+
 - [x] **FEAT-EXPEDITION-SEASONS** (done, fd406d3) (new 2026-08-01, from
   `references/map/README.md` section 6): the expedition world stopped being one fixed
   layout every profile explores once. The seed was the module constant
@@ -8503,6 +8546,13 @@ exploring pays is the end of Phase 5.
   `TRAVERSAL_ABILITIES` and the world's own `abilityOrder`; the open question is what an unseen
   requirement reads as, which section 4.5 rule 3 answers with `mechanism unknown`. Value: the
   map answers "what do I need" without flying to the door. Deps: none.
+  **Largely redundant, measured 2026-08-02:** the shipped LOCKED OUT panel already answers
+  "what do I need" with more than a legend row would. `src/expedition/lockouts.ts:209` bumps
+  one row per blocking ability keyed `ability:<id>`, carrying the ability's own
+  `definition.name`, the count of doors it blocks and the distance to the nearest, and `:215`
+  does the same for quest keys. A legend row naming the requirement is a strict subset of that.
+  Do not re-derive this; if the item is ever picked up, it is for the legend's *vocabulary*
+  value, not for the "what do I need" value, which is shipped.
 
 - [x] **FEAT-MAPUI-RADAR-UNDERLAY-06** (done — 492b8f0, 9c670b7): the tactical radar became
   world-aware without losing its threat identity.
@@ -11271,6 +11321,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-REGION-SIGNATURE-BANNER** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER).
+  Value: a region's rule should land in the second it is read. Everything about the line was
+  validated by reading the code and by unit tests over the pure describer, never in a browser.
+  Four questions only a player answers: (a) does a two-line banner at 15 px times `hudScale`
+  stay legible on a phone, given the second line grows upward into the play field where enemies
+  are; (b) is `FEW EXPLODER` useful or noise, given a suppression is a thing that does not
+  happen; (c) do the catalog's own names read as a pack (`TINY SWARM`, `ZIGZAG RUNNER`) or as
+  debug ids leaking to the player; (d) naming two boosted types is a guess, and Molten Vault
+  boosts four: is two a signature or an undersell. Deps: play.
 
 - [ ] **BALANCE-BIOME-REGION-PACKS** (new 2026-08-02, from FEAT-BIOME-REGION-PACKS): the six
   region tables are designed guesses in the shape of `STAGE_HAZARD_BIASES`, never played. The

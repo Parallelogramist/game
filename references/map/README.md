@@ -288,6 +288,16 @@ first.
   multiplies the director's weighted roll per enemy id, set by `setDirectorStage` at the same
   three sites the hazard bias uses, so the Ion Field shoots at you and the Crystal Caves send
   armour. `stage_deep_void` is deliberately unbiased, so the default stage is unchanged.
+  **Third slice shipped as `FEAT-REGION-SIGNATURE-BANNER` (`10a396f`, 2026-08-02):**
+  the region states its own rule. The sector banner gains a second line on a region change
+  only, built by the pure `src/systems/regionSignature.ts` from the same `STAGE_SPAWN_BIASES`
+  the director rolls against, so the banner cannot promise a pack the director does not send:
+  the two most-boosted types and the most-suppressed one. The banner's region name moved from
+  `sector.biomeId` to `this.activeStageId` in the same change, because a spine sector is
+  stamped `stage_deep_void` while running the funnel pick and was therefore announcing the
+  wrong region. `stage_deep_void` prints no second line, so a Deep Void expedition is
+  unchanged. The hazard half of a signature is filed as `FEAT-REGION-SIGNATURE-HAZARDS`: its
+  table is private to a Phaser-importing module and needs an extraction first.
   Sector-scale mechanics beyond the shipped stage
   properties (moving walls, a dark biome, low-gravity drift) stay deferred, and the stage
   multipliers are filed as `FEAT-BIOME-REGION-MULTIPLIERS`.
