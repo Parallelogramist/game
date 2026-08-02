@@ -18,6 +18,15 @@ import {
   BODY_COLORS,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
+import { fitMenuScale, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
+
+/** Design-space units above the track list: title, now-playing line and the action row. */
+const MUSIC_LIST_TOP_RESERVE = 170;
+/** Design-space units below it: the two scroll hints and the back button. */
+const MUSIC_LIST_BOTTOM_RESERVE = 170;
+/** The chrome may never take more than this share of the canvas; the list keeps the rest. */
+const MUSIC_CHROME_BUDGET_FRACTION = 0.6;
 
 type FocusZone = 'actions' | 'tracks' | 'back';
 
@@ -54,7 +63,9 @@ export class MusicSettingsScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
 
-  private readonly trackListY = 170;
+  private listTop = MUSIC_LIST_TOP_RESERVE;
+  private chromeScale = 1;
+  private listScale = 1;
   private readonly trackHeight = 38;
   private visibleHeight = 380;
 
@@ -77,9 +88,19 @@ export class MusicSettingsScene extends Phaser.Scene {
     this.selectedActionIndex = 0;
     this.selectedTrackIndex = 0;
     this.scrollY = 0;
-    // The 170px bottom reserve clears the scroll hints and back button and
-    // makes a 720-tall landscape viewport resolve to the legacy 380px height.
-    this.visibleHeight = Math.max(380, this.scale.height - this.trackListY - 170);
+    const menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
+    // Two scales, the way ShopScene split them: the chrome is bound by a vertical budget, while
+    // the list is a scroll view, so growing its rows costs only scroll distance.
+    this.chromeScale = fitMenuScale(
+      menuScale, this.scale.height * MUSIC_CHROME_BUDGET_FRACTION,
+      MUSIC_LIST_TOP_RESERVE + MUSIC_LIST_BOTTOM_RESERVE,
+    );
+    this.listScale = Math.max(1, menuScale);
+    this.listTop = scaledInt(this.chromeScale, MUSIC_LIST_TOP_RESERVE);
+    this.visibleHeight = Math.max(0, this.scale.height
+      - scaledInt(this.chromeScale, MUSIC_LIST_BOTTOM_RESERVE) - this.listTop);
 
     if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
       musicManager.play();
@@ -96,15 +117,15 @@ export class MusicSettingsScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    makeDisplayText(this, centerX, 36, 'MUSIC TRACKS', {
-      fontSize: 32,
+    makeDisplayText(this, centerX, scaledInt(this.chromeScale, 36), 'MUSIC TRACKS', {
+      fontSize: scaledInt(this.chromeScale, 32),
       color: ACCENT_COLORS_STR.gold,
-      strokeWidth: 5,
-      letterSpacing: 4,
+      strokeWidth: scaledInt(this.chromeScale, 5),
+      letterSpacing: 4 * this.chromeScale,
     });
 
-    this.nowPlayingText = makeBodyText(this, centerX, 78, '', {
-      fontSize: 14,
+    this.nowPlayingText = makeBodyText(this, centerX, scaledInt(this.chromeScale, 78), '', {
+      fontSize: scaledInt(this.chromeScale, 14),
       color: ACCENT_COLORS_STR.safe,
     });
     this.updateNowPlaying();
@@ -112,13 +133,13 @@ export class MusicSettingsScene extends Phaser.Scene {
     // Action buttons.
     const selectAllButton = createMenuButton({
       scene: this,
-      x: centerX - 110,
-      y: 120,
-      width: 180,
-      height: 36,
+      x: centerX - scaledInt(this.chromeScale, 110),
+      y: scaledInt(this.chromeScale, 120),
+      width: scaledInt(this.chromeScale, 180),
+      height: scaledInt(this.chromeScale, 36),
       label: 'SELECT ALL',
       variant: 'primary',
-      fontSize: 13,
+      fontSize: scaledInt(this.chromeScale, 13),
       onActivate: () => this.activateActionButton(0),
     });
     selectAllButton.card.hitZone.on('pointerover', () => {
@@ -127,13 +148,13 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
     const deselectAllButton = createMenuButton({
       scene: this,
-      x: centerX + 110,
-      y: 120,
-      width: 180,
-      height: 36,
+      x: centerX + scaledInt(this.chromeScale, 110),
+      y: scaledInt(this.chromeScale, 120),
+      width: scaledInt(this.chromeScale, 180),
+      height: scaledInt(this.chromeScale, 36),
       label: 'DESELECT ALL',
       variant: 'neutral',
-      fontSize: 13,
+      fontSize: scaledInt(this.chromeScale, 13),
       onActivate: () => this.activateActionButton(1),
     });
     deselectAllButton.card.hitZone.on('pointerover', () => {
@@ -144,47 +165,50 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Scrollable track list.
     const maskGraphics = this.make.graphics({});
-    maskGraphics.fillRect(20, this.trackListY, this.cameras.main.width - 40, this.visibleHeight);
+    maskGraphics.fillRect(20, this.listTop, this.cameras.main.width - 40, this.visibleHeight);
     const mask = maskGraphics.createGeometryMask();
 
-    this.trackContainer = this.add.container(0, this.trackListY);
+    this.trackContainer = this.add.container(0, this.listTop);
+    this.trackContainer.setScale(this.listScale);
     this.trackContainer.setMask(mask);
 
+    // Everything below this line is in the container's own units, not screen units.
+    const contentWidth = this.scale.width / this.listScale;
     MUSIC_CATALOG.forEach((track, index) => {
       const trackY = index * this.trackHeight + this.trackHeight / 2;
-      this.createTrackRow(track, trackY, centerX, index);
+      this.createTrackRow(track, trackY, contentWidth / 2, contentWidth - 60, index);
     });
 
     const totalHeight = MUSIC_CATALOG.length * this.trackHeight;
-    this.maxScrollY = Math.max(0, totalHeight - this.visibleHeight);
+    this.maxScrollY = Math.max(0, totalHeight * this.listScale - this.visibleHeight);
 
-    const hintY = this.trackListY + this.visibleHeight + 14;
+    const hintY = this.listTop + this.visibleHeight + scaledInt(this.chromeScale, 14);
     if (this.maxScrollY > 0) {
       makeBodyText(this, centerX, hintY, 'Scroll with mouse wheel or arrow keys', {
-        fontSize: 11,
+        fontSize: scaledInt(this.chromeScale, 11),
         color: TEXT_COLORS.dim,
       });
     }
-    makeBodyText(this, centerX, hintY + (this.maxScrollY > 0 ? 18 : 0),
+    makeBodyText(this, centerX, hintY + (this.maxScrollY > 0 ? scaledInt(this.chromeScale, 18) : 0),
       'Press P to play selected track', {
-        fontSize: 11,
+        fontSize: scaledInt(this.chromeScale, 11),
         color: TEXT_COLORS.dim,
       });
 
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number) => {
       this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.5, 0, this.maxScrollY);
-      this.trackContainer.setY(this.trackListY - this.scrollY);
+      this.trackContainer.setY(this.listTop - this.scrollY);
     });
 
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: this.cameras.main.height - 36,
-      width: 200,
-      height: 44,
+      y: this.cameras.main.height - scaledInt(this.chromeScale, 36),
+      width: scaledInt(this.chromeScale, 200),
+      height: scaledInt(this.chromeScale, 44),
       label: '← BACK',
       variant: 'neutral',
-      fontSize: 16,
+      fontSize: scaledInt(this.chromeScale, 16),
       onActivate: () => this.goBack(),
     });
     this.backButton.card.hitZone.on('pointerover', () => {
@@ -267,7 +291,9 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
   }
 
-  private createTrackRow(track: Track, y: number, centerX: number, index: number): void {
+  private createTrackRow(
+    track: Track, y: number, contentCenterX: number, rowWidth: number, index: number,
+  ): void {
     const musicManager = getMusicManager();
     const isEnabled = musicManager.isTrackEnabled(track.id);
     const currentTrack = musicManager.getCurrentTrack();
@@ -275,9 +301,9 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     const accent = isEnabled ? ACCENT_COLORS.primary : ACCENT_COLORS.neutral;
     const card = createMenuCard(this, {
-      x: centerX,
+      x: contentCenterX,
       y,
-      width: this.cameras.main.width - 60,
+      width: rowWidth,
       height: this.trackHeight - 6,
       bodyFillColor: BODY_COLORS.primary,
       accentColor: accent,
@@ -290,7 +316,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
     if (!isEnabled) card.container.setAlpha(0.7);
 
-    const halfWidth = (this.cameras.main.width - 60) / 2;
+    const halfWidth = rowWidth / 2;
 
     const selector = makeDisplayText(this, -halfWidth + 16, 0, '', {
       fontSize: 14,
@@ -393,18 +419,17 @@ export class MusicSettingsScene extends Phaser.Scene {
   }
 
   private ensureTrackVisible(): void {
-    const trackY = this.selectedTrackIndex * this.trackHeight;
-    const visibleTop = this.scrollY;
-    const visibleBottom = this.scrollY + this.visibleHeight;
+    const rowHeight = this.trackHeight * this.listScale;
+    const rowTop = this.selectedTrackIndex * rowHeight;
 
-    if (trackY < visibleTop) {
-      this.scrollY = trackY;
-    } else if (trackY + this.trackHeight > visibleBottom) {
-      this.scrollY = trackY + this.trackHeight - this.visibleHeight;
+    if (rowTop < this.scrollY) {
+      this.scrollY = rowTop;
+    } else if (rowTop + rowHeight > this.scrollY + this.visibleHeight) {
+      this.scrollY = rowTop + rowHeight - this.visibleHeight;
     }
 
     this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
-    this.trackContainer.setY(this.trackListY - this.scrollY);
+    this.trackContainer.setY(this.listTop - this.scrollY);
   }
 
   private updateFocusVisuals(): void {
