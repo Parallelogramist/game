@@ -95,6 +95,7 @@ import {
 import type { ReturnWorldSort } from '../../expedition/returnWorlds';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildQuestBriefingLines } from '../../expedition/questBriefing';
+import { consumePendingExpeditionLaunch } from '../../expedition/pendingLaunch';
 import { decodeSeedCode, encodeSeedCode } from '../../expedition/seedCode';
 import { copyTextToClipboard } from '../../utils/Clipboard';
 
@@ -1037,6 +1038,13 @@ export class BootScene extends Phaser.Scene {
     const pendingReplay = consumePendingReplay();
     if (pendingReplay) {
       replayLoadoutWithConfirmation(pendingReplay);
+    }
+
+    // The survey's LAUNCH (MapScene in browse mode), handed here for the same reason the replay
+    // above is: this is where the confirm-if-a-run-is-in-progress + clear-save + fade path lives,
+    // and starting the run on the chart screen would be a second entry point into it.
+    if (consumePendingExpeditionLaunch()) {
+      startGameWithConfirmation();
     }
 
     this.events.once('shutdown', this.shutdown, this);

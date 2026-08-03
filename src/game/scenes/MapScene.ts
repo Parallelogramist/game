@@ -24,6 +24,7 @@ import { MAX_SECTOR_NOTE_LENGTH, SECTOR_MARKS, SECTOR_MARK_CYCLE,
 import type { SectorMarkKind } from '../../expedition/sectorMarks';
 import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
+import { setPendingExpeditionLaunch } from '../../expedition/pendingLaunch';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { describeSectorCourse, plotSectorCourse } from '../../expedition/sectorRoute';
 import type { SectorCourse } from '../../expedition/sectorRoute';
@@ -220,6 +221,7 @@ export class MapScene extends Phaser.Scene {
   private noteOverlayTeardown: (() => void) | null = null;
   private recallButton: MenuButton | null = null;
   private noteButton: MenuButton | null = null;
+  private launchButton: MenuButton | null = null;
   /** RT may already be held when the map opens (the ship auto-fires), and a fresh GamepadManager
    *  reads a held button as a first press. Exactly the zoomOutArmed guard LB needs, for exactly
    *  the same reason: without it the note field opens by itself on the frame the chart appears. */
@@ -309,14 +311,12 @@ export class MapScene extends Phaser.Scene {
       + ` SECTORS`
       + `  ·  ${completionPercent}%${bestClause}`,
       { fontSize: 18, color: TEXT_COLORS.muted, wordWrapWidth: width - 40 }).setDepth(2);
-    const footerButtonsWidth = this.browsing
-      ? NOTE_BUTTON_WIDTH
-      : RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP + NOTE_BUTTON_WIDTH;
+    const footerButtonsWidth = RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP + NOTE_BUTTON_WIDTH;
     const hintWidth = Math.max(120, width - 40 - footerButtonsWidth);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
       + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE'
-      + (this.browsing ? '' : '   ·   R RECALL / SORTIE')
+      + (this.browsing ? '   ·   L LAUNCH' : '   ·   R RECALL / SORTIE')
       + '   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
@@ -412,7 +412,8 @@ export class MapScene extends Phaser.Scene {
     ));
 
     this.renderDetailBar();
-    if (!this.browsing) this.createRecallButton();
+    if (this.browsing) this.createLaunchButton();
+    else this.createRecallButton();
     this.createNoteButton();
     this.focusedCell = this.knownCells.find(
       cell => cell.gridX === shipSector.col && cell.gridY === shipSector.row,
@@ -434,6 +435,7 @@ export class MapScene extends Phaser.Scene {
         const key = event.key;
         if (key === 'm' || key === 'M' || key === 'Escape') { this.close(); return; }
         if (key === 'r' || key === 'R') { this.recall(); return; }
+        if (key === 'l' || key === 'L') { this.launch(); return; }
         if (key === 'p' || key === 'P') { this.cycleMark(); return; }
         if (key === 'n' || key === 'N') { this.editNote(); return; }
         if (key === 'c' || key === 'C') { this.centreOnShip(); return; }
@@ -783,17 +785,37 @@ export class MapScene extends Phaser.Scene {
     if (!live) this.recallButton.setEnabled(false);
   }
 
-  /** The touch and mouse opener for the note field, left of RECALL. Disabled rather than hidden
+  /** The between-runs action, in the slot RECALL holds during a run: same width, same position,
+   *  same footer rhythm, because it is the same question one screen earlier ("go", from here). It
+   *  is never disabled: a profile always has a current expedition world, which is the world the
+   *  chart behind this button is drawn from. */
+  private createLaunchButton(): void {
+    this.launchButton = createMenuButton({
+      scene: this,
+      x: this.scale.width - 20 - RECALL_BUTTON_WIDTH / 2,
+      y: this.scale.height - FOOTER_HEIGHT / 2,
+      width: RECALL_BUTTON_WIDTH,
+      height: RECALL_BUTTON_HEIGHT,
+      label: 'LAUNCH',
+      variant: 'primary',
+      onActivate: () => this.launch(),
+    });
+    this.launchButton.container.setDepth(6);
+    this.launchButton.card.hitZone.on('pointerover', () =>
+      this.launchButton?.setHoverState(true));
+    this.launchButton.card.hitZone.on('pointerout', () =>
+      this.launchButton?.setHoverState(false));
+  }
+
+  /** The touch and mouse opener for the note field, left of the action button. Disabled rather than hidden
    *  while nothing is focused, so the footer never reflows and the affordance is legible before
    *  the player has tapped a sector: the label says what the chart can do, the state says what it
    *  can do right now. */
   private createNoteButton(): void {
     this.noteButton = createMenuButton({
       scene: this,
-      // Browse draws no RECALL, so NOTE takes the edge slot rather than leaving a hole where the
-      // button that cannot exist between runs would have been.
       x: this.scale.width - 20
-        - (this.browsing ? 0 : RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP)
+        - (RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP)
         - NOTE_BUTTON_WIDTH / 2,
       y: this.scale.height - FOOTER_HEIGHT / 2,
       width: NOTE_BUTTON_WIDTH,
@@ -820,6 +842,17 @@ export class MapScene extends Phaser.Scene {
     this.close();
     if (isSortie) gameScene?.beginExpeditionSortie();
     else gameScene?.beginExpeditionRecall();
+  }
+
+  /** Hands the launch to BootScene rather than starting the run here: BootScene owns the
+   *  save-loss confirmation, the clear-save and the sweep into the funnel that every other
+   *  launch in the game goes through, and a second entry point into that flow is exactly what
+   *  this feature was held back on. */
+  private launch(): void {
+    if (this.closed) return;
+    if (!this.browsing) return;
+    setPendingExpeditionLaunch();
+    this.close({ launching: true });
   }
 
   private refreshDetail(): void {
@@ -911,7 +944,8 @@ export class MapScene extends Phaser.Scene {
         return;
       }
       if (pad.justPressed(GAMEPAD_BUTTON_X)) {
-        this.recall();
+        if (this.browsing) this.launch();
+        else this.recall();
         return;
       }
       if (pad.justPressed(GAMEPAD_BUTTON_B) || pad.justPressed(GAMEPAD_BUTTON_START)) {
@@ -1121,10 +1155,17 @@ export class MapScene extends Phaser.Scene {
     this.viewDirty = false;
   }
 
-  private close(): void {
+  private close(options: { launching?: boolean } = {}): void {
     if (this.closed) return;
     this.closed = true;
     if (this.browsing) {
+      // LAUNCH is the one browse exit that does NOT reopen GAME MODES: BootScene raises the
+      // save-loss confirmation the moment it arrives, and stacking that dialog on a just-reopened
+      // submenu overlay is an interaction neither surface has ever been asked to hold.
+      if (options.launching) {
+        transitionToScene(this, 'BootScene', { relayout: false });
+        return;
+      }
       // Back to the submenu that opened it rather than to the deck row: SURVEY is one of three
       // world tiles and a player comparing them should not have to reopen GAME MODES between each.
       transitionToScene(this, 'BootScene', { relayout: true, openSubmenu: 'GAME MODES' });
@@ -1163,6 +1204,8 @@ export class MapScene extends Phaser.Scene {
     }
     this.recallButton?.destroy();
     this.recallButton = null;
+    this.launchButton?.destroy();
+    this.launchButton = null;
     this.noteButton?.destroy();
     this.noteButton = null;
     this.gamepadManager?.destroy();
