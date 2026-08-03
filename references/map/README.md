@@ -553,6 +553,22 @@ first.
   seven stages author no interval and are byte-identical; nothing persists and no version constant
   moved. The banner clause is filed as `FEAT-REGION-SHIFT-SIGNATURE-CLAUSE`, behind the same
   line-budget gate the drift and dark clauses wait on.
+
+  **Eighth slice shipped as `FEAT-BIOME-REGION-BLOOM` (`d0272fb`, 2026-08-03):** the first region
+  mechanic that reacts to the player rather than to the room. `StageDefinition.deathBloomSeconds`
+  feeds the pure `resolveStageDeathBloomSeconds`, which `applyStageVisuals` holds on the scene at
+  the same site the hazard bias, the pack bias, the darkness, the drift and the wall shift use,
+  and `handleEnemyDeath` spends it: an elite-or-better kill in the Verdant Rot opens a 60 px rift
+  of the region's own signature hazard where it fell, for 5 s, capped at the ambient spawner's own
+  `maxConcurrentZones` so blooms can never starve the ground. **The rift's type is never authored**:
+  `signatureHazardType` moved out of `regionSignature` into the pure `stageHazardBias` so the
+  banner's `BLOOMS VOID` clause and the bloom read one table, and a region can never promise one
+  hazard and drop another. Verdant Rot is the deepest region a live profile's world contains
+  (`orderBiomesByHarshness` fixes the order, and the live seed resolves to five regions, of which
+  it is the last), and it was the only one of the five with no sector-scale mechanic at all. Six of
+  the seven stages author no bloom and are byte-identical; an arena run has no world map, so a
+  funnel pick of Verdant Rot blooms nothing there. Nothing persists and no version constant moved:
+  a zone is already in the run save. The playtest half is `POLISH-REGION-DEATH-BLOOM`.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
   world with a new seed, banks the previous completion percentage as a record, and keeps
   traversal abilities. Turns the persistent world into a repeatable chase. **Shipped as

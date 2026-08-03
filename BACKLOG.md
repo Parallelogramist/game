@@ -2911,6 +2911,55 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-BIOME-REGION-BLOOM** (done, d0272fb) (new 2026-08-03, proposed by the planner from
+  `references/map/README.md` section 6, "Biome mechanics, not just tints"): the eighth slice, and
+  the first region mechanic that reacts to the player instead of to the room. Value: George's
+  deepest reachable region fights back after the kill, because every elite that dies in the
+  Verdant Rot tears open a void rift where it fell, so clearing a room there costs him the ground
+  he cleared it on.
+  1. **What shipped**: `StageDefinition.deathBloomSeconds` plus the pure
+     `resolveStageDeathBloomSeconds` and `MIN_STAGE_DEATH_BLOOM_SECONDS` in `src/data/Stages.ts`;
+     `signatureHazardType` in the pure `src/systems/stageHazardBias.ts`; two scene fields written
+     only by `applyStageVisuals`; and `GameScene.spawnRegionDeathBloom`, called from
+     `handleEnemyDeath` on an elite-or-better kill.
+  2. **The gap it closed, measured.** `orderBiomesByHarshness` fixes every world's region order
+     off `enemyHealthMultiplier + enemyDamageMultiplier`, and the live profile's world resolves to
+     five regions, so `stage_molten_vault` (worldLevel:4) and `stage_endless_void`
+     (hidden:unlock_long_run) are not in it. Of the five that are, Inferno shifts walls, Crystal
+     Caves goes dark, Ion Field takes the grip out and Deep Void is inert on purpose as the home
+     region. **Verdant Rot, the deepest one a live profile can reach, did nothing sector-scale at
+     all**: only multipliers, a tint, a pack bias and a hazard bias.
+  3. **The rift's type is derived, never authored.** `STAGE_HAZARD_BIASES.stage_verdant_rot`
+     already reads `void: 3.0` ("decaying void rifts dominate (the rot pulls things in)") and the
+     banner already prints `BLOOMS VOID` for it, so the bloom introduces zero new player
+     vocabulary. `signatureHazardType` moved out of `regionSignature.ts` so both surfaces read one
+     table and a region can never promise one hazard and drop another. The scan's iteration order
+     is `burn, energy, ice, void`, exactly the key order it used to walk, so no tie changed.
+  4. **Elite-or-better only** (`EnemyAffix`, or the same `>= 30` XP floor `handleEnemyDeath`'s own
+     miniboss branch uses), so a swarm cannot carpet a room and a bloom stays a thing you notice.
+  5. **Capped at the ambient spawner's own `TUNING.hazards.maxConcurrentZones` (10)**, not at the
+     graphics pool (12), so blooms can never starve the ground's own rifts and the pool keeps its
+     headroom.
+  6. **60 px for 5 s** against the ambient void rift's `baseRadius` 90 / `baseDuration` 8: a bloom
+     is a mark left by one kill, not a hazard the region grew.
+  7. **Arena is inert by construction**, the `decryptorOwned` guard: a player can pick Verdant Rot
+     in the pre-run funnel and fly an arena run on it, and `worldMode.worldMap() === null` stops
+     those kills blooming, so arena balance is untouched. In an expedition the same funnel pick
+     does bloom the spine region, which is the shipped rule the darkness, drift and shift slices
+     all follow.
+  8. **Nothing persists and no version moved**: hazard zones are already in the run save via
+     `getHazardState` / `restoreHazardState`, so a bloom survives a mid-run reload with no new
+     field, no storage key and no `SAVE_VERSION`, `WORLDGEN_VERSION`, `DISCOVERY_VERSION`,
+     `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION` change. Six of the seven stages author no
+     bloom and are byte-identical.
+- [ ] **FEAT-REGION-BLOOM-MOLTEN** (new 2026-08-03, from FEAT-BIOME-REGION-BLOOM): the Molten
+  Vault is the natural second author (`burn: 2.5` is its signature, so its bloom would need no new
+  vocabulary either), and the Endless Void the third (`void: 3.0`). Held back deliberately: both
+  sit behind unlock gates the live profile has not cleared (`worldLevel:4`,
+  `hidden:unlock_long_run`), so neither is in the world George is flying, and authoring a second
+  and third region's bloom before the first has been seen in a browser doubles down on an unplayed
+  mechanic. Value: the deep regions a long-lived profile unlocks keep what dies in them too.
+  Deps: `POLISH-REGION-DEATH-BLOOM`.
 - [x] **FEAT-SECRET-REGION-VAULT** (done, 46ad28d) (new 2026-08-03, proposed by the planner from
   the operator's standing direction for this repo, "quests and many hidden rewards for
   exploring the Metroid-style map"): a biome region gets a vault, and clearing that region's
@@ -13346,6 +13395,21 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-REGION-DEATH-BLOOM** (filed by FEAT-BIOME-REGION-BLOOM, d0272fb). An elite kill in
+  the Verdant Rot now opens a 60 px void rift for 5 s where it fell, and none of it has been seen
+  in a browser. Fly an expedition deep enough to reach the Verdant Rot (the fifth and deepest
+  region of the live world) and clear a room of elites. (a) does a rift appearing under a corpse
+  read as the region reacting to the kill, or as a hazard that happened to spawn there? (b) void
+  zones pull the ship in (`TUNING.hazards.voidPullStrength` 120): does the pull on top of a fresh
+  kill's loot read as tension, or does it just steal gems the player earned? (c) 60 px / 5 s / the
+  elite-or-better floor are designed against the ambient rift's 90 px / 8 s and against
+  handleEnemyDeath's own `>= 30` miniboss branch, never measured in play: does a cleared room read
+  as scarred, as carpeted, or as unchanged? (d) the cap is the ambient spawner's own 10 zones
+  shared between both sources: in a heavy elite wave, do blooms visibly starve the ground's own
+  rifts? (e) the banner already promises `BLOOMS VOID` for this region: does the bloom read as
+  that promise being kept, or does the banner need a clause of its own (which would land behind
+  question (e) of `POLISH-REGION-SIGNATURE-BANNER`, the same line-budget gate three clause items
+  already wait on)? Do not retune any of the four constants blind.
 - [ ] **POLISH-MAP-PINNED-COURSE** (new 2026-08-03, from FEAT-COURSE-STICKY). The pinned course's
   five constants are geometry, not feel, and were picked to read as "steadier than the focus line"
   without a browser. Operator playtest questions: (a) at 3 px / 0.4 alpha under the focus line's
