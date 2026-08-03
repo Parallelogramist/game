@@ -156,6 +156,9 @@ depends on it.
   `DiscoveryManager.markSecretVaultSeen(secretId)`, which sets `SecretFlags.VAULT_SEEN` and
   implies neither `FOUND` nor `HINTED`: it records a place the ship has stood, which is what lets
   the chart mark the room without leaking a cache the player has never met.
+  The same flag is the readout's gate: `sectorDetail` prices the vault from
+  `buildRegionVaults` and `SecretFlags.FOUND` on its prerequisites, so the chart's row and the
+  in-world `SEALED VAULT` toast count the same caches and can never disagree.
 - **Entity cleanup behind the player**: doc 01's leash (`FEAT-WORLD-SPACE-5`) and doc
   02's despawn-to-pool on seam crossing (`FEAT-WORLDGEN-STREAM`) both prevent pileup.
   Canonical split: the **seam crossing** is authoritative and handles sector exit; the

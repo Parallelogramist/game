@@ -3015,10 +3015,44 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
      back and take it" distinction both need `buildRegionVaults` read on a second surface, and the
      same treatment for a sigil-ring puzzle cache (`noticeSealedCache`) needs its own placement
      call now the lane is full. All three filed below.
-- [ ] **FEAT-VAULT-DETAIL-ROW** (new 2026-08-03, from FEAT-VAULT-CHART-TELL): the focused-sector
+- [x] **FEAT-VAULT-DETAIL-ROW** (done, 3380c57) (new 2026-08-03, from FEAT-VAULT-CHART-TELL): the focused-sector
   readout names the vault and how many caches the region still owes, so the chart's mark answers
   "what does it want" without a second walk-in. Deps: none, but it needs `buildRegionVaults` read
   on a second surface, so it is the first item that pays for that.
+  **What shipped:**
+  1. **Four states, four rows** in `describeRegionVault` (`src/expedition/sectorDetail.ts`), read
+     off the focused sector's Secret slots: a vault with `FOUND` reads `Region vault · claimed`;
+     a vault with `VAULT_SEEN` and N prerequisites still unfound reads
+     `Region vault · 3 caches left in the Crystal Caves` (singular `1 cache left in ...`); a vault
+     with `VAULT_SEEN` and none unfound reads `Region vault · open to you`; a vault with neither
+     flag contributes nothing at all. A Secret slot that is not a vault keeps the existing
+     `FOUND` -> `Found secret` behavior untouched. `open to you` is deliberately the same clause
+     `requirementSuffix` already uses for a gate that no longer stops the ship.
+  2. **The gate is the badge's gate**, `SecretFlags.VAULT_SEEN` and not `FOUND`, with no `VISITED`
+     gate, because the flag is written only by the walk-in refusal and is itself proof the ship
+     stood in the room. The readout says only what the room said first, which is the leak rule the
+     rest of `sectorDetail` obeys.
+  3. **`buildRegionVaults` now has a second consumer**, which is what this item was filed to pay
+     for. `MapScene` builds it once in `init()`, not per `refreshDetail`, because the cursor moves
+     on every mouse pixel while the derivation walks every sector and rolls a puzzle per Secret
+     slot; `SecretCacheManager` keeps its own `vaultWorldKey`-guarded copy, since the two surfaces
+     have different lifetimes and sharing one would couple a scene to the field manager.
+  4. **The remaining count is recomputed on every focus change**, never snapshotted: the same
+     reason `SecretCacheManager` re-reads it every frame, a prerequisite can be found between two
+     chart opens.
+  5. **Nothing persisted and no version moved**: no storage key, no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION`
+     change, and no generator change. Every existing profile prices its vaults the moment the
+     build lands.
+  6. **The badge is untouched**, so `FEAT-VAULT-BADGE-OPENABLE` stays open and
+     `POLISH-MAP-VAULT-BADGE` (d) is unchanged as a question about the MARK. What changed is that
+     the state is now readable in words on the same screen, which is the cheaper half of the same
+     answer.
+  7. **Arena and every non-expedition mode are inert by absence**: `MapScene` is expedition-only
+     and a world with no qualifying region has an empty vault map, so `describeRegionVault` returns
+     null on its first line and the readout is byte-identical to before.
+  8. **No new `POLISH-*` item was filed**; the one playtest question went onto the open
+     `POLISH-MAP-VAULT-BADGE` as (e).
 - [ ] **FEAT-VAULT-BADGE-OPENABLE** (new 2026-08-03, from FEAT-VAULT-CHART-TELL): the badge
   distinguishes "still sealed" from "the region is clear, go take it", which is the difference
   between a reminder and an errand. Deps: `POLISH-MAP-VAULT-BADGE` (d), and the same
@@ -13332,7 +13366,13 @@ Never agent work. The fleet must not do any of these.
   POLISH-MAP-STIR-BADGE (c) and POLISH-SORTIE-CHART-BADGE (b) ask, so answer all four at once)?
   (d) the badge persists after the region is finished and the vault is merely unclaimed: does
   "go back, it is open now" read correctly off the same mark, or does that state want its own
-  (FEAT-VAULT-BADGE-OPENABLE)? Do not retune any of it blind.
+  (FEAT-VAULT-BADGE-OPENABLE)?
+  (e) the HOLDS line now carries `REGION VAULT · 3 CACHES LEFT IN THE CRYSTAL CAVES`, about 48
+  characters before uppercasing, joined to any other rows by five spaces in a bar whose third
+  text object sits at +74 of 104 px: does it fit on one line at 720p and in portrait, or does
+  it want the short form without the region name (the headline two lines up already names the
+  biome)?
+  Do not retune any of it blind.
 
 - [ ] **POLISH-MAP-GRID-BAND-BADGE** (filed by FEAT-GRID-BAND-CHART-CELL, baba1b8). The corridor-band
   bars have never been seen in a browser. Open the chart a few rooms into an expedition on a seed
