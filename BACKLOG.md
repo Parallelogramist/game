@@ -2911,6 +2911,39 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-HUD-CONTROLS-LINE** (done, 740cd1b) (new 2026-08-03, proposed by the planner):
+  the HUD names every verb the run has, for the device in the player's hands. Value: George
+  and every visitor to game.parallelogramist.com can read dash, the ultimate, the world chart
+  and pause off the corner of the screen, instead of the one line that named moving.
+  1. **What shipped**: the pure `src/ui/controlsHint.ts` (`describeRunControls`,
+     `CONTROLS_HINT_COMPACT_WIDTH`) beside its test, a stored `controlsHintText` plus
+     `HUDManager.updateControlsHint`, and one call from the per-frame site in `GameScene`
+     that already hands the HUD its `controlMode`.
+  2. **The gap it closed, measured.** `HUDManager.ts:848-861` was the only persistent
+     controls surface in the game: one Text reading `WASD / Arrows / Mouse to move`. Of the
+     five verbs the run binds (move, dash `SHIFT`/RB, ultimate `Q`/Y, chart `M`/LB, pause
+     `ESC`/Start) it named one, and no controls or help screen exists in any of the 24
+     scenes, nor an input section in `SettingsScene`.
+  3. **The Steam Deck case, which was a miss rather than a taste call.** The old guard was
+     `this.scene.input.manager.touch !== null && device.input.touch` evaluated once at create
+     time, so a touch-capable machine driven by a gamepad built no hint at all. The line is
+     now built always and shown per frame, hidden only while `controlMode === 'joystick'`,
+     which is touch actually in use and is exactly when `TouchActionButtons` is visible. The
+     two surfaces are complements by construction, so no verb is ever named twice.
+  4. **A one-shot toast was not the answer already.** `TutorialHints` teaches `dash-danger`,
+     `ultimate-ready` and `expedition-chart` once, conditionally, per install; a player who
+     missed the moment or returned later had nothing.
+  5. **The compact form drops moving and pausing, not the hidden verbs**: below
+     `CONTROLS_HINT_COMPACT_WIDTH` (560) the line keeps dash, the ultimate and the chart,
+     because a stick announces movement and the pause button is on screen.
+  6. **Arena is honest by construction**: the chart segment is gated on the existing
+     `hasWorldMap` option, so a skirmish, daily, weekly, practice or gauntlet run names no
+     chart and its `M` press, which `GameScene` ignores there, is never advertised.
+  7. **Nothing persists and no version moved**: no storage key, no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or
+     `WORLD_ARCHIVE_VERSION` change, no settings row and no new scene. Position, font,
+     colour, stroke, origin, depth, alpha and scroll factor are byte-identical to the old
+     Text. The playtest half is `POLISH-HUD-CONTROLS-LINE`.
 - [x] **FEAT-TUTORIAL-EXPEDITION-HINTS** (done, 85e888e) (new 2026-08-03, proposed by the
   planner): the default run mode teaches its own two rules. Value: George is told the world
   chart exists and that what he charts survives his death, at the moment each first matters,
@@ -13469,6 +13502,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-HUD-CONTROLS-LINE** (filed by FEAT-HUD-CONTROLS-LINE, 740cd1b). The bottom-left
+  controls line now names five verbs and swaps to gamepad labels, and none of it has been
+  seen in a browser. Questions: (a) at 1280 wide, does
+  `WASD MOVE  ·  SHIFT DASH  ·  Q ULTIMATE  ·  M CHART  ·  ESC PAUSE` sit clear of the BGM
+  display stacked directly above it, or does the corner now read as a wall of text? (b) is
+  560 the right compact threshold, given the compact line drops moving and pausing? (c) on
+  the Deck, does the gamepad line appear at the moment the stick is first pushed, and does it
+  flicker back to the keyboard line if a key is ever touched? (d) should the line fade out
+  after the first minute of a run rather than persist, now that it says five things instead
+  of one? (e) do `Y ULT` / `Q ULT` read as the ultimate, or does the abbreviation need the
+  full word even in the compact form? Retuning any of the five before a browser verdict is
+  exactly the blind retune the convention forbids.
 - [ ] **POLISH-TUTORIAL-EXPEDITION-HINTS** (filed by FEAT-TUTORIAL-EXPEDITION-HINTS, 85e888e).
   Two one-time toasts now fire on expedition border crossings and neither has been seen in a
   browser. Questions: (a) does `THE WORLD CHART` land at the first crossing, or is it buried
