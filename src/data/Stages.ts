@@ -13,6 +13,10 @@
  *  so the baseline cannot drift between the table and the renderer. */
 export const BASE_AMBIENT_DARKNESS = 0.35;
 
+/** The floor a region's drift factor is clamped to. A rate of 0 is a ship that never reaches
+ *  any speed and never stops, so the table is not allowed to author one. */
+export const MIN_STAGE_DRIFT_FACTOR = 0.2;
+
 export interface StageDefinition {
   id: string;
   name: string;
@@ -33,6 +37,11 @@ export interface StageDefinition {
   enemyDamageMultiplier: number;
   xpMultiplier: number;
   goldMultiplier: number;
+  /** How much of the shipped velocity-approach rate the ship keeps while this region is
+   *  active, MIN_STAGE_DRIFT_FACTOR to 1. Below 1 the ship takes longer to reach top speed and
+   *  coasts further after the stick is released; top speed itself never moves. Absent means the
+   *  region handles exactly as every stage always did. */
+  driftFactor?: number;
 
   // Optional unlock gate. Missing = always available.
   // Format: 'hidden:<conditionId>' | 'worldLevel:<n>'
@@ -103,7 +112,7 @@ export const STAGES: readonly StageDefinition[] = [
   {
     id: 'stage_ion_field',
     name: 'Ion Field',
-    description: 'Crackling ion plains. Energy storms spark everywhere. +20% enemy damage, +15% XP.',
+    description: 'Crackling ion plains where thrusters lose their grip. +20% enemy damage, +15% XP.',
     gridLineColor: 0x008899,
     gridPulseColor: 0x00ccdd,
     gridWarpHighlightColor: 0x66ffff,
@@ -113,6 +122,7 @@ export const STAGES: readonly StageDefinition[] = [
     enemyDamageMultiplier: 1.2,
     xpMultiplier: 1.15,
     goldMultiplier: 1.1,
+    driftFactor: 0.45,
     unlockRequirement: 'worldLevel:3',
   },
   {
@@ -159,4 +169,13 @@ export function getDefaultStage(): StageDefinition {
  *  region. Clamped so an authoring mistake can dim a room but never black it out. */
 export function resolveStageAmbientDarkness(stage: StageDefinition): number {
   return Math.min(1, BASE_AMBIENT_DARKNESS + Math.max(0, stage.ambientDarknessBoost ?? 0));
+}
+
+/** How fast the player's velocity chases its input while this stage is the active region.
+ *  Clamped so an authoring mistake can make a region slippery but never immobile, and a
+ *  non-finite value falls back to the shipped handling rather than poisoning Velocity. */
+export function resolveStageDriftFactor(stage: StageDefinition): number {
+  const authored = stage.driftFactor ?? 1;
+  if (!Number.isFinite(authored)) return 1;
+  return Math.min(1, Math.max(MIN_STAGE_DRIFT_FACTOR, authored));
 }

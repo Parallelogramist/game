@@ -263,7 +263,7 @@ import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager'
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
-import { getStageById, getDefaultStage, resolveStageAmbientDarkness, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
+import { getStageById, getDefaultStage, resolveStageAmbientDarkness, resolveStageDriftFactor, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
@@ -1093,6 +1093,9 @@ export class GameScene extends Phaser.Scene {
    *  because applyStageVisuals runs BEFORE the LightingSystem is constructed on the
    *  fresh-start path, so the system reads it at construction instead of being pushed to. */
   private activeStageAmbientDarkness: number = BASE_AMBIENT_DARKNESS;
+  /** The active region's drift factor, resolved by applyStageVisuals and multiplied into the
+   *  player's acceleration every frame. 1 in every region that does not author one. */
+  private activeStageDriftFactor: number = 1;
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
   // Bound once: updateHazardSpawner takes it every frame and an inline arrow would allocate.
@@ -8071,7 +8074,10 @@ export class GameScene extends Phaser.Scene {
 
     // Run ECS systems
     this.updatePlayerEffectiveMoveSpeed();
-    inputSystem(this.world, inputState, deltaSeconds, this.playerStats.accelerationMultiplier);
+    // A region's drift rides the same product the Quick Start upgrade does, so a player who
+    // bought acceleration flies out of the slippery region's grip rather than being taxed twice.
+    inputSystem(this.world, inputState, deltaSeconds,
+      this.playerStats.accelerationMultiplier * this.activeStageDriftFactor);
     updateAIGameTime(this.gameTime);
     enemyAISystem(this.world, deltaSeconds);
 
@@ -13201,6 +13207,7 @@ export class GameScene extends Phaser.Scene {
   private applyStageVisuals(stageId: string = this.selectedStageId): void {
     const stage = getStageById(stageId) ?? getDefaultStage();
     this.activeStageId = stage.id;
+    this.activeStageDriftFactor = resolveStageDriftFactor(stage);
     for (const overlayName of ['stageAmbientOverlay', 'stageDarknessOverlay']) {
       const previousOverlay = this.children.getByName(overlayName);
       if (previousOverlay) previousOverlay.destroy();

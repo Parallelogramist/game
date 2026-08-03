@@ -4,7 +4,9 @@ import {
   getStageById,
   getDefaultStage,
   BASE_AMBIENT_DARKNESS,
+  MIN_STAGE_DRIFT_FACTOR,
   resolveStageAmbientDarkness,
+  resolveStageDriftFactor,
 } from './Stages';
 import { HIDDEN_UNLOCKS } from '../meta/HiddenUnlocks';
 
@@ -80,6 +82,28 @@ describe('STAGES — table integrity', () => {
       expect(resolved, stage.id).toBeGreaterThanOrEqual(0);
       expect(resolved, stage.id).toBeLessThanOrEqual(1);
     }
+  });
+
+  test('a stage with no drift factor handles exactly as every stage always did', () => {
+    for (const stage of STAGES) {
+      if (stage.driftFactor === undefined) {
+        expect(resolveStageDriftFactor(stage), stage.id).toBe(1);
+      }
+    }
+  });
+
+  test('every resolved drift factor stays inside the clamp', () => {
+    for (const stage of STAGES) {
+      const resolved = resolveStageDriftFactor(stage);
+      expect(resolved, stage.id).toBeGreaterThanOrEqual(MIN_STAGE_DRIFT_FACTOR);
+      expect(resolved, stage.id).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test('a drift factor the table must never author cannot immobilise the ship', () => {
+    expect(resolveStageDriftFactor({ ...STAGES[0], driftFactor: Number.NaN })).toBe(1);
+    expect(resolveStageDriftFactor({ ...STAGES[0], driftFactor: 0 })).toBe(MIN_STAGE_DRIFT_FACTOR);
+    expect(resolveStageDriftFactor({ ...STAGES[0], driftFactor: 5 })).toBe(1);
   });
 });
 
