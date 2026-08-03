@@ -3085,14 +3085,63 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   6. **One test was added and no more**: the fold rule is a deliberate one-way match, so it is
      pinned beside the shipped ring test. The chain itself is data the referential-integrity suite
      already covers. The playtest half is `POLISH-QUEST-REGION-CHAIN` under `## Human gates`.
-- [ ] **FEAT-QUEST-REGION-SEASON-CONTRACT** (new 2026-08-03, from FEAT-QUEST-REGION-CAPSTONE): the
-  procedural side. `src/expedition/seasonQuests.ts` templates ask for `cache` and `hiddenSector`
-  finds and never a `capstone`, so a season contract still cannot name the region chase. Cut
-  deliberately rather than smuggled in: a contract template is generated per world and its target
-  would have to be clamped against that world's vault count (1 to 6, measured), and no clamp for
-  `findSecret` exists (`effectiveStepTarget` clamps `reachSector` only). Value: the per-world
-  contract can ask for the region chase too. Deps: a `findSecret` supply clamp, which is a new
-  input to the fold.
+- [x] **FEAT-QUEST-REGION-SEASON-CONTRACT** (done, 4ea8f25) (new 2026-08-03, from
+  FEAT-QUEST-REGION-CAPSTONE): the procedural side. Value: every world George rolls can hand him a
+  paid contract to empty one of its regions and take the vault it was holding back, instead of the
+  region chase being namable only by an authored chain that seeds seventh.
+  1. **What shipped**: a fourteenth `CONTRACT_TEMPLATES` entry, `vault` / "Contract · Hollow
+     Quarter" (icon `gem`), whose first step asks for one `capstone` on one expedition (170 gold,
+     `run`) and whose second asks for six more secrets of any tier (200 gold, `persistent`),
+     completing for 320. The pool draw is unchanged at three per world.
+  2. **The clamp this row asked for was measured out of existence, do not rebuild it.** The row
+     assumed the target had to be clamped against the world's vault count. Measured over 300 seeds
+     (500-799) through the real `generateExpeditionWorld` plus `buildRegionVaults`: vaults per
+     world min **1**, p10 2, median 4, p90 5, max 6; 300/300 worlds hold at least one, 296/300 at
+     least two, 258/300 at least three. Steps are sequential, so a contract's demand is the SUM of
+     its steps, and a contract dies with its world (its id carries the seed), so even a
+     `persistent` step is world-bounded. One capstone is therefore the whole budget any contract
+     may spend. At a target of 1 a clamp is also a no-op, because `effectiveStepTarget` floors at
+     1. Building `regionVaultCount` onto `SectorSupplySnapshot` would have been surface with no
+     consumer on a function the HUD ticker calls once a second. A clamp would also be WRONG for
+     the authored catalog: `quest_region_01.s2` and `quest_region_02.s1` are `persistent` on ids
+     carrying no seed, so they truly accumulate across worlds, and clamping them would let "Empty
+     four regions across your expeditions" complete on one vault in a thin world.
+  3. **The guard is the one this repo already uses for this exact problem**: a measured bound in
+     `seasonQuests.test.ts`, asserted beside the identical `puzzle` bound and deliberately outside
+     the run-scope guard so it binds a `persistent` contract step too.
+  4. **Why the run-scope step is fair**: emptying the CHEAPEST region of a fresh world costs a
+     measured median of 3 finds (min 3, p75 4, p90 5), the same band `ghost` already asks for in
+     one expedition, and prerequisites are read from persistent discovery state
+     (`SecretCacheManager.vaultRemaining` over `DiscoveryManager.getSecretFlags`), so a returning
+     player pays less. Two vaults would cost a median of 8 (p90 17) and is not authorable.
+  5. **Why the second step is six secrets and not a second vault**: non-hidden `PoiKind.Secret`
+     slots per world measure min 21, p10 23, median 25, max 34 over the same 300 seeds, so six is
+     far under the floor in every world, and it keeps the contract's capstone demand at one.
+  6. **No new test case was added**, only two assertions inside the existing bounds test, so the
+     suite stayed at 2274. The playtest half is `POLISH-CONTRACT-HOLLOW-QUARTER` under
+     `## Human gates`.
+- [ ] **FEAT-QUEST-CAPSTONE-SUPPLY-CLAMP** (new 2026-08-03, from
+  FEAT-QUEST-REGION-SEASON-CONTRACT): the `findSecret` supply clamp that item deliberately did not
+  build. `effectiveStepTarget` clamps `reachSector` only, so nothing bounds a capstone target
+  against the world being flown. It is a no-op today because every contract capstone target is 1
+  and the clamp floors at 1, and it cannot be applied blindly because the authored
+  `quest_region_01.s2` / `quest_region_02.s1` are genuinely cross-world. It becomes real the
+  moment a WORLD-BOUND step wants a capstone target above 1, which needs `SectorSupplySnapshot` to
+  carry `regionVaultCount` (a `buildRegionVaults` call measured at 0.034 ms, against
+  `buildSectorSupply`'s own 0.021 ms, on a path the HUD ticker walks once a second) AND a way to
+  tell a world-bound step from a cross-world one, which no flag expresses. Value: a contract could
+  ask for two vaults in the 296 of 300 worlds that hold them. Deps: that flag.
+- [ ] **BUG-CONTRACT-GHOST-HIDDEN-FLOOR** (new 2026-08-03, found by
+  FEAT-QUEST-REGION-SEASON-CONTRACT): the shipped `ghost` template can strand itself. Step 1 is a
+  bare `findSecret` (any tier) for three finds and step 2 asks for two `hiddenSector` finds, but
+  hidden sectors per world measure min **2** (1 of 300 seeds, median 3, max 3, capped by
+  `EXPEDITION_HIDDEN_SECTOR_COUNT = 3`). A break-in fires `findSecret hiddenSector`, which also
+  satisfies the bare trigger, so in that one world a player who spends both hidden sectors on step
+  1 leaves step 2 uncompletable until the world is re-rolled. Same species as
+  `BUG-QUEST-INFERNO-SWEEP-TARGET` (2f4df7d). Not fixed here because it is a different template
+  and changing a shipped target is a second logical change; the honest fixes are step 2 at target
+  1, or a `hiddenSector` bound in `seasonQuests.test.ts` beside the `puzzle` and `capstone` ones.
+  Value: a contract every world can actually finish. Deps: none.
 - [ ] **FEAT-QUEST-REGION-CHART-TELL** (new 2026-08-03, from FEAT-QUEST-REGION-CAPSTONE): a
   capstone step names no place, so it produces no `QuestMarker`, no chart pin and no radar bearing
   (`buildQuestMarkers` handles the place-naming kinds only). That is correct as shipped, because a
@@ -10487,6 +10536,9 @@ exploring pays is the end of Phase 5.
   `FEAT-QUEST-SECRET-PUZZLE-TIER` (442889a) took the pool to thirteen with the draw still three,
   which moves that figure from 62% to 58% (`1 - C(10,3)/C(13,3)` = 1 - 120/286): the ask here is
   unchanged, since a 58% repeat rate is still a feel call that wants play.
+  `FEAT-QUEST-REGION-SEASON-CONTRACT` took the pool to fourteen, still drawing three, moving it
+  again from 58% to 55% (`1 - C(11,3)/C(14,3)` = 1 - 165/364). The ask is unchanged a third time:
+  the pool has now been sized four times without a browser.
 
 - [x] **BUG-QUEST-INFERNO-SWEEP-TARGET** (done, 2f4df7d) (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
   the authored `q_gatecrash_02.s5` asks for six Inferno sectors, and Inferno's measured minimum
@@ -13967,6 +14019,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-CONTRACT-HOLLOW-QUARTER** (filed by FEAT-QUEST-REGION-SEASON-CONTRACT, 4ea8f25). A
+  fourteenth contract template exists and none of it has been seen in a browser. (a) "Empty a
+  region of this world on one expedition" asks for a find whose prerequisites may already be
+  banked from earlier runs, so on a well-explored world it can complete almost immediately and on
+  a fresh one it costs a median of 3 finds: does that spread read as a contract or as a coin
+  flip? (b) 170 gold for the vault step against 160 for `cipher`'s sigil ring, when the vault is
+  the more expensive find of the two: is the gap right, or should the vault pay visibly more?
+  (c) "Contract · Hollow Quarter" sits beside the authored "Empty Quarters" and "The Hollowed
+  Map": does that read as one family or as three names for one idea? (d) the second step asks for
+  six secrets of ANY tier, which the vault hunt itself already feeds, so the contract may finish
+  its tail without the player doing anything new: is that a satisfying wind-down or a dead step?
 - [ ] **POLISH-QUEST-REGION-CHAIN** (filed by FEAT-QUEST-REGION-CAPSTONE, db89415). A seventh chain
   now exists and none of it has been seen in a browser. (a) does "Empty Quarters" then "The
   Hollowed Map" read as one chase about finishing regions, or does "region" collide with the
