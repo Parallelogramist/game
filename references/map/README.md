@@ -152,6 +152,10 @@ depends on it.
   path for the spatial found-flag. `SecretLedger` (doc 04) owns the logical
   consequences (counts, `HiddenUnlocks` conditions) and calls into the manager rather
   than keeping a parallel flag.
+  A region vault the ship touched and could not open has its own single write path,
+  `DiscoveryManager.markSecretVaultSeen(secretId)`, which sets `SecretFlags.VAULT_SEEN` and
+  implies neither `FOUND` nor `HINTED`: it records a place the ship has stood, which is what lets
+  the chart mark the room without leaking a cache the player has never met.
 - **Entity cleanup behind the player**: doc 01's leash (`FEAT-WORLD-SPACE-5`) and doc
   02's despawn-to-pool on seam crossing (`FEAT-WORLDGEN-STREAM`) both prevent pileup.
   Canonical split: the **seam crossing** is authoritative and handles sector exit; the
@@ -294,7 +298,7 @@ The in-run half (a next-hop bearing on the radar disc) is deliberately not built
 
 ### 4.4 The cell's corner budget is settled, and the fourth corner is the destination lane (2026-08-03)
 
-**Shipped as `FEAT-SORTIE-CHART-TELL` + `FEAT-SORTIE-PLAN-DEFAULT-TELL` (`2e7488c`), then extended by `FEAT-STIR-CHART-CELL` (`7f39fb1`) and `FEAT-GRID-BAND-CHART-CELL` (`baba1b8`).** Six filed
+**Shipped as `FEAT-SORTIE-CHART-TELL` + `FEAT-SORTIE-PLAN-DEFAULT-TELL` (`2e7488c`), then extended by `FEAT-STIR-CHART-CELL` (`7f39fb1`), `FEAT-GRID-BAND-CHART-CELL` (`baba1b8`) and `FEAT-VAULT-CHART-TELL` (`c6223c3`).** Six filed
 items were queued behind one decision nobody had made: where a new per-sector mark goes and what
 it costs. It is made here so no later chunk re-derives it.
 
@@ -308,8 +312,9 @@ it costs. It is made here so no later chunk re-derives it.
   room first (an action one press away), then a room this expedition's ambient stir changed, then a
   room holding an unopened security-grid band (`FEAT-GRID-BAND-CHART-CELL`), then a found region
   vault (`FEAT-VAULT-CHART-TELL`). Actionable beats informational, and a fact the focused-sector
-  readout already carries loses to one it does not. **Occupants 1, 2 and 3 are built**
-  (`FEAT-GRID-BAND-CHART-CELL`, `baba1b8`), so the next lane item is occupant 4. The stir badge is
+  readout already carries loses to one it does not. **All four occupants are built**
+  (`FEAT-VAULT-CHART-TELL`, `c6223c3`), so the lane is full and a fifth per-sector mark needs a new
+  placement call, not a queue position. The stir badge is
   a doubled ripple in the hazard orange the ground it names is painted in; the band badge is three
   lit bars in the magenta the fence tile itself is painted in. One badge covers both a bloom and a
   shift: the lane allows one mark per cell, so a room that took both is not two.
@@ -324,6 +329,19 @@ it costs. It is made here so no later chunk re-derives it.
   in run state the renderer cannot see. Band intactness lives in `input.map`'s own tiles, which the
   loop already walks, so the renderer calls `countIntactGridBands(sector)` directly rather than
   growing a fourth set. A later occupant should ask the same question before adding a field.
+- **Occupant 4 is the one that needed new state, and it is the reason the lane could finish.** A
+  region vault is a `PoiKind.Secret` slot, and the renderer's leak rule refuses to draw an unfound
+  secret, while `SecretFlags.FOUND` is written only at the claim. So neither existing bit could
+  say "you stood here and it refused": `FOUND` describes a vault already open, and drawing an
+  unfound one would leak the room's whole point. `SecretFlags.VAULT_SEEN` (bit 2) records the
+  refusal itself, written by `noticeSealedVault` inside the 44 px claim radius where the game
+  already prints `SEALED VAULT` on screen, so the chart says only what the room said first.
+- **Occupant 4 carries no `SectorFlags.VISITED` gate, and that is not an oversight.** Occupants 2
+  and 3 take it because they are read off the map's geometry. `VAULT_SEEN` is a player-action fact
+  like occupant 1's sortie, so the flag is already proof the ship was in the room. Widening
+  `SECRET_VALID_MASK` to `0b111` needed no `DISCOVERY_VERSION` bump: the sanitizer masks stored
+  values and every existing byte has bit 2 clear, so a bump would discard live profiles for
+  nothing.
 - **The real budget is the legend, not the cell.** Each occupant costs one legend row, and the
   panel is already 23 rows / 504 px against roughly 460 px between its clamp and the detail bar on
   a 720-high canvas: the sortie row is the last one that fits. **That budget was spent and then

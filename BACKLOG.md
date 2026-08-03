@@ -2963,7 +2963,7 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
       from the expedition branch, and `worldMode.worldMap()` is null in arena.
   11. **Filed with it**: `POLISH-SECRET-REGION-VAULT` under `## Human gates`, plus
       `FEAT-VAULT-CHART-TELL` and `CHORE-VAULT-LOCKOUT-ROW` below.
-- [ ] **FEAT-VAULT-CHART-TELL** (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a region vault
+- [x] **FEAT-VAULT-CHART-TELL** (done, c6223c3) (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a region vault
   is a place the chart says nothing about, so a player who walked away from a locked one has to
   remember where it was. Held back for exactly the reason `FEAT-SORTIE-CHART-TELL`,
   `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL` are: the cell already carries a
@@ -2979,6 +2979,54 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
   a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
   Do not re-derive the placement.
+  **What shipped:**
+  1. **The gap**: a vault you were refused at was invisible to the chart by construction.
+     `SecretFlags.FOUND` is written only at the claim (`SecretCacheManager.ts:439`), and the
+     renderer's leak rule refuses to draw an unfound secret, so the one state worth marking had
+     no bit to sit in: `FOUND` describes a vault already open, and drawing an unfound one would
+     leak the room's whole point.
+  2. **The new bit**: `SecretFlags.VAULT_SEEN` (`1 << 2`), with `SECRET_VALID_MASK` widened to
+     `0b111`. Its single write path is `DiscoveryManager.markSecretVaultSeen`, called from
+     `noticeSealedVault` inside the 44 px claim radius where the game already prints
+     `SEALED VAULT` on screen, so the chart says only what the room said first.
+  3. **It implies nothing and is implied by nothing.** Not `FOUND` (the cache is still there to
+     claim, and `getFoundSecretCount` reads `FOUND` only, so the completion percent cannot move)
+     and not `HINTED` (a lead is a pointer the lead surfaces own; this is a sighting), so the
+     LEADS ticker and the lead badge are untouched. `repairSecret` is unchanged, so a player who
+     clears the region first and claims on the first touch never marks that room.
+  4. **No `DISCOVERY_VERSION` bump.** `sanitizeRecord` masks every stored value, and every
+     existing stored byte has bit 2 clear, so the widened mask reads old profiles back identical
+     while a bump would have discarded their discovery state. Every existing profile picks the
+     feature up the moment the build lands.
+  5. **The load-bearing detail**: `addSecret` must push into `changes.secretsVaultSeen`, because
+     `DiscoveryManager.commit` returns before `saveState()` when `hasChanges` is false, so a flag
+     set without being reported lives in memory and vanishes on reload with no error anywhere.
+     Three cases in `discoveryRules.test.ts` pin that plus the mask widening, both of which fail
+     silently past a green suite and a playtest.
+  6. **The badge**: occupant 4 of the bottom-right destination lane, two concentric rings in
+     `WORLD_GEOMETRY_COLORS.breakable.stroke`, repeating the extra outer ring `drawSecretCache`
+     strokes around a vault in world space. Derived in the renderer through `secretFlagsOf` with
+     no new `SectorMapDrawInput` field (occupant 3's precedent), and with no `VISITED` gate,
+     because the flag is written only by the walk-in refusal and so is itself proof the ship was
+     in that room. Legend row: `Region vault`.
+  7. **The lane is now full** (README section 4.4): a fifth per-sector mark needs a new placement
+     call, not a queue position.
+  8. **Cut deliberately**: a `sectorDetail` readout line for the vault and a "sealed versus go
+     back and take it" distinction both need `buildRegionVaults` read on a second surface, and the
+     same treatment for a sigil-ring puzzle cache (`noticeSealedCache`) needs its own placement
+     call now the lane is full. All three filed below.
+- [ ] **FEAT-VAULT-DETAIL-ROW** (new 2026-08-03, from FEAT-VAULT-CHART-TELL): the focused-sector
+  readout names the vault and how many caches the region still owes, so the chart's mark answers
+  "what does it want" without a second walk-in. Deps: none, but it needs `buildRegionVaults` read
+  on a second surface, so it is the first item that pays for that.
+- [ ] **FEAT-VAULT-BADGE-OPENABLE** (new 2026-08-03, from FEAT-VAULT-CHART-TELL): the badge
+  distinguishes "still sealed" from "the region is clear, go take it", which is the difference
+  between a reminder and an errand. Deps: `POLISH-MAP-VAULT-BADGE` (d), and the same
+  `buildRegionVaults` read.
+- [ ] **FEAT-PUZZLE-CACHE-CHART-TELL** (new 2026-08-03, from FEAT-VAULT-CHART-TELL): the same
+  treatment for a sigil-ring cache the ship was refused at (`noticeSealedCache`), the other
+  refusal path that currently leaves no trace. Deps: a new placement call, since
+  `references/map/README.md` section 4.4's destination lane is full after occupant 4.
 - [ ] **CHORE-VAULT-LOCKOUT-ROW** (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a locked
   vault is absent from the LOCKED OUT panel, which already answers "what do I need" for
   abilities and quest keys and would answer it for a vault with one more `bump` call keyed
@@ -13217,6 +13265,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-VAULT-BADGE** (filed by FEAT-VAULT-CHART-TELL, c6223c3). The two rings that mark
+  a region vault the ship was refused at have never been seen in a browser. Open the chart after
+  walking into a sealed vault a few rooms into an expedition. (a) do two concentric rings read as
+  "a vault you could not open", or as a target or a radar ping? (b) the badge shares the breakable
+  amber (`0xcc8833`) with the lead badge and with a found-secret POI glyph that can sit in the same
+  cell: does corner position separate them, or does the lane need its own hue? (c) at zoom 0.5 the
+  badge is 3 px in a cell that may also carry a lead badge, a pin, a mark and POI glyphs: is it
+  legible, or does the lane need a zoom floor (the same question POLISH-MAP-GRID-BAND-BADGE (c),
+  POLISH-MAP-STIR-BADGE (c) and POLISH-SORTIE-CHART-BADGE (b) ask, so answer all four at once)?
+  (d) the badge persists after the region is finished and the vault is merely unclaimed: does
+  "go back, it is open now" read correctly off the same mark, or does that state want its own
+  (FEAT-VAULT-BADGE-OPENABLE)? Do not retune any of it blind.
 
 - [ ] **POLISH-MAP-GRID-BAND-BADGE** (filed by FEAT-GRID-BAND-CHART-CELL, baba1b8). The corridor-band
   bars have never been seen in a browser. Open the chart a few rooms into an expedition on a seed

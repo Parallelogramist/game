@@ -52,8 +52,9 @@ export const POI_VALID_MASK = 0b11;
 export const SecretFlags = {
   HINTED: 1 << 0,       // "?" marker (scan pulse or proximity trigger)
   FOUND: 1 << 1,        // real icon revealed; FOUND implies HINTED
+  VAULT_SEEN: 1 << 2,   // as built: the ship touched this region vault and it refused
 } as const;
-export const SECRET_VALID_MASK = 0b11;
+export const SECRET_VALID_MASK = 0b111;
 
 export interface DiscoveryState {
   version: number;              // DISCOVERY_VERSION
@@ -148,6 +149,10 @@ delta; `DiscoveryManager` applies deltas and persists. Rules:
    both of whose endpoints are in the region. Fragments reveal outlines, not
    interiors: `VISITED` still requires entry, preserving the reason to fly there.
 6. **On secret found** (`revealOnSecretFound`): secret gains `FOUND | HINTED`.
+6b. **On a sealed region vault touched** (`revealOnSecretVaultSeen`, as built): the vault's secret
+   gains `VAULT_SEEN` alone. It implies neither `FOUND` nor `HINTED`, so the completion percent
+   cannot move and the lead surfaces are not told a lead exists; the chart's bottom-right lane
+   reads it to mark the room (README section 4.4).
 7. **Monotonicity invariant** (enforced by every rule and by the sanitizer):
    flags are only ever added, `VISITED implies DISCOVERED`, `TRAVERSED implies
    KNOWN`, `COLLECTED implies SEEN`, `FOUND implies HINTED`.
@@ -164,6 +169,7 @@ export interface DiscoveryChanges {
   poisCollected: string[];
   secretsHinted: string[];
   secretsFound: string[];
+  secretsVaultSeen: string[];
 }
 ```
 
@@ -707,7 +713,8 @@ never lies about shape). Rendered by `SectorMapRenderer` from discovery flags:
 - **Corner budget (as built, 2026-08-03)**: the four cell corners have owners and the
   bottom-right is the destination lane, holding the sortie landing badge, behind it the
   ripple that marks a room this expedition's ambient stir bloomed or shifted, and behind that the
-  three bars that mark a room still holding a lit corridor grid band. Placement, the
+  three bars that mark a room still holding a lit corridor grid band, and last the two rings that
+  mark a region vault the ship was refused at. Placement, the
   one-badge rule, the occupant order and the legend-row budget are settled in
   `README.md` section 4.4, which wins over this list.
 
