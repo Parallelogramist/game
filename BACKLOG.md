@@ -2911,6 +2911,73 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-PRACTICE-CHART-REVEAL** (done, bae00d0) (new 2026-08-03, proposed by the planner):
+  the sandbox opens the chart with the world already on it. Value: George can press START and
+  read a full chart at once, so the lane badges, the course, the legend, the detail bar and the
+  density questions that each said "open the chart a few rooms into an expedition" are answerable
+  in one sitting instead of one flight each.
+  1. **What shipped**: `revealEntireWorld` in `src/expedition/discoveryRules.ts`, a
+     `PracticeChartMode` override (`owned` / `full`) applied inside `DiscoveryManager.bindWorld`,
+     and a `CHART` cycle button on the PRACTICE dock's START row.
+  2. **The gap it closed.** The dock already ignored unlock gating on weapons, levels, evolve,
+     ships and (since `07618dc`) traversal abilities. Map memory was the axis left: `bindWorld`
+     had no practice branch, so the chart a sandbox run opened was whatever the live profile had
+     walked, and five renderer lanes (interior, stir badge, band badge, vault badge, lead badge)
+     draw only for a VISITED room, a walked door or a sighted vault.
+  3. **One seam, not three.** All three world-binding sites (`GameScene`, `BootScene`,
+     `expeditionWorld`) go through `bindWorld`, so the override sits there and no caller can miss
+     it. That is the parallel-code-path rule applied rather than three branches kept in sync.
+  4. **HINTED, never FOUND.** A found secret despawns its cache and erases both the lead badge
+     and the vault badge, which are the marks the chart gates exist to read, so `full` points a
+     lead at every secret and claims none. `VAULT_SEEN` goes only to the secrets
+     `buildRegionVaults` names, so a plain cache cannot draw a badge meaning "this room refused
+     you", and `CLEARED_ONCE` is untouched because the game has no writer for it.
+  5. **The override is gated on `isPracticeSession()` as well as on the mode**, which is one of
+     the two invariants the new tests pin: a stale `full` would otherwise chart a REAL profile's
+     world, which is map-memory loss dressed as a working map.
+  6. **Nothing persists, by three independent mechanisms**: the mode is in-memory module state;
+     the reveal mutates `state` directly rather than through `commit()`, the only caller of
+     `saveState()`, so no write is attempted at all; and a practice session's writes are blocked
+     at `SecureStorage` regardless, with `exitPracticeSession` reloading the page after it. No
+     storage key and no `SAVE_VERSION`, `WORLDGEN_VERSION`, `DISCOVERY_VERSION`,
+     `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION` moved.
+  7. **The button went on the START row's left half**, the only free slot: the LEVEL row's right
+     half is KIT and its left is the LEVEL label, the EVOLVED/MODE row is full at two 168-unit
+     buttons, and a new row would need `PRACTICE_CONTROL_BOTTOM_RESERVE` raised past 140, which
+     is the vertical growth `HudScale.test.ts` pins this scene against. At 140 wide and centred
+     on `centerX - 190` it clears START by 10 units and sits at 100..240 on the narrowest
+     (portrait, 720-unit) canvas.
+  8. **The reveal is invisible to the map-open replay sets**, so a charted world does not bloom
+     48 rooms on the first open: `newlyChartedSectorKeys` and `newlyFoundSecretIds` are cleared
+     by `bindWorld` and are only written by the mark paths, which the reveal does not use.
+  9. **It is inert in SKIRMISH and outside a practice run.** The arena has no world to chart, and
+     no coupling to the MODE button was added: one control, one meaning.
+  10. **No new `POLISH-*` item was filed**: this is a dev-dock affordance rather than a
+      game-facing feel change, so the convention that would demand a playtest gate does not fire,
+      and the open human-gate count is unchanged at 67.
+- [ ] **CHORE-PRACTICE-CHART-SURVEY** (new 2026-08-03, from FEAT-PRACTICE-CHART-REVEAL): the
+  reveal only reaches a chart opened INSIDE a practice run, because the practice flag is what
+  gates it and the SURVEY chart on the GAME MODES submenu binds its world from `BootScene` with
+  the flag off. So `POLISH-MAP-SURVEY` is exactly as gated as it was. Cut deliberately: revealing
+  with the flag off would let a menu-side bind write a fully charted world to the real profile,
+  which is the one failure this item's tests exist to prevent. Value: the planning surface can be
+  read against a full world too. Deps: needs a safe menu-side scope (a survey-local overlay that
+  never reaches `DiscoveryManager.saveState`), which is a design call.
+- [ ] **CHORE-PRACTICE-CHART-FOUND-SECRETS** (new 2026-08-03, from FEAT-PRACTICE-CHART-REVEAL):
+  `full` grants HINTED and never FOUND, so a found-secret POI glyph is still the one chart mark
+  the sandbox cannot show, and question (b) of `POLISH-MAP-VAULT-BADGE` (does a found-secret glyph
+  collide with the vault badge in one cell) still needs one cache flown. It cannot simply be added
+  to the same stop: FOUND despawns the cache and clears both the vault badge and the lead badge.
+  Value: the last chart lane becomes reachable from the dock. Deps: needs a third stop, or a
+  per-secret split, which is the same control-shape question `FEAT-PRACTICE-KIT-PER-ABILITY` is
+  already parked on.
+- [ ] **CHORE-DISCOVERY-CLEARED-ONCE-WRITER** (new 2026-08-03, from FEAT-PRACTICE-CHART-REVEAL):
+  `SectorFlags.CLEARED_ONCE` has no writer anywhere in the game (its own comment says "No writer
+  until the sector director"), yet `SectorMapRenderer` draws a cleared notch for it, so that notch
+  has never appeared on any chart. The reveal deliberately does not set it, because a sandbox must
+  not invent a state a real run cannot reach. Value: either the flag gets its writer or the notch
+  gets deleted; today the chart carries dead ink. Deps: none technical, it is a design call about
+  whether "cleared at least once" is a fact the chart should carry.
 - [x] **FEAT-PRACTICE-ABILITY-KIT** (done, 07618dc) (new 2026-08-03, proposed by the
   planner): the sandbox flies with the keys, or without them. Value: George can fly a practice
   expedition holding every traversal ability, or holding none of them, so both sides of every
