@@ -75,7 +75,10 @@ import {
 } from '../../expedition/expeditionWorld';
 import type { ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
 import { questWorldStamp } from '../../systems/QuestProgress';
-import { getWorldBoundStepProgress } from '../../meta/ExpeditionQuestManager';
+import {
+  getActiveQuestStepViews,
+  getWorldBoundStepProgress,
+} from '../../meta/ExpeditionQuestManager';
 import {
   RETURN_WORLD_SORT_LABELS,
   nextReturnWorldSort,
@@ -83,6 +86,7 @@ import {
 } from '../../expedition/returnWorlds';
 import type { ReturnWorldSort } from '../../expedition/returnWorlds';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { buildQuestBriefingLines } from '../../expedition/questBriefing';
 import { decodeSeedCode, encodeSeedCode } from '../../expedition/seedCode';
 import { copyTextToClipboard } from '../../utils/Clipboard';
 
@@ -673,6 +677,30 @@ export class BootScene extends Phaser.Scene {
         },
       );
     };
+    // The objectives a profile carries are readable only from inside a run (the HUD ticker, the
+    // map's OBJECTIVES panel, the pause row), so between runs there is nowhere to read what the
+    // next one is for. One summariseCurrentExpedition call (one generateWorld, 33 ms measured) on
+    // a button press, the same price the CHART dialog already pays.
+    const openObjectives = () => {
+      const summary = summariseCurrentExpedition();
+      const worldStamp = questWorldStamp(summary);
+      const lines = buildQuestBriefingLines({
+        seasonIndex: summary.seasonIndex,
+        completionPercent: summary.completionPercent,
+        worldStamp,
+        views: getActiveQuestStepViews(worldStamp, null),
+        worldBound: getWorldBoundStepProgress(),
+      });
+      // An empty choiceLabels leaves the single centred cancel button, which is what an
+      // informational dialog wants: onConfirm can never fire, so it is a no-op.
+      this.showNewGameConfirmation(() => {}, {
+        title: 'OBJECTIVES',
+        body: lines.join('\n'),
+        confirmLabel: 'BACK',
+        cancelLabel: 'BACK',
+        choiceLabels: [],
+      });
+    };
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
     const openCodex = () => transitionToScene(this, 'CodexScene');
@@ -880,6 +908,14 @@ export class BootScene extends Phaser.Scene {
     const maxDeckY = footerTopY - footerClearance - deckCardHeight / 2;
     const deckY = Math.min(naturalDeckY, maxDeckY);
 
+    // The same filter the dialog lists from, so the badge cannot disagree with it, and no
+    // generateWorld: WORLDGEN_VERSION is the version a freshly generated world carries, the
+    // shortcut describeBankedWorlds already takes.
+    const activeObjectiveCount = getActiveQuestStepViews(
+      questWorldStamp({ seed: getCurrentExpeditionSeed(), worldGenVersion: WORLDGEN_VERSION }),
+      null,
+    ).length;
+
     this.createProgressionDeck({
       centerX,
       centerY: deckY,
@@ -901,6 +937,8 @@ export class BootScene extends Phaser.Scene {
       onLeaderboard: openLeaderboard,
       onPaint: openPaint,
       onExpeditionSeasons: openExpeditionSeasons,
+      onObjectives: openObjectives,
+      objectiveCount: activeObjectiveCount,
       onSurprise: startSurpriseRunWithConfirmation,
       showLoadouts: Boolean(lastLoadout) || loadLoadoutPresets().length > 0,
       onLoadouts: () => transitionToScene(this, 'LoadoutScene'),
@@ -1713,6 +1751,8 @@ export class BootScene extends Phaser.Scene {
     onLeaderboard: () => void;
     onPaint: () => void;
     onExpeditionSeasons: () => void;
+    onObjectives: () => void;
+    objectiveCount: number;
     onSkirmish: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
@@ -1724,6 +1764,7 @@ export class BootScene extends Phaser.Scene {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
       onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onExpeditionSeasons,
+      onObjectives, objectiveCount,
       onSkirmish, onGauntlet, onRunner, onPractice, onSurprise, showLoadouts, onLoadouts,
     } = opts;
 
@@ -1767,6 +1808,11 @@ export class BootScene extends Phaser.Scene {
         label: 'CHART', iconKey: 'globe', accentRole: 'primary',
         badge: `W${getCurrentExpeditionSeasonIndex()}`,
         iconTint: 0xaaccff, action: submenuAction(onExpeditionSeasons),
+      },
+      {
+        label: 'OBJECTIVES', iconKey: 'clipboard', accentRole: 'teal',
+        badge: objectiveCount > 0 ? String(objectiveCount) : undefined,
+        iconTint: 0xaaffee, action: submenuAction(onObjectives),
       },
     ];
     if (showLoadouts) {
