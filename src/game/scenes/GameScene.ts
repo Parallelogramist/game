@@ -283,7 +283,7 @@ import {
 } from '../../data/PracticeTargets';
 import { PracticeArenaRung } from '../../data/PracticeArena';
 import { practiceBuildPlayerLevel } from '../../data/PracticeBuild';
-import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
+import { evaluateDashDangerHint, expeditionCrossingHintId, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
 import type { DamageSourceTally } from '../managers/buildStats';
@@ -1219,6 +1219,7 @@ export class GameScene extends Phaser.Scene {
       );
     }
     this.runDecryptorScan(payload.sectorKey);
+    if (payload.viaEdgeId) this.maybeShowExpeditionCrossingHint();
   };
 
   /** The three discovery events with a live consequence: new outlines pulse the radar, and a
@@ -8614,6 +8615,29 @@ export class GameScene extends Phaser.Scene {
     if (Math.abs(Knockback.velocityY[this.playerId]) < 1) {
       Knockback.velocityY[this.playerId] = 0;
     }
+  }
+
+  /** The expedition's two unstated rules, taught on the rail that already teaches the arena.
+   *  Both fire at most once per install through the shared hint store, so a player who knows
+   *  the chart is never told about it twice and never told about it during a restore. */
+  private maybeShowExpeditionCrossingHint(): void {
+    if (!this.toastManager || this.isGameOver) return;
+    const hintManager = getTutorialHintManager();
+    const hintId = expeditionCrossingHintId({
+      chartedSectorsAtRunStart: this.chartedSectorsAtRunStart,
+      chartHintSeen: hintManager.hasSeen('expedition-chart'),
+    });
+    if (!hintId || !hintManager.maybeShow(hintId)) return;
+    const def = getTutorialHintDef(hintId);
+    const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+    this.toastManager.showToast({
+      tier: 'critical',
+      title: def.title,
+      description: getHintDescription(def, isTouchDevice),
+      icon: def.icon,
+      color: def.color,
+      duration: def.duration,
+    });
   }
 
   /**

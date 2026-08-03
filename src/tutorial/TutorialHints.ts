@@ -16,7 +16,9 @@ export type TutorialHintId =
   | 'first-miniboss'
   | 'ultimate-ready'
   | 'shop'
-  | 'secret-lead';
+  | 'secret-lead'
+  | 'expedition-chart'
+  | 'expedition-persists';
 
 export interface TutorialHintDef {
   id: TutorialHintId;
@@ -87,6 +89,23 @@ export const TUTORIAL_HINT_DEFS: readonly TutorialHintDef[] = [
     icon: 'radar',
     color: 0xcc66ff,
     duration: 4000,
+  },
+  {
+    id: 'expedition-chart',
+    title: 'THE WORLD CHART',
+    description: 'Press M for the world chart. Every room you fly is drawn on it.',
+    descriptionTouch: 'Pause, then World Map, for the chart of every room you fly.',
+    icon: 'globe',
+    color: 0x44aaff,
+    duration: 4200,
+  },
+  {
+    id: 'expedition-persists',
+    title: 'THE CHART IS YOURS',
+    description: 'Rooms you charted and doors you opened stay open. Only your build resets.',
+    icon: 'globe',
+    color: 0xcc66ff,
+    duration: 4600,
   },
 ];
 
@@ -186,4 +205,31 @@ export function findBlockedEvolution(
 
 export function formatEvolutionHint(blocked: BlockedEvolution): string {
   return `${blocked.weaponName} can evolve — get ${blocked.statName} to Lv ${blocked.requiredStatLevel} to unlock ${blocked.evolvedName}!`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Expedition crossing hint selection
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Rooms charted before this run started that mean the profile has flown this world before:
+ *  the hangar alone is a run that never left it, so two is the first count that makes
+ *  "rooms you charted stay charted" a sentence the player can check against their own map. */
+export const EXPEDITION_RETURNING_CHART_COUNT = 2;
+
+/**
+ * Which expedition rule the border crossing just made should teach, or null for none.
+ *
+ * The chart teach always wins while it is unseen, even for a long-lived profile: a player who
+ * has never opened the chart cannot be told it persists. `chartedSectorsAtRunStart` is null
+ * only on a restore, where the run did not start here and neither sentence is provably true.
+ */
+export function expeditionCrossingHintId(input: {
+  chartedSectorsAtRunStart: number | null;
+  chartHintSeen: boolean;
+}): TutorialHintId | null {
+  if (input.chartedSectorsAtRunStart === null) return null;
+  if (!input.chartHintSeen) return 'expedition-chart';
+  return input.chartedSectorsAtRunStart >= EXPEDITION_RETURNING_CHART_COUNT
+    ? 'expedition-persists'
+    : null;
 }

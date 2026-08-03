@@ -4,6 +4,8 @@ import {
   getTutorialHintDef,
   getHintDescription,
   evaluateDashDangerHint,
+  expeditionCrossingHintId,
+  EXPEDITION_RETURNING_CHART_COUNT,
   findBlockedEvolution,
   formatEvolutionHint,
   type TutorialHintId,
@@ -136,6 +138,41 @@ describe('formatEvolutionHint', () => {
     expect(formatEvolutionHint(blocked)).toBe(
       'Katana can evolve — get Swiftness to Lv 5 to unlock Blade Dancer!'
     );
+  });
+});
+
+describe('expeditionCrossingHintId', () => {
+  test('a restore teaches nothing: the run did not start here', () => {
+    expect(expeditionCrossingHintId({ chartedSectorsAtRunStart: null, chartHintSeen: false }))
+      .toBeNull();
+    expect(expeditionCrossingHintId({ chartedSectorsAtRunStart: null, chartHintSeen: true }))
+      .toBeNull();
+  });
+
+  test('the chart teach wins while unseen, at any prior chart count', () => {
+    expect(expeditionCrossingHintId({ chartedSectorsAtRunStart: 0, chartHintSeen: false }))
+      .toBe('expedition-chart');
+    expect(expeditionCrossingHintId({ chartedSectorsAtRunStart: 40, chartHintSeen: false }))
+      .toBe('expedition-chart');
+  });
+
+  test('a returning profile is told the chart persists once it knows the chart', () => {
+    expect(expeditionCrossingHintId({
+      chartedSectorsAtRunStart: EXPEDITION_RETURNING_CHART_COUNT,
+      chartHintSeen: true,
+    })).toBe('expedition-persists');
+  });
+
+  test('a first-ever run is told nothing more after the chart teach', () => {
+    expect(expeditionCrossingHintId({
+      chartedSectorsAtRunStart: EXPEDITION_RETURNING_CHART_COUNT - 1,
+      chartHintSeen: true,
+    })).toBeNull();
+  });
+
+  test('both ids resolve to a real def', () => {
+    expect(getTutorialHintDef('expedition-chart').id).toBe('expedition-chart');
+    expect(getTutorialHintDef('expedition-persists').id).toBe('expedition-persists');
   });
 });
 
