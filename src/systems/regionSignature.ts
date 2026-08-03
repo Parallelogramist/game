@@ -12,8 +12,8 @@
 
 import { ENEMY_TYPES } from '../enemies/EnemyTypes';
 import { STAGE_SPAWN_BIASES } from './DirectorSystem';
-import { STAGE_HAZARD_BIASES } from './stageHazardBias';
-import type { HazardType, StageHazardBias } from './stageHazardBias';
+import { signatureHazardType } from './stageHazardBias';
+import type { HazardType } from './stageHazardBias';
 
 const BOOSTED_NAMED = 2;
 const SUPPRESSED_NAMED = 1;
@@ -56,18 +56,10 @@ function namesByMultiplier(
     .slice(0, limit);
 }
 
-/** The one hazard a region grows more of than default ground, or null when it grows none. */
-function signatureHazardName(bias: StageHazardBias | undefined): string | null {
-  if (bias === undefined) return null;
-  let strongest: HazardType | null = null;
-  for (const hazardType of Object.keys(HAZARD_SIGNATURE_NAMES) as HazardType[]) {
-    const multiplier = bias.weightMultipliers[hazardType];
-    if (multiplier <= 1) continue;
-    if (strongest === null || multiplier > bias.weightMultipliers[strongest]) {
-      strongest = hazardType;
-    }
-  }
-  return strongest === null ? null : HAZARD_SIGNATURE_NAMES[strongest];
+/** The one hazard a region grows more of than default ground, named for the banner. */
+function signatureHazardName(stageId: string): string | null {
+  const hazardType = signatureHazardType(stageId);
+  return hazardType === null ? null : HAZARD_SIGNATURE_NAMES[hazardType];
 }
 
 /**
@@ -77,7 +69,6 @@ function signatureHazardName(bias: StageHazardBias | undefined): string | null {
  */
 export function describeRegionSignature(stageId: string): string | null {
   const spawnBias = STAGE_SPAWN_BIASES[stageId];
-  const hazardBias = STAGE_HAZARD_BIASES[stageId];
 
   const clauses: string[] = [];
   if (spawnBias !== undefined) {
@@ -87,7 +78,7 @@ export function describeRegionSignature(stageId: string): string | null {
     if (suppressed.length > 0) clauses.push(`Few ${suppressed.join(' and ')}`);
   }
 
-  const hazardName = signatureHazardName(hazardBias);
+  const hazardName = signatureHazardName(stageId);
   if (hazardName !== null) clauses.push(`Blooms ${hazardName}`);
 
   if (clauses.length === 0) return null;

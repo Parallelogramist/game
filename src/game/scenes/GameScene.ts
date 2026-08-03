@@ -196,7 +196,7 @@ import { selectRunModifiers, getModifierById, type RunModifier } from '../../dat
 import { selectBlessings, getBlessingById, type Blessing } from '../../data/Blessings';
 import { recordRunBuild, selectKeptUpgrades } from '../../data/KeptUpgrades';
 import { getPactById, type Pact } from '../../data/Pacts';
-import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
+import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState, getActiveHazardZoneCount } from '../../systems/HazardZoneSystem';
 import {
   getGameStateManager, GameSaveState, SerializedPoiSlotObject,
 } from '../../save/GameStateManager';
@@ -266,7 +266,8 @@ import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager'
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
-import { getStageById, getDefaultStage, resolveStageAmbientDarkness, resolveStageDriftFactor, resolveStageWallShiftSeconds, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
+import { getStageById, getDefaultStage, resolveStageAmbientDarkness, resolveStageDriftFactor, resolveStageWallShiftSeconds, resolveStageDeathBloomSeconds, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
+import { signatureHazardType, type HazardType } from '../../systems/stageHazardBias';
 import { applyLiveWallShift } from '../../world/ambientStir';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
@@ -463,6 +464,14 @@ const SIGNAL_DECRYPTOR_ID = 'ability_signal_decryptor';
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
+
+/** XP floor that marks an enemy elite-or-better for the region death bloom, the same
+ *  threshold handleEnemyDeath's own miniboss branch uses. */
+const REGION_BLOOM_XP_FLOOR = 30;
+
+/** A bloom is smaller than the ground's own rift (TUNING.hazards.baseRadius.void is 90): it is
+ *  a mark left by one kill, not a hazard the region grew. */
+const REGION_DEATH_BLOOM_RADIUS = 60;
 
 /** A nest is legible long before it is live: the ship trips it well inside the vault's notice
  *  radius, so engaging is the player's decision and not the room's. */
@@ -1114,6 +1123,12 @@ export class GameScene extends Phaser.Scene {
   /** The active region's live wall-shift interval in seconds, resolved by applyStageVisuals.
    *  0 in every region that does not author one, which switches the whole mechanic off. */
   private activeStageWallShiftSeconds: number = 0;
+  /** The active region's death-bloom duration in seconds, resolved by applyStageVisuals.
+   *  0 in every region that does not author one, which switches the whole mechanic off. */
+  private activeStageDeathBloomSeconds: number = 0;
+  /** The hazard an elite kill opens in the active region: the region's own signature hazard,
+   *  so a bloom can never be a type the ground and the banner do not already promise. */
+  private activeStageDeathBloomType: HazardType | null = null;
   /** Seconds in the current room since the last shift. Reset on every sector entry, so a room
    *  the ship only crosses never moves and only a room it stands in does. */
   private regionWallShiftTimer: number = 0;
@@ -4370,7 +4385,8 @@ export class GameScene extends Phaser.Scene {
     this.killCount++;
 
     // Track bounty progress (elite kills detected via the affix component).
-    this.recordBountyKill(hasComponent(this.world, EnemyAffix, enemyId));
+    const isEliteKill = hasComponent(this.world, EnemyAffix, enemyId);
+    this.recordBountyKill(isEliteKill);
 
     // Track combo kill and handle threshold rewards
     const comboResult = recordComboKill();
@@ -4395,6 +4411,8 @@ export class GameScene extends Phaser.Scene {
       achievementManager.recordMinibossKill();
       this.recordRunTimelineEvent('bossDown');
     }
+
+    this.spawnRegionDeathBloom(x, y, isEliteKill || xpValueForTracking >= REGION_BLOOM_XP_FLOOR);
 
     // Paragon = a second affix (applyDampedAffixStats zeroes affixType2 when it
     // applies a primary, so a recycled entity id can't read as one).
@@ -13340,6 +13358,8 @@ export class GameScene extends Phaser.Scene {
     this.activeStageId = stage.id;
     this.activeStageDriftFactor = resolveStageDriftFactor(stage);
     this.activeStageWallShiftSeconds = resolveStageWallShiftSeconds(stage);
+    this.activeStageDeathBloomSeconds = resolveStageDeathBloomSeconds(stage);
+    this.activeStageDeathBloomType = signatureHazardType(stage.id);
     for (const overlayName of ['stageAmbientOverlay', 'stageDarknessOverlay']) {
       const previousOverlay = this.children.getByName(overlayName);
       if (previousOverlay) previousOverlay.destroy();
@@ -13468,6 +13488,24 @@ export class GameScene extends Phaser.Scene {
     }
     this.cameras.main.shake(160, 0.005);
     this.soundManager.playComboThreshold();
+  }
+
+  /** A region that authors a bloom keeps what dies in it: an elite kill opens the region's own
+   *  signature hazard where it fell. Elite-or-better only, so a swarm cannot carpet a room, and
+   *  capped at the ambient spawner's own concurrency cap so blooms can never starve it. */
+  private spawnRegionDeathBloom(x: number, y: number, isEliteOrBetter: boolean): void {
+    if (!isEliteOrBetter) return;
+    if (this.activeStageDeathBloomSeconds <= 0) return;
+    if (this.activeStageDeathBloomType === null) return;
+    if (this.worldMode.worldMap() === null) return;
+    if (getActiveHazardZoneCount() >= TUNING.hazards.maxConcurrentZones) return;
+
+    spawnHazardZone(
+      x, y,
+      REGION_DEATH_BLOOM_RADIUS,
+      this.activeStageDeathBloomType,
+      this.activeStageDeathBloomSeconds,
+    );
   }
 
   /**

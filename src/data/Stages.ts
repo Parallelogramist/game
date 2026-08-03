@@ -21,6 +21,10 @@ export const MIN_STAGE_DRIFT_FACTOR = 0.2;
  *  table is not allowed to author it. 0 or absent means the region's walls never move. */
 export const MIN_STAGE_WALL_SHIFT_SECONDS = 5;
 
+/** Floor on an authored death bloom, so an authoring slip cannot make a rift that is gone
+ *  before the kill's own death animation finishes. */
+export const MIN_STAGE_DEATH_BLOOM_SECONDS = 2;
+
 export interface StageDefinition {
   id: string;
   name: string;
@@ -50,6 +54,11 @@ export interface StageDefinition {
    *  seam of rock opens and one run of rubble drops. Absent or 0 means the region is as static
    *  as every stage always was. Arena runs have no world map, so nothing moves there. */
   wallShiftSeconds?: number;
+  /** Seconds a rift left by an elite kill lasts in this region. Absent or 0 means a kill in
+   *  this region leaves nothing behind, exactly as every stage always did. The rift's TYPE is
+   *  never authored here: it is the region's own signature hazard, so the ground and the kill
+   *  can never open two different things. */
+  deathBloomSeconds?: number;
 
   // Optional unlock gate. Missing = always available.
   // Format: 'hidden:<conditionId>' | 'worldLevel:<n>'
@@ -147,6 +156,7 @@ export const STAGES: readonly StageDefinition[] = [
     enemyDamageMultiplier: 1.0,
     xpMultiplier: 1.25,
     goldMultiplier: 1.05,
+    deathBloomSeconds: 5,
     unlockRequirement: 'worldLevel:3',
   },
   {
@@ -197,4 +207,13 @@ export function resolveStageWallShiftSeconds(stage: StageDefinition): number {
   const authored = stage.wallShiftSeconds ?? 0;
   if (!Number.isFinite(authored) || authored <= 0) return 0;
   return Math.max(MIN_STAGE_WALL_SHIFT_SECONDS, authored);
+}
+
+/** How long a rift left by an elite kill lasts in this region, or 0 for a region where kills
+ *  leave nothing. Clamped like its two siblings, so a non-finite or non-positive authored
+ *  value switches the mechanic off rather than spawning a zone with a poisoned duration. */
+export function resolveStageDeathBloomSeconds(stage: StageDefinition): number {
+  const authored = stage.deathBloomSeconds ?? 0;
+  if (!Number.isFinite(authored) || authored <= 0) return 0;
+  return Math.max(MIN_STAGE_DEATH_BLOOM_SECONDS, authored);
 }

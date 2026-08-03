@@ -63,3 +63,24 @@ export const STAGE_HAZARD_BIASES: Record<string, StageHazardBias> = {
     spawnIntervalMultiplier: 0.85,
   },
 };
+
+/** Iteration order for the signature scan. It is exactly the key order of regionSignature's
+ *  HAZARD_SIGNATURE_NAMES, so extracting this scan out of that module cannot change which
+ *  hazard a tie names. */
+const HAZARD_TYPES: readonly HazardType[] = ['burn', 'energy', 'ice', 'void'];
+
+/** The one hazard a region grows more of than default ground, or null when it grows none.
+ *  Null for stage_deep_void (unbiased on purpose) and for any unknown stage id. */
+export function signatureHazardType(stageId: string): HazardType | null {
+  const bias = STAGE_HAZARD_BIASES[stageId];
+  if (bias === undefined) return null;
+  let strongest: HazardType | null = null;
+  for (const hazardType of HAZARD_TYPES) {
+    const multiplier = bias.weightMultipliers[hazardType];
+    if (multiplier <= 1) continue;
+    if (strongest === null || multiplier > bias.weightMultipliers[strongest]) {
+      strongest = hazardType;
+    }
+  }
+  return strongest;
+}

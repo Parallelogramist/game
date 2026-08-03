@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { describeRegionSignature } from './regionSignature';
 import { STAGE_SPAWN_BIASES } from './DirectorSystem';
-import { STAGE_HAZARD_BIASES } from './stageHazardBias';
+import { signatureHazardType, STAGE_HAZARD_BIASES } from './stageHazardBias';
 
 describe('describeRegionSignature', () => {
   it('states the boosted pair, the suppressed type and the hazard the ground grows', () => {
@@ -30,5 +30,17 @@ describe('describeRegionSignature', () => {
       expect(line).toMatch(/^SENDS .+ {2}·{1} {2}FEW .+ {2}·{1} {2}BLOOMS [A-Z]+$/);
       expect(line).not.toContain('undefined');
     }
+  });
+});
+
+describe('signatureHazardType', () => {
+  it('names the one hazard a region grows more of than default ground', () => {
+    expect(signatureHazardType('stage_verdant_rot')).toBe('void');
+    expect(signatureHazardType('stage_inferno')).toBe('burn');
+  });
+
+  it('names nothing for the unbiased spine and for an unknown region', () => {
+    expect(signatureHazardType('stage_deep_void')).toBeNull();
+    expect(signatureHazardType('stage_not_a_stage')).toBeNull();
   });
 });
