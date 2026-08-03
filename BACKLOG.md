@@ -2911,6 +2911,68 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-MAPUI-COURSE-PLOT** (done, 3b9d049) (new 2026-08-03, proposed by the planner): the
+  chart plots a course to the room you focus. Value: George can focus any charted room and see
+  the real route his ship can fly to it, drawn on the map and counted in hops, or be told which
+  door is in the way and what opens it, instead of a straight-line number across a world made of
+  walls.
+  1. **What shipped**: the pure `src/expedition/sectorRoute.ts` (`plotSectorCourse`,
+     `describeSectorCourse`, on the `lockouts.ts` predicate-injection model); a white polyline
+     with a dot per room drawn on the chart between the ship and the focused cell; and a
+     `COURSE 6 HOPS` / `COURSE 6 HOPS · BLOCKED BY BLINK DRIVE` / `NO CHARTED COURSE` /
+     `YOU ARE HERE` clause on the detail bar's headline.
+  2. **The gap it closed, symptom first.** Every distance the expedition prints is a straight
+     line. `lockouts.ts:114` is `Math.max(Math.abs(sector.sx - ship.col), Math.abs(sector.sy -
+     ship.row))`, which is what `VAULT 3 SECTORS OUT` means, and `sectorDetail`'s `5 jumps out`
+     is `sector.depth`, generation depth from the hangar. Neither knows about a wall, a one-way
+     membrane or a door the profile cannot open, so a vault three cells away could be a nine-room
+     detour or unreachable, and nothing said so. No module walked the sector graph for a route.
+  3. **The course is planned over the CHART, never over the world.** A sector is a node only
+     when its flags are non-zero (the renderer's own `flags === 0` skip) and an edge is crossable
+     only when it is `KNOWN` (the rule `describeDoors` and `drawDoors` already take), so a
+     plotted line can never cross a border the chart refuses to draw or name a room the profile
+     has not charted. Leak-safe by construction rather than by care.
+  4. **Blocked is a second BFS, not a guess.** When no passable route exists, the walk runs again
+     with the gated kinds relaxed; if that finds one, the shut doors along it are named in the
+     order the ship would meet them, deduped, two named and the rest summarised. A one-way stays
+     hard in BOTH passes, because a membrane is not something the profile can go and earn and
+     relaxing it would report a course blocked by nothing.
+  5. **It cannot disagree with the door it crosses.** The passability branch is the same one
+     `SectorMapRenderer.isGatedEdgeSealed` and `sectorDetail.requirementSuffix` take, so the lock
+     ring drawn on a door, the readout's door line and the course are one answer. Opening a gate
+     rewrites only mouth TILES (`barrierState.clearGateMouth`) and never `edge.kind`, which is
+     why held-id predicates are the right test on a live run's map.
+  6. **A breakable border counts as passable**, because `requirementSuffix` names no requirement
+     for one either: any wall-clipping weapon opens it. The emanate-only starting ships are the
+     separate, already-filed `CHORE-SECRET-WALL-EMANATE-LOCKOUT` gap and are unchanged.
+  7. **White, because the palette already says so.** `SectorMapRenderer`'s own note on
+     `PLAYER_MARK` is that everything the world put on the chart has a hue of its own and
+     everything the player decided is white. A course is a decision, so it needed no new hue:
+     solid at 0.55 alpha when flyable, dashed at 0.32 when blocked.
+  8. **Nothing persists and no version moved.** The course is recomputed from the focused cell on
+     every focus change, so there is no storage key, no `SAVE_VERSION` / `WORLDGEN_VERSION` /
+     `DISCOVERY_VERSION` / `WORLD_PROFILE_VERSION` move and no save-shape change. Arena, daily,
+     weekly, practice and gauntlet are untouched by construction: `MapScene` is expedition-only.
+  9. **Filed with it**: `POLISH-MAP-COURSE` under `## Human gates`, plus
+     `FEAT-COURSE-RADAR-BEARING` and `FEAT-COURSE-STICKY`.
+
+- [ ] **FEAT-COURSE-RADAR-BEARING** (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT): the course is
+  readable only on the pause screen that drew it, so a player who plotted one then closed the
+  chart is flying from memory. `plotSectorCourse` already returns the next room in
+  `sectorKeys[1]`, so an in-run bearing is a waypoint away. Held back deliberately: the disc
+  already carries four waypoint kinds (objective, mark, lead, vault) in four slots and
+  `BALANCE-MARK-RADAR-RANK` is the open question about how it ranks the ones it has, so adding a
+  fifth before that answer lands is the blind retune the convention forbids. Value: the route you
+  plotted is a bearing while you fly it. Deps: `BALANCE-MARK-RADAR-RANK`.
+
+- [ ] **FEAT-COURSE-STICKY** (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT): a course lives only
+  as long as the focus that made it, so moving the cursor one cell replaces it and closing the
+  chart forgets it. A pinned course would need a store field on `WorldProfileStore` (the
+  `markedSectorIds` shape), a clear action, and a chart tell that it is pinned, which is a third
+  claim on the same cell `FEAT-SORTIE-CHART-TELL` and `FEAT-STIR-CHART-CELL` are already queued
+  behind. Value: the route survives the screen that drew it. Deps: the same chart-crowding call
+  those two wait on.
+
 - [x] **FEAT-EXPEDITION-FIELD-ANCHOR** (done, 049b50f) (new 2026-08-03, proposed by the planner):
   a fresh expedition starts with one jump back to where the last one ended. Value: George can fly
   straight back to the room his previous expedition died in, once per run, instead of re-crossing
@@ -12414,6 +12476,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-COURSE** (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT). The course was
+  validated as graph math and as panel geometry, never seen on a screen. Questions, all feel:
+  (a) does a white polyline read as a route, or does it fight the white focus cursor and the
+  white sector marks it shares a hue with, and would the course rather have a hue of its own
+  after all? (b) at zoom 0.5 a cell is 32x18 px, so a six-hop line is short and its per-room dots
+  nearly touch: does it still read, or does the dot want dropping below some zoom? (c) the
+  headline now carries a fifth clause (`EXPLORED · CRYSTAL CAVES · 5 JUMPS OUT · SECTOR 3,4 ·
+  COURSE 6 HOPS · MARKED COME BACK HERE · "note"`) into a bar that is 104 px tall with rows fixed
+  at +12/+40/+74: does that wrap into the DOORS row on a portrait phone, and if so does the
+  course want the doors row instead? (d) is `blocked by Blink Drive` the right register against
+  the LOCKED OUT panel that is already naming the same ability three panels above it, or is it
+  redundant there? (e) two named requirements then `+N more`: is two the right cut? Do not retune
+  any of it blind.
 
 - [ ] **POLISH-SORTIE-CARRYOVER** (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR). The
   carried-over SORTIE was validated as geometry and lifecycle, never flown. Four questions, all

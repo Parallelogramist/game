@@ -205,6 +205,29 @@ The stranding guarantee doc 04 relies on is unchanged: recall is always *availab
 outside a lock, so physical stranding is impossible and a soft-lock reduces to a
 progression block, which the vault ordering rule prevents.
 
+### 4.3 The chart plots a course, and only through what it draws (2026-08-03)
+
+**Shipped as `FEAT-MAPUI-COURSE-PLOT` (`3b9d049`).** Focusing a room on the chart plots the route
+the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph breadth-first and
+`MapScene` draws it plus a hop count. Three decisions the next chunk must not re-derive:
+
+- **The graph is the CHART, not the world.** A sector is a node only when its discovery flags are
+  non-zero and an edge is crossable only when it carries `EdgeFlags.KNOWN`, which are exactly the
+  two rules `SectorMapRenderer` and `sectorDetail` already obey. A course therefore cannot cross a
+  border the chart refuses to draw, and section 3's leak rules hold with no extra guard.
+- **"Blocked by what" is a second relaxed pass, and one-ways stay hard in it.** When no passable
+  route exists the walk runs again with `AbilityDoor` and `KeyDoor` treated as open, and the shut
+  doors along that route are named. `EdgeKind.OneWay` is NOT relaxed: a membrane is not something
+  a profile can go and earn, so relaxing it would report a course blocked by nothing.
+- **Passability is the held-id predicates, never the tile state.** `applyOwnedAbilityGates` and
+  `applyEarnedQuestKeys` rewrite only `TileKind.GateClosed` mouth tiles and never `edge.kind`
+  (section 3.5's replay rule), so `edge.kind` plus `edge.requiredId` plus the two ownership
+  predicates is the one test the lock ring, the readout's door line and the course all share.
+
+The in-run half (a next-hop bearing on the radar disc) is deliberately not built and is
+`FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdict is
+`POLISH-MAP-COURSE`.
+
 ### 4.2 Still open, for playtest (not blockers)
 
 - **OQ-1 seam pop.** The camera free-scrolls and can show parts of two sectors, but
