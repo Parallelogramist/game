@@ -8,7 +8,7 @@ import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEnt
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { questWorldStamp } from '../../systems/QuestProgress';
 import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB,
-  GAMEPAD_BUTTON_RT, GAMEPAD_BUTTON_START,
+  GAMEPAD_BUTTON_RT, GAMEPAD_BUTTON_SELECT, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
   GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP, GamepadManager } from '../../input/GamepadManager';
 import {
@@ -104,7 +104,7 @@ const FOOTER_HEIGHT = 44;
 /** Exactly the keys create() captures. Cleared and re-armed around the note field, because a
  *  captured key is preventDefault-ed before the DOM input can ever see it, so W, A, S and D would
  *  silently refuse to type. */
-const MAP_KEY_CAPTURES = 'W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,SHIFT';
+const MAP_KEY_CAPTURES = 'W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,SHIFT,TAB';
 /** Rows the LEADS panel draws before it collapses the rest into a count. */
 const MAX_LEAD_ROWS = 4;
 /** Rows the LOCKED OUT panel draws before it collapses the rest into a count. Same cap and
@@ -113,6 +113,11 @@ const MAX_LOCKOUT_ROWS = 4;
 /** One, against the detail bar's two: a lockout row already carries up to three count clauses
  *  before it reaches the trip, on a 12 px line in a 340 px panel. */
 const MAX_LOCKOUT_REQUIREMENTS = 1;
+const LEGEND_COLUMN_WIDTH = 196;
+const LEGEND_ROW_HEIGHT = 20;
+/** The header strip: also the whole height of the folded panel, and the toggle's hit target. */
+const LEGEND_HEADER_HEIGHT = 36;
+const LEGEND_BOTTOM_PAD = 8;
 /** Fixed so the legend and the chart can be laid out once, at create time, against a bar
  *  whose height never depends on which sector happens to be focused. */
 const DETAIL_BAR_HEIGHT = 104;
@@ -196,6 +201,10 @@ export class MapScene extends Phaser.Scene {
   private graphics!: Phaser.GameObjects.Graphics;
   private mapRenderer!: SectorMapRenderer;
   private gamepadManager: GamepadManager | null = null;
+  private legendCollapsed = false;
+  private legendObjects: Phaser.GameObjects.GameObject[] = [];
+  private legendBounds: Phaser.Geom.Rectangle | null = null;
+  private legendHeaderBounds: Phaser.Geom.Rectangle | null = null;
   private view: MapViewTransform = { originX: 0, originY: 0, scale: 1 };
   private bounds: GridBounds = { minGX: 0, minGY: 0, maxGX: 0, maxGY: 0 };
   private zoomIndex = 1;
@@ -324,7 +333,7 @@ export class MapScene extends Phaser.Scene {
     const footerButtonsWidth = RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP + NOTE_BUTTON_WIDTH;
     const hintWidth = Math.max(120, width - 40 - footerButtonsWidth);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
-      'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
+      'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE   ·   TAB LEGEND'
       + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE'
       + (this.browsing ? '   ·   L LAUNCH' : '   ·   R RECALL / SORTIE')
       + '   ·   M / ESC CLOSE',
@@ -393,6 +402,7 @@ export class MapScene extends Phaser.Scene {
     });
     const routesPanelY = this.renderLeadsPanel(leadsPanelY);
     this.renderRoutesPanel(routesPanelY);
+    this.legendCollapsed = getSettingsManager().isMapLegendCollapsed();
     this.renderLegendPanel();
 
     this.graphics = this.add.graphics();
@@ -444,6 +454,7 @@ export class MapScene extends Phaser.Scene {
         if (this.noteOverlayTeardown) return;
         const key = event.key;
         if (key === 'm' || key === 'M' || key === 'Escape') { this.close(); return; }
+        if (key === 'Tab') { this.toggleLegend(); return; }
         if (key === 'r' || key === 'R') { this.recall(); return; }
         if (key === 'l' || key === 'L') { this.launch(); return; }
         if (key === 'p' || key === 'P') { this.cycleMark(); return; }
@@ -453,6 +464,7 @@ export class MapScene extends Phaser.Scene {
         if (key === '-' || key === '_') this.stepZoom(-1);
       };
       keyboard.on('keydown', this.keydownHandler);
+      keyboard.addCapture('TAB');
     }
 
     this.wheelHandler = (_pointer, _over, _deltaX, deltaY) => {
@@ -461,6 +473,10 @@ export class MapScene extends Phaser.Scene {
     this.input.on('wheel', this.wheelHandler);
 
     this.pointerDownHandler = (pointer) => {
+      if (this.legendHeaderBounds?.contains(pointer.x, pointer.y)) {
+        this.toggleLegend();
+        return;
+      }
       this.dragPointerId = pointer.id;
       this.dragLastX = pointer.x;
       this.dragLastY = pointer.y;
@@ -618,13 +634,13 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * The map's own glyph vocabulary, generated from the two glyph tables so it cannot drift
-   * from what the renderer draws. Always visible rather than the TAB-toggled panel doc 03
-   * section 4.5 specifies: a toggle would need a keyboard key, a gamepad button and a touch
-   * target, which is three input paths for 196 px of screen the left-hand panels already
-   * overlay anyway.
+   * Generated from the two glyph tables so the legend cannot drift from what the renderer
+   * draws. Rebuilt on every fold, which is cheap and is what keeps the two states identical.
    */
-  private renderLegendPanel(): void {
+  private legendRows(): Array<{
+    label: string;
+    draw: (graphics: Phaser.GameObjects.Graphics, x: number, y: number) => void;
+  }> {
     const rows: Array<{
       label: string;
       draw: (graphics: Phaser.GameObjects.Graphics, x: number, y: number) => void;
@@ -714,29 +730,70 @@ export class MapScene extends Phaser.Scene {
       },
     });
 
-    const rowHeight = 20;
-    const panelWidth = 196;
-    const panelHeight = 36 + rows.length * rowHeight + 8;
-    const panelX = this.scale.width - 24 - panelWidth;
-    const panelY = Math.max(HEADER_HEIGHT + 12,
-      this.scale.height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT - 24 - panelHeight);
+    return rows;
+  }
 
-    this.add.rectangle(panelX, panelY, panelWidth, panelHeight, 0x0a1018, 0.9)
-      .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
-    makeBodyText(this, panelX + 14, panelY + 10, 'LEGEND',
-      { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
-      .setOrigin(0, 0).setDepth(5);
+  /**
+   * The map's own glyph vocabulary, down the right-hand edge. Top-anchored and rebuilt on every
+   * fold, so the header strip, which is also the toggle's hit target, never moves. Rows reflow
+   * into columns rather than being dropped: the panel's whole value is that it lists everything
+   * the renderer can draw.
+   */
+  private renderLegendPanel(): void {
+    for (const object of this.legendObjects) object.destroy();
+    this.legendObjects = [];
+
+    const rows = this.legendRows();
+    const panelY = HEADER_HEIGHT + 12;
+    const bandHeight =
+      this.scale.height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT - 24 - panelY;
+
+    let panelWidth = LEGEND_COLUMN_WIDTH;
+    let panelHeight = LEGEND_HEADER_HEIGHT;
+    let perColumn = 0;
+    if (!this.legendCollapsed) {
+      const rowsPerColumn = Math.max(1, Math.floor(
+        (bandHeight - LEGEND_HEADER_HEIGHT - LEGEND_BOTTOM_PAD) / LEGEND_ROW_HEIGHT));
+      const columnsThatFit = Math.max(1,
+        Math.floor((this.scale.width - 48) / LEGEND_COLUMN_WIDTH));
+      const columns = Math.min(columnsThatFit, Math.ceil(rows.length / rowsPerColumn));
+      perColumn = Math.ceil(rows.length / columns);
+      panelWidth = columns * LEGEND_COLUMN_WIDTH;
+      panelHeight = LEGEND_HEADER_HEIGHT + perColumn * LEGEND_ROW_HEIGHT + LEGEND_BOTTOM_PAD;
+    }
+    const panelX = this.scale.width - 24 - panelWidth;
+
+    this.legendObjects.push(
+      this.add.rectangle(panelX, panelY, panelWidth, panelHeight, 0x0a1018, 0.9)
+        .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9),
+      makeBodyText(this, panelX + 14, panelY + 10,
+        this.legendCollapsed ? 'LEGEND  [+]' : 'LEGEND  [-]',
+        { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
+        .setOrigin(0, 0).setDepth(5),
+    );
+    this.legendBounds = new Phaser.Geom.Rectangle(panelX, panelY, panelWidth, panelHeight);
+    this.legendHeaderBounds =
+      new Phaser.Geom.Rectangle(panelX, panelY, panelWidth, LEGEND_HEADER_HEIGHT);
+    if (this.legendCollapsed) return;
 
     const graphics = this.add.graphics();
     graphics.setDepth(4);
-    let rowY = panelY + 36;
-    for (const row of rows) {
-      row.draw(graphics, panelX + 22, rowY + 8);
-      makeBodyText(this, panelX + 40, rowY, row.label.toUpperCase(),
-        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left' })
-        .setOrigin(0, 0).setDepth(5);
-      rowY += rowHeight;
-    }
+    this.legendObjects.push(graphics);
+    rows.forEach((row, index) => {
+      const columnX = panelX + Math.floor(index / perColumn) * LEGEND_COLUMN_WIDTH;
+      const rowY = panelY + LEGEND_HEADER_HEIGHT + (index % perColumn) * LEGEND_ROW_HEIGHT;
+      row.draw(graphics, columnX + 22, rowY + 8);
+      this.legendObjects.push(
+        makeBodyText(this, columnX + 40, rowY, row.label.toUpperCase(),
+          { fontSize: 12, color: TEXT_COLORS.muted, align: 'left' })
+          .setOrigin(0, 0).setDepth(5));
+    });
+  }
+
+  private toggleLegend(): void {
+    this.legendCollapsed = !this.legendCollapsed;
+    getSettingsManager().setMapLegendCollapsed(this.legendCollapsed);
+    this.renderLegendPanel();
   }
 
   /**
@@ -1005,6 +1062,7 @@ export class MapScene extends Phaser.Scene {
       if (pad.justPressed(GAMEPAD_BUTTON_RB)) this.stepZoom(1);
       if (this.zoomOutArmed && pad.justPressed(GAMEPAD_BUTTON_LB)) this.stepZoom(-1);
       if (pad.justPressed(GAMEPAD_BUTTON_Y)) this.centreOnShip();
+      if (pad.justPressed(GAMEPAD_BUTTON_SELECT)) { this.toggleLegend(); return; }
       if (pad.justPressed(GAMEPAD_DPAD_UP)) this.moveCursor('up');
       if (pad.justPressed(GAMEPAD_DPAD_DOWN)) this.moveCursor('down');
       if (pad.justPressed(GAMEPAD_DPAD_LEFT)) this.moveCursor('left');
@@ -1085,6 +1143,7 @@ export class MapScene extends Phaser.Scene {
   private focusFromPointer(pointer: Phaser.Input.Pointer): void {
     if (pointer.y < HEADER_HEIGHT) return;
     if (pointer.y > this.scale.height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT) return;
+    if (this.legendBounds?.contains(pointer.x, pointer.y)) return;
     const cell = mapPointToSector(
       pointer.x, pointer.y, this.view, CURSOR_HIT_SLOP, this.knownCells,
     );
@@ -1282,6 +1341,9 @@ export class MapScene extends Phaser.Scene {
     this.noteButton = null;
     this.gamepadManager?.destroy();
     this.gamepadManager = null;
+    this.legendObjects = [];
+    this.legendBounds = null;
+    this.legendHeaderBounds = null;
     this.tweens.killAll();
   }
 }

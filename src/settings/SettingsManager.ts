@@ -22,6 +22,7 @@ const STORAGE_KEY_COLORBLIND_MODE = 'settings-colorblind-mode';
 const STORAGE_KEY_HIGH_CONTRAST = 'settings-high-contrast';
 const STORAGE_KEY_MINIMAP = 'settings-minimap-enabled';
 const STORAGE_KEY_MINIMAP_UNDERLAY = 'settings-minimap-underlay-enabled';
+const STORAGE_KEY_MAP_LEGEND_COLLAPSED = 'settings-map-legend-collapsed';
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
 
 /** Color-vision-deficiency correction modes applied as a full-screen post-FX filter. */
@@ -48,6 +49,8 @@ export interface GameSettings {
   minimapEnabled: boolean;
   /** Current-sector walls and doors under the radar blips (expedition only). */
   minimapUnderlayEnabled: boolean;
+  /** The world chart's LEGEND panel is folded to its header strip. */
+  mapLegendCollapsed: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -67,6 +70,7 @@ const DEFAULTS: GameSettings = {
   highContrast: false,
   minimapEnabled: true,
   minimapUnderlayEnabled: true,
+  mapLegendCollapsed: false,
 };
 
 /**
@@ -113,6 +117,9 @@ export class SettingsManager {
       minimapEnabled: this.loadBoolean(STORAGE_KEY_MINIMAP, DEFAULTS.minimapEnabled),
       minimapUnderlayEnabled: this.loadBoolean(
         STORAGE_KEY_MINIMAP_UNDERLAY, DEFAULTS.minimapUnderlayEnabled,
+      ),
+      mapLegendCollapsed: this.loadBoolean(
+        STORAGE_KEY_MAP_LEGEND_COLLAPSED, DEFAULTS.mapLegendCollapsed,
       ),
     };
   }
@@ -310,6 +317,15 @@ export class SettingsManager {
     this.saveBoolean(STORAGE_KEY_MINIMAP_UNDERLAY, enabled);
   }
 
+  isMapLegendCollapsed(): boolean {
+    return this.settings.mapLegendCollapsed;
+  }
+
+  setMapLegendCollapsed(collapsed: boolean): void {
+    this.settings.mapLegendCollapsed = collapsed;
+    this.saveBoolean(STORAGE_KEY_MAP_LEGEND_COLLAPSED, collapsed);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Combat Text Settings
   // ═══════════════════════════════════════════════════════════════════════════
@@ -434,6 +450,7 @@ export class SettingsManager {
     this.setHighContrast(DEFAULTS.highContrast);
     this.setMinimapEnabled(DEFAULTS.minimapEnabled);
     this.setMinimapUnderlayEnabled(DEFAULTS.minimapUnderlayEnabled);
+    this.setMapLegendCollapsed(DEFAULTS.mapLegendCollapsed);
   }
 }
 

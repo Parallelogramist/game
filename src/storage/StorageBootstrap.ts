@@ -52,6 +52,7 @@ export const ALL_STORAGE_KEYS = [
   'settings-high-contrast',
   'settings-minimap-enabled',
   'settings-minimap-underlay-enabled',
+  'settings-map-legend-collapsed',
 
   // MusicManager
   'survivor-music-enabled',
