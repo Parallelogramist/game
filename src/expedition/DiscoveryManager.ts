@@ -277,6 +277,12 @@ export class DiscoveryManager {
     return count;
   }
 
+  /** Every secret this world holds, found or not. A slot is a fixed property of the generated
+   *  world, so unlike the sector denominator this one never moves while a world is flown. */
+  getKnowableSecretCount(): number {
+    return this.universe.secretIds.size;
+  }
+
   /** Visited sectors plus found secrets over everything a profile can reach in this world.
    *  Secrets joined the weighting the session something could actually find one. */
   getCompletionPercent(): number {

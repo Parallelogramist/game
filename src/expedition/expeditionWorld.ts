@@ -42,6 +42,7 @@ export interface ExpeditionProgressSummary {
   sectorsCharted: number;
   knowableSectors: number;
   secretsFound: number;
+  knowableSecrets: number;
   wardenName: string;
   /** The id behind wardenName, so a caller can ask whether this guardian is already on the
    *  roster without re-deriving it from the seed. */
@@ -73,6 +74,7 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     sectorsCharted: discovery.getVisitedSectorCount(),
     knowableSectors: discovery.getKnowableSectorCount(),
     secretsFound: discovery.getFoundSecretCount(),
+    knowableSecrets: discovery.getKnowableSecretCount(),
     wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
     wardenBossId: wardenBossIdForWorld(seed, map.worldGenVersion),
     worldGenVersion: map.worldGenVersion,
@@ -99,6 +101,17 @@ export function describeBankedWorlds(
   }));
 }
 
+/**
+ * `7 / 24 secrets`, or a bare `7 secrets` when the denominator cannot be trusted. A world banked
+ * under an older generator keeps the count it was banked with while its preview regenerates at
+ * the current WORLDGEN_VERSION, and `9 / 7` reads as a bug rather than as a version bump.
+ */
+export function describeSecretsFound(found: number, worldSecretSlots: number): string {
+  return worldSecretSlots >= found && worldSecretSlots > 0
+    ? `${found} / ${worldSecretSlots} secrets`
+    : `${found} secrets`;
+}
+
 export interface ExpeditionWorldPreview {
   seed: number;
   secretSlots: number;
@@ -115,6 +128,14 @@ export interface ExpeditionWorldPreview {
   wardenBossId: string;
 }
 
+/** Memoised per seed rather than on a seed list: the CHART dialog previews three candidates, the
+ *  RETURN dialog previews the page's banked worlds and the paste dialog previews one, so a
+ *  single-slot list memo was evicted on every switch between them. One preview is one
+ *  generateWorld, 34 ms measured on the Deck. A preview is a pure function of (seed,
+ *  WORLDGEN_VERSION) and the version is a module constant, so an entry cannot go stale and this
+ *  needs no reset hook. */
+const previewMemo = new Map<number, ExpeditionWorldPreview>();
+
 /**
  * The facts that actually vary between seeds, measured over 41 worlds of the real chain:
  * secret slots 15 to 33, caches 30 to 61, deepest depth 7 to 13, four distinct deepest
@@ -123,6 +144,8 @@ export interface ExpeditionWorldPreview {
  * moves is decoration.
  */
 export function previewExpeditionWorld(seed: number): ExpeditionWorldPreview {
+  const memoised = previewMemo.get(seed);
+  if (memoised !== undefined) return memoised;
   const map = generateExpeditionWorld(seed);
   let secretSlots = 0;
   let cacheSlots = 0;
@@ -142,7 +165,7 @@ export function previewExpeditionWorld(seed: number): ExpeditionWorldPreview {
       deepestKey = sector.key;
     }
   }
-  return {
+  const preview: ExpeditionWorldPreview = {
     seed,
     secretSlots,
     cacheSlots,
@@ -151,21 +174,12 @@ export function previewExpeditionWorld(seed: number): ExpeditionWorldPreview {
     wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
     wardenBossId: wardenBossIdForWorld(seed, map.worldGenVersion),
   };
+  previewMemo.set(seed, preview);
+  return preview;
 }
 
-let previewMemoKey = '';
-let previewMemo: readonly ExpeditionWorldPreview[] = [];
-
-/** Memoised on the seed list because reopening the CHART dialog in one session must not pay
- *  the generator again: one preview is one generateWorld, 34 ms measured on the Deck. Keyed
- *  on its own input, so it cannot go stale and needs no reset hook (the precedent is
- *  seasonQuests.buildSeasonQuests). */
 export function previewExpeditionWorlds(
   seeds: readonly number[],
 ): readonly ExpeditionWorldPreview[] {
-  const key = seeds.join(',');
-  if (key === previewMemoKey) return previewMemo;
-  previewMemo = seeds.map(previewExpeditionWorld);
-  previewMemoKey = key;
-  return previewMemo;
+  return seeds.map(previewExpeditionWorld);
 }

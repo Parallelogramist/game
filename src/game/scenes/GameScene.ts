@@ -6311,7 +6311,7 @@ export class GameScene extends Phaser.Scene {
       'This world is opening up.',
       'radar',
       `${discovery.getVisitedSectorCount()} of ${discovery.getKnowableSectorCount()} sectors`
-      + `  ·  ${discovery.getFoundSecretCount()} secrets recovered`,
+      + `  ·  ${discovery.getFoundSecretCount()} of ${discovery.getKnowableSecretCount()} secrets`,
     );
   }
 

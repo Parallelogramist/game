@@ -68,12 +68,13 @@ import { WORLDGEN_VERSION } from '../../world/worldTypes';
 import type { RunModeKind } from '../world/WorldModeAdapter';
 import {
   describeBankedWorlds,
+  describeSecretsFound,
   generateExpeditionWorld,
   previewExpeditionWorld,
   previewExpeditionWorlds,
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
-import type { ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
+import type { BankedWorldRow, ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
 import { questWorldStamp } from '../../systems/QuestProgress';
 import {
   getActiveQuestStepViews,
@@ -380,10 +381,10 @@ export class BootScene extends Phaser.Scene {
       this.scene.restart();
     };
 
-    const describeBankedRow = (row: { index: number; completionPercent: number;
-      sectorsCharted: number; secretsFound: number; conquered: boolean }) => (
+    const describeBankedRow = (row: BankedWorldRow) => (
       `W${row.index}   ·   ${row.completionPercent}% charted`
-      + `   ·   ${row.sectorsCharted} sectors   ·   ${row.secretsFound} secrets`
+      + `   ·   ${row.sectorsCharted} sectors`
+      + `   ·   ${describeSecretsFound(row.secretsFound, previewExpeditionWorld(row.seed).secretSlots)}`
       + (row.conquered ? '   ·   CONQUERED' : '')
     );
 
@@ -420,7 +421,7 @@ export class BootScene extends Phaser.Scene {
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
-          + `   ·   ${summary.secretsFound} secrets`,
+          + `   ·   ${describeSecretsFound(summary.secretsFound, summary.knowableSecrets)}`,
         '',
         'The world you leave is banked with its chart.',
         'A world you return to is exactly as you left it: the same',
@@ -474,9 +475,7 @@ export class BootScene extends Phaser.Scene {
     const openPastedWorldConfirmation = (
       summary: ExpeditionProgressSummary, seed: number,
     ): void => {
-      // One generateWorld, 34 ms measured, on a button press. Deliberately the unmemoised
-      // singular: previewExpeditionWorlds is keyed on the three-candidate list and a one-seed
-      // call would evict it, making the CHART dialog pay for three worlds again on reopen.
+      // One generateWorld, 34 ms measured, on a button press.
       const preview = previewExpeditionWorld(seed);
       const returning = getBankedSeasons().some(season => season.seed === seed);
       const lines = [
@@ -613,7 +612,7 @@ export class BootScene extends Phaser.Scene {
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
-          + `   ·   ${summary.secretsFound} secrets`,
+          + `   ·   ${describeSecretsFound(summary.secretsFound, summary.knowableSecrets)}`,
         `Warden: ${wardenClause(summary.wardenBossId, summary.wardenName)}`,
         '',
         'A new world resets the chart, the leads and every broken wall.',
