@@ -22,6 +22,7 @@ import {
   revealOnScanPulse,
   revealOnSecretFound,
   revealOnSecretHinted,
+  revealOnSecretVaultSeen,
   revealOnSectorEntry,
   revealOnVaultGuardCleared,
   sanitizeDiscoveryState,
@@ -136,6 +137,14 @@ export class DiscoveryManager {
   markSecretHinted(secretId: string): DiscoveryChanges {
     if (!this.map) return emptyChanges();
     return this.commit(revealOnSecretHinted(this.state, this.universe, secretId));
+  }
+
+  /** The only write path for a region vault the ship touched and could not open (README section
+   *  3.7). Permanent per world: the room does not move, so neither does the mark the chart draws
+   *  from it, and the flag clears itself in effect once FOUND lands beside it. */
+  markSecretVaultSeen(secretId: string): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(revealOnSecretVaultSeen(this.state, this.universe, secretId));
   }
 
   /** Hint tier 3's only write path (README section 3.7): the decryptor's sweep. Charts outlines

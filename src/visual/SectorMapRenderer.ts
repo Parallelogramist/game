@@ -65,6 +65,13 @@ const STIR_BADGE = WORLD_GEOMETRY_COLORS.hazard.stroke;
  *  hue to OBJECTIVE_PIN and separated the same way STIR_BADGE is separated from GUARDED_RING: the
  *  pin sits on the cell's top edge, this is a badge in its bottom-right corner. */
 const GRID_BAND_BADGE = WORLD_GEOMETRY_COLORS.securityGrid.stroke;
+/** A region vault this profile stood on and could not open. The breakable amber every secret
+ *  surface on this chart already speaks (a found hidden room's stroke, the found-secret glyph,
+ *  the radar ping), because a vault is a cache before it is anything else, and it is the colour
+ *  drawSecretCache paints the vault itself in. Shared with the lead badge and separated the same
+ *  way STIR_BADGE is separated from GUARDED_RING: the lead sits in the cell's top-left corner,
+ *  this is a badge in its bottom-right. */
+const VAULT_CHART_BADGE = WORLD_GEOMETRY_COLORS.breakable.stroke;
 
 const BIOME_TINTS = new Map<string, number>(STAGES.map(stage => [stage.id, stage.gridPulseColor]));
 
@@ -408,6 +415,40 @@ export function drawGridBandBadge(
 }
 
 /**
+ * A region vault this profile walked into and could not open. Occupant 4 of the destination lane
+ * (README section 4.4), so it draws only in a cell none of the three ahead of it took, and it is
+ * the lane's last occupant. Two concentric rings, which is the world's own tell repeated:
+ * drawSecretCache strokes ONE extra outer ring around a vault to separate it from a plain cache,
+ * so the chart makes the distinction the room already made.
+ */
+export function drawVaultChartBadge(
+  graphics: Phaser.GameObjects.Graphics, centreX: number, centreY: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1, size * 0.26), VAULT_CHART_BADGE, 1);
+  graphics.strokeCircle(centreX, centreY, size);
+  graphics.strokeCircle(centreX, centreY, size * 0.45);
+}
+
+/**
+ * Occupant 4's own condition, derived rather than passed in on occupant 3's precedent: the flag
+ * lives behind secretFlagsOf, which the secret glyph loop already reads, so the lane needs no
+ * fourth SectorMapDrawInput set. It carries NO VISITED gate, and that is the one place it differs
+ * from occupants 2 and 3: those read the map's geometry and would otherwise describe an interior
+ * in a room charted only as an outline, while VAULT_SEEN is written only by the walk-in refusal,
+ * so the flag is itself the proof the ship was in the room.
+ */
+function holdsUnopenedVault(
+  sector: SectorDef, secretFlagsOf: (secretId: string) => number,
+): boolean {
+  for (const slot of sector.poiSlots) {
+    if (slot.kind !== PoiKind.Secret) continue;
+    const flags = secretFlagsOf(slot.id);
+    if ((flags & SecretFlags.VAULT_SEEN) !== 0 && (flags & SecretFlags.FOUND) === 0) return true;
+  }
+  return false;
+}
+
+/**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
  * be satisfied by anything, so it always reads sealed.
@@ -596,6 +637,8 @@ export class SectorMapRenderer {
       // sectorDetail's own bloom, shift and corridor-grid rows take: both are interior facts, and
       // marking one on a room charted only as an outline would describe an interior the chart
       // refuses to draw.
+      // Occupant 4 takes no VISITED gate: its flag is written only by the walk-in refusal, so it
+      // already means the ship was in that room.
       const laneBadge = Math.max(3, 4.5 * input.view.scale);
       const laneX = cell.x + cell.width - laneBadge - 3;
       const laneY = cell.y + cell.height - laneBadge - 3;
@@ -606,6 +649,8 @@ export class SectorMapRenderer {
         drawStirBadge(graphics, laneX, laneY, laneBadge);
       } else if ((flags & SectorFlags.VISITED) !== 0 && countIntactGridBands(sector) > 0) {
         drawGridBandBadge(graphics, laneX, laneY, laneBadge);
+      } else if (holdsUnopenedVault(sector, input.secretFlagsOf)) {
+        drawVaultChartBadge(graphics, laneX, laneY, laneBadge);
       }
 
       this.drawPoiIcons(sector, input);

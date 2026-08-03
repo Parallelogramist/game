@@ -39,8 +39,14 @@ export const POI_VALID_MASK = 0b1111;
 export const SecretFlags = {
   HINTED: 1 << 0,
   FOUND: 1 << 1,
+  /** This profile walked into this cache and it refused, because the cache is its region's vault
+   *  and the region is unfinished. Implies nothing and is implied by nothing: it records a place
+   *  the ship has personally stood, which is a weaker claim than FOUND (the cache is still there
+   *  to claim, and getFoundSecretCount reads FOUND only, so the completion percent cannot move)
+   *  and a different claim from HINTED (a lead points into a region; this is a sighting). */
+  VAULT_SEEN: 1 << 2,
 } as const;
-export const SECRET_VALID_MASK = 0b11;
+export const SECRET_VALID_MASK = 0b111;
 
 /**
  * Bound to a world by seed AND generator version, the pair WorldProfileStore already keys
@@ -69,6 +75,7 @@ export interface DiscoveryChanges {
   poisHazardNest: string[];
   secretsHinted: string[];
   secretsFound: string[];
+  secretsVaultSeen: string[];
 }
 
 export function emptyChanges(): DiscoveryChanges {
@@ -83,6 +90,7 @@ export function emptyChanges(): DiscoveryChanges {
     poisHazardNest: [],
     secretsHinted: [],
     secretsFound: [],
+    secretsVaultSeen: [],
   };
 }
 
@@ -96,5 +104,6 @@ export function hasChanges(changes: DiscoveryChanges): boolean {
     || changes.poisGuardCleared.length > 0
     || changes.poisHazardNest.length > 0
     || changes.secretsHinted.length > 0
-    || changes.secretsFound.length > 0;
+    || changes.secretsFound.length > 0
+    || changes.secretsVaultSeen.length > 0;
 }

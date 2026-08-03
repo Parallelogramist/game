@@ -275,6 +275,23 @@ export function revealOnSecretHinted(
   return changes;
 }
 
+/** A region vault the ship touched while its region was unfinished. Records a place the player
+ *  has personally stood and nothing else: unlike revealOnSecretFound it must NOT imply FOUND (the
+ *  cache is still there to claim and the completion percent must not move), and unlike
+ *  revealOnSecretHinted it must NOT imply HINTED (a lead is a pointer the lead surfaces own, this
+ *  is a sighting). It leaks nothing the room did not already show: the only caller fires inside
+ *  the claim radius, where the refusal is printed on screen. */
+export function revealOnSecretVaultSeen(
+  state: DiscoveryState,
+  universe: WorldIdUniverse,
+  secretId: string,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.secretIds.has(secretId)) return changes;
+  addSecret(state, changes, secretId, SecretFlags.VAULT_SEEN);
+  return changes;
+}
+
 /**
  * Scan pulse (doc 03 section 1.4 rule 4): a BFS out to `graphRadius` edge-hops over the sector
  * graph. Reached sectors gain DISCOVERED and the edges crossed to reach them gain KNOWN, but
@@ -457,4 +474,5 @@ function addSecret(
   const gained = after & ~before;
   if ((gained & SecretFlags.HINTED) !== 0) changes.secretsHinted.push(id);
   if ((gained & SecretFlags.FOUND) !== 0) changes.secretsFound.push(id);
+  if ((gained & SecretFlags.VAULT_SEEN) !== 0) changes.secretsVaultSeen.push(id);
 }

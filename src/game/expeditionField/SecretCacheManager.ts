@@ -413,6 +413,7 @@ export class SecretCacheManager implements FieldPoiManager {
   private noticeSealedVault(cache: ActiveSecretCache, remaining: number): void {
     if (cache.vaultNoticed) return;
     cache.vaultNoticed = true;
+    getDiscoveryManager().markSecretVaultSeen(cache.secretId);
     const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
     this.deps.showDamageNumber(cache.x, cache.y - 26, 'SEALED VAULT', color);
     const region = getStageById(cache.vault?.biomeId ?? '')?.name ?? 'this region';

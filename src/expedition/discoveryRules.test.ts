@@ -12,12 +12,13 @@ import {
 } from '../world/worldTypes';
 import type { EdgeDef, EdgeDirection, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
 import {
-  DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges,
+  DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges, hasChanges,
 } from './DiscoveryTypes';
 import {
   buildIdUniverse, emptyDiscoveryState, newlyPassableEdges, revealOnEdgeTraversal,
   revealOnMapFragment,
-  revealOnScanPulse, revealOnSecretFound, revealOnSectorEntry, revealOnVaultGuardCleared,
+  revealOnScanPulse, revealOnSecretFound, revealOnSecretVaultSeen, revealOnSectorEntry,
+  revealOnVaultGuardCleared,
   sanitizeDiscoveryState,
 } from './discoveryRules';
 
@@ -432,5 +433,40 @@ describe('revealOnMapFragment', () => {
 
     expect(changes.sectorsDiscovered).toEqual(['0,0']);
     expect(changes.edgesKnown).toEqual([]);
+  });
+});
+
+describe('revealOnSecretVaultSeen', () => {
+  it('reports the sighting as a change, so the manager actually persists it', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnSecretVaultSeen(state, universe, SECRET_POI_ID);
+
+    expect(changes.secretsVaultSeen).toEqual([SECRET_POI_ID]);
+    // DiscoveryManager.commit returns before saveState when hasChanges is false, so a rule that
+    // sets a flag without reporting it writes to memory and never to storage.
+    expect(hasChanges(changes)).toBe(true);
+  });
+
+  it('records the sighting without claiming the cache or pointing a lead at it', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    revealOnSecretVaultSeen(state, universe, SECRET_POI_ID);
+
+    expect(state.secrets[SECRET_POI_ID]).toBe(SecretFlags.VAULT_SEEN);
+  });
+
+  it('survives a reload rather than being masked away', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+    revealOnSecretVaultSeen(state, universe, SECRET_POI_ID);
+
+    const reloaded = sanitizeDiscoveryState(
+      JSON.parse(JSON.stringify(state)), SEED, GEN_VERSION, universe,
+    );
+
+    expect(reloaded.secrets[SECRET_POI_ID]).toBe(SecretFlags.VAULT_SEEN);
   });
 });
