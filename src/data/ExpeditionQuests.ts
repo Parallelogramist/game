@@ -546,6 +546,63 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
     completionGoldReward: 340,
     completionRelicRoll: true,
   },
+  /** Neither region quest grants a key, for the reason the sigil pair records:
+   *  EXPEDITION_QUEST_KEY_ORDER is derived from catalog order and fed to the generator, so a
+   *  fifth key would move KeyDoor placement in every world and cost a WORLDGEN_VERSION bump. */
+  {
+    id: 'quest_region_01',
+    name: 'Empty Quarters',
+    icon: 'telescope',
+    steps: [
+      {
+        id: 'q_region_01.s1',
+        description: 'Take the vault a region was holding back',
+        trigger: { kind: 'findSecret', secretKind: 'capstone' },
+        target: 1,
+        scope: 'run',
+        goldReward: 130,
+      },
+      {
+        id: 'q_region_01.s2',
+        description: 'Empty two regions across your expeditions',
+        trigger: { kind: 'findSecret', secretKind: 'capstone' },
+        target: 2,
+        scope: 'persistent',
+        goldReward: 190,
+      },
+    ],
+    completionGoldReward: 240,
+    nextQuestId: 'quest_region_02',
+  },
+  {
+    id: 'quest_region_02',
+    name: 'The Hollowed Map',
+    icon: 'globe',
+    steps: [
+      {
+        id: 'q_region_02.s1',
+        description: 'Empty four regions across your expeditions',
+        trigger: { kind: 'findSecret', secretKind: 'capstone' },
+        target: 4,
+        scope: 'persistent',
+        goldReward: 260,
+      },
+      {
+        id: 'q_region_02.s2',
+        description: 'Carry a survey core into the Crystal Caves',
+        trigger: {
+          kind: 'deliverItem',
+          itemId: 'cargo_survey_core',
+          destinationTag: 'biome:stage_crystal_caves',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 260,
+      },
+    ],
+    completionGoldReward: 340,
+    completionRelicRoll: true,
+  },
 ];
 
 /** No `getExpeditionQuest(id)` lives here on purpose. A quest id may name a season contract,

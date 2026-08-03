@@ -137,10 +137,13 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
       return trigger.kind === 'findSecret'
         && (trigger.secretKind === undefined
           || trigger.secretKind === event.secretKind
-          // A sigil ring seals a CACHE slot, so a step that asks for a cache is satisfied by a
-          // solved ring and shipped 'cache' steps keep counting the ~30% of slots that seal.
-          // Never the reverse: a ring step must not be met by walking into an open one.
-          || (trigger.secretKind === 'cache' && event.secretKind === 'puzzle'));
+          // A sigil ring and a region capstone both seal a CACHE slot (buildRegionVaults picks
+          // the vault out of the region's own Secret slots, and picks a ring-free one, so the
+          // two can never be the same find), so a step that asks for a cache is satisfied by
+          // either. Never the reverse: a ring or capstone step must not be met by walking into
+          // an open one.
+          || (trigger.secretKind === 'cache'
+            && (event.secretKind === 'puzzle' || event.secretKind === 'capstone')));
     case 'reachSector':
       return trigger.kind === 'reachSector'
         && (trigger.sectorTag === undefined || event.sectorTags.includes(trigger.sectorTag));

@@ -163,6 +163,23 @@ describe('recordQuestEvent', () => {
     expect(walkIn.states[0].stepProgress).toBe(0);
   });
 
+  test('a region capstone counts for a cache step but a walk-in never counts for a capstone step', () => {
+    const VAULT_DEFS: readonly ExpeditionQuestDefinition[] = [{
+      id: 'quest_vault',
+      name: 'Vault',
+      icon: 'chain',
+      steps: [
+        { id: 'q_vault.s1', description: 'find a cache', trigger: { kind: 'findSecret', secretKind: 'cache' }, target: 1, scope: 'run', goldReward: 11 },
+        { id: 'q_vault.s2', description: 'empty a region', trigger: { kind: 'findSecret', secretKind: 'capstone' }, target: 1, scope: 'run', goldReward: 13 },
+      ],
+      completionGoldReward: 40,
+    }];
+    const held = recordQuestEvent([active('quest_vault')], VAULT_DEFS, { kind: 'findSecret', secretKind: 'capstone' });
+    expect(held.stepCompletions).toEqual([{ questId: 'quest_vault', stepId: 'q_vault.s1', goldReward: 11 }]);
+    const walkIn = recordQuestEvent([active('quest_vault', 1)], VAULT_DEFS, { kind: 'findSecret', secretKind: 'cache' });
+    expect(walkIn.states[0].stepProgress).toBe(0);
+  });
+
   test('never mutates the states it was handed', () => {
     const states = [active('quest_a')];
     recordQuestEvent(states, DEFS, { kind: 'kill', amount: 10 });
