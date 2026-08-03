@@ -312,9 +312,9 @@ it costs. It is made here so no later chunk re-derives it.
   not.
 - **The real budget is the legend, not the cell.** Each occupant costs one legend row, and the
   panel is already 23 rows / 504 px against roughly 460 px between its clamp and the detail bar on
-  a 720-high canvas: the sortie row is the last one that fits. **The second and later occupants
-  therefore land only after `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none) gives the panel a collapse.**
-  That is now the named dep of every queued lane item, replacing the vague "chart-crowding call".
+  a 720-high canvas: the sortie row is the last one that fits. **That budget was spent and then
+  reopened: `FEAT-MAPUI-LEGEND-TOGGLE` (`2c776d9`) made the panel reflow into columns and fold
+  away, so section 4.5 now owns the row budget and the lane's queued occupants are unblocked.**
 - **`FEAT-COURSE-STICKY` is not a lane occupant.** A pinned course is a line between cells plus a
   store field, not a corner badge, so this section does not gate it: its only dep is the
   `markedSectorIds`-shaped write it needs.
@@ -322,6 +322,36 @@ it costs. It is made here so no later chunk re-derives it.
   the three rules the loop already enforces: an uncharted cell draws nothing (so an anchor cannot
   leak a position), an off-screen cell is culled, and a cell still fading in under the map-open
   cascade draws only its outline.
+
+### 4.5 The legend's row budget is settled: it reflows into columns and folds away (2026-08-03)
+
+**Shipped as `FEAT-MAPUI-LEGEND-TOGGLE` (`2c776d9`).** Section 4.4 named this panel as the real
+budget behind the cell's destination lane, so the budget is settled here.
+
+- **The panel is top-anchored at `HEADER_HEIGHT + 12`, not bottom-anchored to the detail bar.**
+  That is what lets the header strip hold still when the rows vanish. At 16:9 the old clamp
+  already resolved to the same y, so nothing moved there; on a tall canvas the panel now sits
+  under the header instead of above the readout.
+- **Rows reflow into 196 px columns; they are never dropped.** The legend is generated from the
+  glyph tables precisely so it cannot drift from the renderer, so a row that does not fit takes a
+  new column: `rowsPerColumn` from the band, `columns = ceil(rows / rowsPerColumn)` clamped to
+  `floor((width - 48) / 196)`, then `perColumn = ceil(rows / columns)` so the columns are
+  balanced rather than one full and one stub.
+- **This is what unblocks the destination lane.** Before it the panel was 24 rows / 524 px inside
+  a 460 px band and was painting its last three rows over the detail bar. At 720p it is now two
+  columns, 392 px wide and 284 px tall, with room for 16 further rows before a third column, and
+  a 1280-wide canvas admits six columns. A lane occupant's legend row is no longer scarce, so
+  `FEAT-STIR-CHART-CELL`, `FEAT-GRID-BAND-CHART-CELL` and `FEAT-VAULT-CHART-TELL` are unblocked.
+- **Three input paths, and the third one is the panel itself.** `TAB` (captured, and listed in
+  `MAP_KEY_CAPTURES` so the note overlay's clear/re-arm cycle keeps it), gamepad `SELECT`, and a
+  click or tap anywhere on the header strip. **Not gamepad `X`**, which doc 03 section 4.3
+  specifies but which shipped as RECALL/LAUNCH long before this chunk.
+- **The legend rectangle swallows sector focus, hover included.** `focusFromPointer` runs on
+  pointer move as well as down, so without the guard the toggle would double as a cursor move to
+  whichever cell hides under the panel.
+- **The fold persists** in `settings-map-legend-collapsed` (`SettingsManager`), default expanded
+  so a new player meets the vocabulary. It gets no SettingsScene row: the control lives on the
+  thing it controls.
 
 ### 4.2 Still open, for playtest (not blockers)
 

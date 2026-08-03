@@ -644,7 +644,8 @@ it legal; the render layer never implements clamping itself.
   `isDown`, 420 px/s at zoom 1), `=`/`-` zoom in/out stepping `zoomIndex`, `C`
   centers on the ship, `TAB` toggles the legend, `M`/`ESC` close.
 - **Gamepad**: left stick pans freely (analog, same speed curve), `RB`/`LB`
-  zoom in/out, `Y` centers on ship, `X` toggles legend, `B`/`Start` close,
+  zoom in/out, `Y` centers on ship, `SELECT` toggles legend (`X` shipped as
+  RECALL/LAUNCH), `B`/`Start` close,
   D-pad moves the sector cursor (below), `A` activates the focused element.
 - **Touch**: one-finger drag pans; pinch zooms continuously between 0.5 and 2
   (pointer1/pointer2 distance ratio, snapping to the nearest discrete level on
@@ -710,7 +711,7 @@ never lies about shape). Rendered by `SectorMapRenderer` from discovery flags:
 
 ### 4.5 Legend and the "you cannot open this yet" affordance
 
-The legend (TAB / X / corner button) is a side panel listing every glyph
+The legend (TAB / SELECT / its own header strip) is a side panel listing every glyph
 currently relevant: gate shapes with their requirement names, POI icons, secret
 badge, cleared notch, explored/unexplored swatches. It is generated from
 `gateGlyphs.ts` and the POI icon table at runtime, so it cannot drift from the
@@ -811,11 +812,11 @@ its FOUND-secret icon and its dimmed-collected rule now ship, plus a legend. Nin
    radar contact kind stays with `FEAT-DISCOVERY-FEEDBACK-07`. "Not `GUARD_CLEARED` implies
    a pack is still standing" is safe because `referentialIntegrity.test.ts` pins every
    `VAULT_GUARD_PACKS` entry non-empty with per-member `count > 0`.
-7. **The legend is a static right-hand panel, not the TAB-toggled one specified above.** It
+7. **The legend shipped static, and `FEAT-MAPUI-LEGEND-TOGGLE` (`2c776d9`) made it
+   foldable**: TAB, gamepad SELECT or its header strip, persisted, with the rows reflowing
+   into columns. The row budget is settled in `README.md` section 4.5. It
    is generated from `POI_GLYPHS` and `GATE_GLYPHS` at runtime, so it cannot drift from the
-   map, and it lists the two state rings as their own rows. A toggle would need a keyboard
-   key, a gamepad button and a touch target: three input paths for 196 px the left-hand
-   panels already overlay. Filed as `FEAT-MAPUI-LEGEND-TOGGLE`. The rows carry generic
+   map, and it lists the two state rings as their own rows. The rows carry generic
    labels ("Ability door"), not this section's rule 3 requirement names ("requires Ion
    Projector"), which are filed as `FEAT-MAPUI-LEGEND-REQUIREMENTS`.
 8. **Still open on `FEAT-MAPUI-DOORS-05`**: the focused-sector cursor and tooltip (with the

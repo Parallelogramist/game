@@ -2974,9 +2974,10 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   toast that scrolled past. Deps: **the chart-crowding call is settled**
   (`references/map/README.md` section 4.4, `2e7488c`): the bottom-right corner is the destination
   lane and this item is occupant 4 of it, behind the sortie badge (shipped),
-  `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL`. The real remaining dep is
-  `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none), because the legend has no room for a second lane row
-  until the panel can collapse. Do not re-derive the placement.
+  `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL`.
+  **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
+  a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
+  Do not re-derive the placement.
 - [ ] **CHORE-VAULT-LOCKOUT-ROW** (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a locked
   vault is absent from the LOCKED OUT panel, which already answers "what do I need" for
   abilities and quest keys and would answer it for a vault with one more `bump` call keyed
@@ -8741,9 +8742,10 @@ exploring pays is the end of Phase 5.
   placement the chart has not budgeted. Value: a room that changed is a place, not a line you
   have to go looking for. Deps: **the chart-crowding call is settled**
   (`references/map/README.md` section 4.4, `2e7488c`): the bottom-right corner is the destination
-  lane and this item is occupant 2 of it, first in line behind the shipped sortie badge. The real
-  remaining dep is `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none), because the legend has no room for a
-  second lane row until the panel can collapse. Do not re-derive the placement.
+  lane and this item is occupant 2 of it, first in line behind the shipped sortie badge.
+  **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
+  a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
+  Do not re-derive the placement.
   A shifted room's readout row shipped with `FEAT-STIR-COLLAPSE` (`2462679`) and lands in the same
   readout with the same chart-crowding question, so this one item now covers both marks and no twin
   item is filed for the shift.
@@ -10095,11 +10097,45 @@ exploring pays is the end of Phase 5.
   not mystery. The legend rows still carry generic kind labels; naming this world's requirement
   in the legend stays filed as `FEAT-MAPUI-LEGEND-REQUIREMENTS`.
 
-- [ ] **FEAT-MAPUI-LEGEND-TOGGLE** (new 2026-07-31, from `FEAT-MAPUI-POI-ICONS`): the legend
-  panel is always visible, because a toggle needs a keyboard key, a gamepad button and a touch
-  target, which is three input paths for 196 px of chart. Make it collapsible once one of those
-  paths is worth spending. Value: a player who has learned the vocabulary gets that 196 px of
+- [x] **FEAT-MAPUI-LEGEND-TOGGLE** (done, 2c776d9) (new 2026-07-31, from `FEAT-MAPUI-POI-ICONS`):
+  the legend panel is always visible, because a toggle needs a keyboard key, a gamepad button and
+  a touch target, which is three input paths for 196 px of chart. Make it collapsible once one of
+  those paths is worth spending. Value: a player who has learned the vocabulary gets that 196 px of
   chart back. Deps: none.
+
+  1. **It was not only 196 px of chart, it was a live overflow.** The panel had grown to 24 rows,
+     and `36 + 24 * 20 + 8` is 524 px inside the 460 px band between its top clamp
+     (`HEADER_HEIGHT + 12` = 88) and the detail bar (`720 - 44 - 104 - 24` = 548). Its bottom
+     landed at 612 against a bar starting at 572, and the row labels are depth 5 against the bar's
+     depth-3 plate, so at 720p the last three legend rows painted on top of the focused-sector
+     readout.
+  2. **Rows reflow into columns, they are never dropped.** The legend's whole value is that it is
+     generated from the glyph tables and so cannot drift from what the renderer draws, which rules
+     out trimming it to fit. `rowsPerColumn` comes from the band, `columns = ceil(rows /
+     rowsPerColumn)` clamped to `floor((width - 48) / 196)`, then `perColumn = ceil(rows /
+     columns)` so two columns split 12/12 rather than 20/4. At 720p that is two columns, 392 x 284,
+     with room for 16 further rows before a third is needed.
+  3. **Three input paths: TAB, gamepad SELECT, and the header strip itself as the click or tap
+     target.** SELECT rather than the `X` doc 03 section 4.3 specifies: `X` shipped as
+     RECALL/LAUNCH long ago, and rebinding a footer action is a feel change this item does not own.
+     SELECT was the only unused button on the scene. TAB is captured and added to
+     `MAP_KEY_CAPTURES`, which is mandatory rather than cosmetic: the note overlay clears captures
+     on open and re-arms that exact constant on close, so a TAB left out of it would stop toggling
+     after the first note edit.
+  4. **The panel is top-anchored now** (`panelY = HEADER_HEIGHT + 12`) rather than clamped up from
+     the detail bar. That is what keeps the header strip still when the rows vanish; a
+     bottom-anchored panel would slide its own toggle down the screen on collapse. At 16:9 the old
+     clamp already resolved to the same y, so nothing moved there. On a tall canvas (portrait) the
+     panel now sits under the header instead of above the readout, which is a real move and is
+     filed for playtest as `POLISH-MAP-LEGEND-FOLD`.
+  5. **The fold persists** in `settings-map-legend-collapsed` (`SettingsManager`, default expanded
+     so a new player meets the vocabulary). It gets no `SettingsScene` row: the control lives on
+     the panel it controls, and a menu row for it would be surface with no consumer.
+  6. **The pointer guard covers the whole panel rect, not just the header.** `focusFromPointer`
+     runs on pointer move as well as down, so without it a click on the header would toggle the
+     legend and also drag the sector cursor onto whichever cell hides beneath the panel, and merely
+     hovering the legend would walk the cursor around. A drag started on the panel body still pans,
+     exactly as before.
 
 - [ ] **FEAT-MAPUI-LEGEND-REQUIREMENTS** (new 2026-07-31, from `FEAT-MAPUI-POI-ICONS`): doc 03
   section 4.5 wants the legend's gate rows to name the requirement for *this* world ("requires
@@ -10669,9 +10705,10 @@ exploring pays is the end of Phase 5.
   chart has not budgeted. Value: a shortcut you have not opened yet is a place, not a count.
   Deps: **the chart-crowding call is settled** (`references/map/README.md` section 4.4,
   `2e7488c`): the bottom-right corner is the destination lane and this item is occupant 3 of it,
-  behind the shipped sortie badge and `FEAT-STIR-CHART-CELL`. The real remaining dep is
-  `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none), because the legend has no room for a second lane row
-  until the panel can collapse. Do not re-derive the placement.
+  behind the shipped sortie badge and `FEAT-STIR-CHART-CELL`.
+  **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
+  a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
+  Do not re-derive the placement.
 
 - [ ] **BALANCE-LOCKOUT-SHORTCUT-CLAUSE** (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL):
   counting one shortcut per lit band, and printing it as a third clause after `N SITES`, are
@@ -13118,6 +13155,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-LEGEND-FOLD** (filed by FEAT-MAPUI-LEGEND-TOGGLE, 2c776d9). The folded legend and
+  the two-column legend have never been seen in a browser. Open the chart in a run and again from
+  GAME MODES. (a) does `LEGEND  [+]` / `LEGEND  [-]` read as a control, or does the header need a
+  chevron or a button frame? (b) two 196 px columns cover 392 px of chart while open: is the
+  default still "expanded", or should a returning player's chart open folded? (c) the panel now
+  top-anchors under the header instead of sitting above the detail bar: check portrait, where
+  that is a real move. (d) TAB is captured while the chart is open: does anything else on the page
+  still need it? (e) at two columns the glyph/label pitch is unchanged (22 px / 40 px in a 196 px
+  column): does the second column's labels crowd the first column's glyphs?
 
 - [ ] **POLISH-SORTIE-CHART-BADGE** (filed by FEAT-SORTIE-CHART-TELL, 2e7488c). The landing badge has
   never been seen in a browser. Open the chart in a run holding a sortie, and again from GAME
