@@ -50,6 +50,12 @@ interface ContractTemplate {
  * 'cipher' is the one template that names the 'puzzle' tier, and asks for exactly one ring:
  * about 30% of a world's cache slots seal behind a sigil ring, and over 300 seeds the thinnest
  * world seals only two (median seven), so a sweep of them is not authorable but a single one is.
+ * 'vault' is the one template that names the 'capstone' tier, and asks for exactly one region
+ * vault: over 300 seeds the thinnest world holds ONE (p10 2, median 4, max 6), and a contract
+ * dies with its world, so its second step names the plentiful cache supply rather than a second
+ * vault. Emptying the cheapest region costs a measured median of 3 finds (p90 5), which is the
+ * band 'ghost' already asks for in one expedition, and its prerequisites are read from persistent
+ * discovery state, so a returning player pays less again.
  */
 const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
   {
@@ -353,6 +359,28 @@ const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
       },
     ],
     completionGoldReward: 300,
+  },
+  {
+    key: 'vault',
+    name: 'Contract · Hollow Quarter',
+    icon: 'gem',
+    steps: [
+      {
+        description: 'Empty a region of this world on one expedition',
+        trigger: { kind: 'findSecret', secretKind: 'capstone' },
+        target: 1,
+        scope: 'run',
+        goldReward: 170,
+      },
+      {
+        description: 'Uncover six more secrets across your expeditions',
+        trigger: { kind: 'findSecret' },
+        target: 6,
+        scope: 'persistent',
+        goldReward: 200,
+      },
+    ],
+    completionGoldReward: 320,
   },
 ];
 

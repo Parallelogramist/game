@@ -94,6 +94,15 @@ describe('seasonQuests', () => {
             // template asking for two would need three in the worst case and never tick there.
             expect(step.target, step.id).toBeLessThanOrEqual(1);
           }
+          if (trigger.kind === 'findSecret' && trigger.secretKind === 'capstone') {
+            // A region vault opens only once every OTHER secret in its region is found, and
+            // measured over 300 seeds through generateExpeditionWorld plus buildRegionVaults the
+            // thinnest world holds exactly one (p10 2, median 4, max 6). A contract dies with its
+            // world, so a 'persistent' step is world-bounded here too, and steps are sequential:
+            // one capstone is the whole budget a contract may spend, which is why the 'vault'
+            // template's second step names the plentiful cache supply instead of a second vault.
+            expect(step.target, step.id).toBeLessThanOrEqual(1);
+          }
           const tag = trigger.kind === 'reachSector' ? trigger.sectorTag
             : trigger.kind === 'surviveInSector' ? trigger.sectorTag
             : trigger.kind === 'deliverItem' ? trigger.destinationTag
@@ -125,6 +134,6 @@ describe('seasonQuests', () => {
     }
 
     // 400 seeds x 3 draws sees every template many times over; a miss means the pool shrank.
-    expect(seenKeys.size).toBe(13);
+    expect(seenKeys.size).toBe(14);
   });
 });
