@@ -67,6 +67,7 @@ import { getAchievementManager } from '../../achievements';
 import { WORLDGEN_VERSION } from '../../world/worldTypes';
 import type { RunModeKind } from '../world/WorldModeAdapter';
 import {
+  bindCurrentExpeditionWorld,
   describeBankedWorlds,
   describeSecretsFound,
   generateExpeditionWorld,
@@ -79,8 +80,13 @@ import { describeCompletionRecordClause, loadCompletionRecord } from '../../expe
 import { questWorldStamp } from '../../systems/QuestProgress';
 import {
   getActiveQuestStepViews,
+  getHeldWorldKeyIds,
   getWorldBoundStepProgress,
 } from '../../meta/ExpeditionQuestManager';
+import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
+import { isWorldConquered } from '../../expedition/WorldProfileStore';
+import { parseSectorKey, sectorCenterWorld } from '../../world/worldSpace';
+import type { MapSceneData } from './MapScene';
 import {
   RETURN_WORLD_SORT_LABELS,
   nextReturnWorldSort,
@@ -119,7 +125,8 @@ interface ConfirmationCopy {
   choiceLabels?: readonly string[];
 }
 
-/** What BootScene is restarted with. Only main.ts's orientation watcher sets either field. */
+/** What BootScene is started or restarted with. Two setters: main.ts's orientation watcher, and
+ *  MapScene's browse-mode close, which names the submenu the survey was opened from. */
 interface BootLaunchData {
   relayout?: boolean;
   openSubmenu?: string;
@@ -705,6 +712,42 @@ export class BootScene extends Phaser.Scene {
         choiceLabels: [],
       });
     };
+    // The chart itself, not a summary of it: every panel twenty sessions built on that screen
+    // (objectives, leads, LOCKED OUT with its hop counts, the plotted course, marks and notes)
+    // existed only inside a live run until now. One bindCurrentExpeditionWorld, the same single
+    // generateWorld the CHART dialog already pays, on a button press.
+    const openWorldSurvey = () => {
+      const map = bindCurrentExpeditionWorld();
+      const hangar = parseSectorKey(map.startKey) ?? { col: 0, row: 0 };
+      const hangarCentre = sectorCenterWorld(hangar);
+      const payload: MapSceneData = {
+        returnTo: 'BootScene',
+        map,
+        // The hangar, because a fresh expedition unconditionally starts there: every hop count on
+        // the LOCKED OUT panel and every plotted course then measures the trip the next run
+        // actually makes. The ship marker is left drawn on it rather than swapped for a new glyph,
+        // because between runs the ship IS docked at the hangar, and a new marker would need a
+        // legend row on the one surface four filed items are already queued behind.
+        playerWorldX: hangarCentre.x,
+        playerWorldY: hangarCentre.y,
+        playerFacing: 0,
+        ownedAbilityIds: getOwnedTraversalAbilityIds(),
+        earnedQuestKeyIds: getHeldWorldKeyIds(map.seed, map.worldGenVersion),
+        // Nests, lairs, spent hives and this expedition's blooms and shifts are run-scoped: they
+        // exist only once a run has stocked them, so between runs the honest answer is "none".
+        // The warden is not run-scoped: it stands in its arena until the world is conquered, and
+        // it is the one dormant threat a pre-run chart must name.
+        hazardSectors: isWorldConquered(map.seed, map.worldGenVersion)
+          ? []
+          : [{ sectorKey: map.bossArenaKey, kind: 'warden' }],
+        spentNestSectorKeys: [],
+        bloomedSectors: [],
+        shiftedSectors: [],
+        recallAvailable: false,
+        sortieAvailable: false,
+      };
+      transitionToScene(this, 'MapScene', payload);
+    };
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
     const openCodex = () => transitionToScene(this, 'CodexScene');
@@ -943,6 +986,7 @@ export class BootScene extends Phaser.Scene {
       onExpeditionSeasons: openExpeditionSeasons,
       onObjectives: openObjectives,
       objectiveCount: activeObjectiveCount,
+      onWorldSurvey: openWorldSurvey,
       onSurprise: startSurpriseRunWithConfirmation,
       showLoadouts: Boolean(lastLoadout) || loadLoadoutPresets().length > 0,
       onLoadouts: () => transitionToScene(this, 'LoadoutScene'),
@@ -1757,6 +1801,7 @@ export class BootScene extends Phaser.Scene {
     onExpeditionSeasons: () => void;
     onObjectives: () => void;
     objectiveCount: number;
+    onWorldSurvey: () => void;
     onSkirmish: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
@@ -1768,7 +1813,7 @@ export class BootScene extends Phaser.Scene {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
       onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onExpeditionSeasons,
-      onObjectives, objectiveCount,
+      onObjectives, objectiveCount, onWorldSurvey,
       onSkirmish, onGauntlet, onRunner, onPractice, onSurprise, showLoadouts, onLoadouts,
     } = opts;
 
@@ -1812,6 +1857,10 @@ export class BootScene extends Phaser.Scene {
         label: 'CHART', iconKey: 'globe', accentRole: 'primary',
         badge: `W${getCurrentExpeditionSeasonIndex()}`,
         iconTint: 0xaaccff, action: submenuAction(onExpeditionSeasons),
+      },
+      {
+        label: 'SURVEY', iconKey: 'telescope', accentRole: 'primary',
+        iconTint: 0xaaccff, action: submenuAction(onWorldSurvey),
       },
       {
         label: 'OBJECTIVES', iconKey: 'clipboard', accentRole: 'teal',

@@ -41,6 +41,7 @@ import { TEXT_COLORS } from '../../visual/MenuStyle';
 import { getAchievementManager } from '../../achievements';
 import { createMenuButton } from '../../visual/MenuButton';
 import type { MenuButton } from '../../visual/MenuButton';
+import { transitionToScene } from '../../utils/SceneTransition';
 import {
   MAP_ZOOM_LEVELS, centerViewOn, clampMapView, gridBoundsOfCells, mapPointToSector,
   nextSectorInDirection, snapZoomLevel,
@@ -54,7 +55,10 @@ import type { WorldMap } from '../../world/worldTypes';
 import type { GameScene } from './GameScene';
 
 export interface MapSceneData {
-  returnTo: 'GameScene';
+  /** 'GameScene' is the in-run overlay: this scene holds the pause and resumes it on close.
+   *  'BootScene' is the between-runs survey started from the GAME MODES submenu, where there is
+   *  no run to pause, no ship flying and no recall to fire. */
+  returnTo: 'GameScene' | 'BootScene';
   map: WorldMap;
   playerWorldX: number;
   playerWorldY: number;
@@ -222,6 +226,7 @@ export class MapScene extends Phaser.Scene {
   private noteKeyArmed = false;
   private recallState: 'ready' | 'locked' | 'home' | 'sortie' = 'ready';
   private sortieAvailable = false;
+  private browsing = false;
   private detailHeadlineText!: Phaser.GameObjects.Text;
   private detailDoorsText!: Phaser.GameObjects.Text;
   private detailRewardsText!: Phaser.GameObjects.Text;
@@ -239,6 +244,7 @@ export class MapScene extends Phaser.Scene {
   }
 
   init(data: MapSceneData): void {
+    this.browsing = data.returnTo === 'BootScene';
     this.mapData = data.map;
     this.playerWorldX = data.playerWorldX;
     this.playerWorldY = data.playerWorldY;
@@ -264,7 +270,8 @@ export class MapScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
 
-    this.add.rectangle(0, 0, width, height, 0x05080f, 0.94).setOrigin(0, 0);
+    this.add.rectangle(0, 0, width, height, 0x05080f, this.browsing ? 1 : 0.94)
+      .setOrigin(0, 0);
 
     const discovery = getDiscoveryManager();
     // Doc 03 section 7 moment 6's "until first viewed": snapshot first, then clear, so the
@@ -302,11 +309,14 @@ export class MapScene extends Phaser.Scene {
       + ` SECTORS`
       + `  ·  ${completionPercent}%${bestClause}`,
       { fontSize: 18, color: TEXT_COLORS.muted, wordWrapWidth: width - 40 }).setDepth(2);
-    const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH
-      - FOOTER_BUTTON_GAP - NOTE_BUTTON_WIDTH);
+    const footerButtonsWidth = this.browsing
+      ? NOTE_BUTTON_WIDTH
+      : RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP + NOTE_BUTTON_WIDTH;
+    const hintWidth = Math.max(120, width - 40 - footerButtonsWidth);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
-      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE   ·   R RECALL / SORTIE'
+      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE'
+      + (this.browsing ? '' : '   ·   R RECALL / SORTIE')
       + '   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
@@ -402,7 +412,7 @@ export class MapScene extends Phaser.Scene {
     ));
 
     this.renderDetailBar();
-    this.createRecallButton();
+    if (!this.browsing) this.createRecallButton();
     this.createNoteButton();
     this.focusedCell = this.knownCells.find(
       cell => cell.gridX === shipSector.col && cell.gridY === shipSector.row,
@@ -780,7 +790,11 @@ export class MapScene extends Phaser.Scene {
   private createNoteButton(): void {
     this.noteButton = createMenuButton({
       scene: this,
-      x: this.scale.width - 20 - RECALL_BUTTON_WIDTH - FOOTER_BUTTON_GAP - NOTE_BUTTON_WIDTH / 2,
+      // Browse draws no RECALL, so NOTE takes the edge slot rather than leaving a hole where the
+      // button that cannot exist between runs would have been.
+      x: this.scale.width - 20
+        - (this.browsing ? 0 : RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP)
+        - NOTE_BUTTON_WIDTH / 2,
       y: this.scale.height - FOOTER_HEIGHT / 2,
       width: NOTE_BUTTON_WIDTH,
       height: RECALL_BUTTON_HEIGHT,
@@ -799,6 +813,7 @@ export class MapScene extends Phaser.Scene {
    *  both directions, because one button, one key and one gamepad face fire it. */
   private recall(): void {
     if (this.closed) return;
+    if (this.browsing) return;
     if (this.recallState !== 'ready' && this.recallState !== 'sortie') return;
     const isSortie = this.recallState === 'sortie';
     const gameScene = this.scene.get('GameScene') as GameScene | undefined;
@@ -1109,6 +1124,12 @@ export class MapScene extends Phaser.Scene {
   private close(): void {
     if (this.closed) return;
     this.closed = true;
+    if (this.browsing) {
+      // Back to the submenu that opened it rather than to the deck row: SURVEY is one of three
+      // world tiles and a player comparing them should not have to reopen GAME MODES between each.
+      transitionToScene(this, 'BootScene', { relayout: true, openSubmenu: 'GAME MODES' });
+      return;
+    }
     const gameScene = this.scene.get('GameScene') as GameScene | undefined;
     // Clears isPaused BEFORE the resume: GameScene's resume handler opens the pause menu
     // whenever it comes back still paused (the settings return flow).

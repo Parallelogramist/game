@@ -65,8 +65,7 @@ export interface ExpeditionProgressSummary {
 export function summariseCurrentExpedition(): ExpeditionProgressSummary {
   const seed = getCurrentExpeditionSeed();
   const discovery = getDiscoveryManager();
-  const map = generateExpeditionWorld(seed);
-  discovery.bindWorld(map);
+  const map = bindCurrentExpeditionWorld();
   return {
     seasonIndex: getCurrentExpeditionSeasonIndex(),
     seed,
@@ -80,6 +79,18 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     worldGenVersion: map.worldGenVersion,
     conquered: isWorldConquered(seed, map.worldGenVersion),
   };
+}
+
+/**
+ * The current world, generated and bound to the discovery singleton. Hoisted out of
+ * summariseCurrentExpedition because a caller that wants the MAP rather than a summary must not
+ * pay a second generateWorld (33 ms measured on the Deck) or write the generate-then-bind pair
+ * out twice. Call it on a button press, never per frame and never from a scene's create().
+ */
+export function bindCurrentExpeditionWorld(): WorldMap {
+  const map = generateExpeditionWorld(getCurrentExpeditionSeed());
+  getDiscoveryManager().bindWorld(map);
+  return map;
 }
 
 export interface BankedWorldRow extends BankedSeason {
