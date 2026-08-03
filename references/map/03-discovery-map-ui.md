@@ -705,8 +705,9 @@ never lies about shape). Rendered by `SectorMapRenderer` from discovery flags:
   and rotated to the ship's facing (contract 11.1), so the marker shows both
   where and which way you point.
 - **Corner budget (as built, 2026-08-03)**: the four cell corners have owners and the
-  bottom-right is the destination lane, holding the sortie landing badge, and behind it the
-  ripple that marks a room this expedition's ambient stir bloomed or shifted. Placement, the
+  bottom-right is the destination lane, holding the sortie landing badge, behind it the
+  ripple that marks a room this expedition's ambient stir bloomed or shifted, and behind that the
+  three bars that mark a room still holding a lit corridor grid band. Placement, the
   one-badge rule, the occupant order and the legend-row budget are settled in
   `README.md` section 4.4, which wins over this list.
 

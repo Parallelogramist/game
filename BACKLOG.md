@@ -2973,8 +2973,9 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   second question on the same surface. Value: the vault is a destination on the map, not a
   toast that scrolled past. Deps: **the chart-crowding call is settled**
   (`references/map/README.md` section 4.4, `2e7488c`): the bottom-right corner is the destination
-  lane and this item is occupant 4 of it, behind the sortie badge and the stir ripple (both
-  shipped, `7f39fb1`) and `FEAT-GRID-BAND-CHART-CELL`.
+  lane and this item is occupant 4 of it, behind the sortie badge, the stir ripple (`7f39fb1`) and
+  the corridor-band bars (`FEAT-GRID-BAND-CHART-CELL`, `baba1b8`), all three shipped, so this is
+  the next lane item.
   **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
   a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
   Do not re-derive the placement.
@@ -10719,7 +10720,7 @@ exploring pays is the end of Phase 5.
      untouched: their sectors carry no `gridBands` and `countIntactGridBands` answers 0.
   It files `FEAT-GRID-BAND-CHART-CELL` and `BALANCE-LOCKOUT-SHORTCUT-CLAUSE`.
 
-- [ ] **FEAT-GRID-BAND-CHART-CELL** (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL): finding
+- [x] **FEAT-GRID-BAND-CHART-CELL** (done, baba1b8) (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL): finding
   *which* room holds a lit band still means focusing chart cells one at a time, because the
   readout is per-focused-sector and the LOCKED OUT row carries a total with no place beside it.
   A cell mark would answer it at a glance, and was cut rather than guessed: the cell already
@@ -10733,6 +10734,43 @@ exploring pays is the end of Phase 5.
   **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
   a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
   Do not re-derive the placement.
+  **What shipped.** The chart's bottom-right destination lane now carries a third occupant: three
+  lit bars on every VISITED room still holding an unopened corridor grid band, plus the
+  `SEALED SHORTCUT` legend row that keeps the panel a complete list of what the renderer draws.
+  1. **The gap it closed, symptom first.** `FEAT-GRID-FENCE-CORRIDOR` (`699582a`) put 8 lit bands
+     into seed 20260727's 48 sectors, and `FEAT-GRID-BAND-CHART-TELL` (`11a1ffe`) gave them two
+     surfaces: a `Corridor grid` line in the focused-sector readout, which describes exactly one
+     room at a time, and an `N SHORTCUTS` clause on the LOCKED OUT row, which is a total with no
+     place attached. Finding *which* room held one therefore still meant arrowing the cursor over
+     charted cells one by one.
+  2. **Derived, not plumbed.** Unlike occupants 1 and 2, this badge takes no new
+     `SectorMapDrawInput` field: band intactness lives in `input.map`'s own tiles, which the
+     per-sector loop already walks, so the renderer calls the shipped pure
+     `countIntactGridBands(sector)` directly. A fourth set on the input would have been new surface
+     for a fact already in hand. The call runs only on cells that survived the loop's cull, over 0
+     or 1 bands of 1 to 3 tile indices.
+  3. **The sortie badge and the stir ripple still win the lane.** The new draw is a third `else if`
+     on the existing chain, and all three share one size and one pair of offsets, so no shipped
+     badge moved.
+  4. **It takes the same `VISITED` gate the stir ripple takes**, and for the reason `sectorDetail`
+     and `lockouts` both state in place: a band has no POI slot, so `PoiFlags.SEEN` does not exist
+     for it and `DISCOVERED` is too weak, since naming interior geometry in a room seen only from a
+     neighbour leaks structure the chart refuses to draw.
+  5. **It draws whether or not the profile holds the Phase Cloak.** Both shipped readouts count the
+     band either way and only change their wording (`blocking a shortcut` versus `shortcut open to
+     you`), so a cloak check here would have made the chart disagree with the two surfaces it
+     completes.
+  6. **Fence magenta, shared on purpose.** `WORLD_GEOMETRY_COLORS.securityGrid.stroke` is the colour
+     the world paints the `SecurityGrid` tile itself, so the chart names the shortcut in the colour
+     the ship will meet it in. It is close in hue to `OBJECTIVE_PIN` and separated the way
+     `STIR_BADGE` is separated from `GUARDED_RING`: the pin sits on the cell's top edge, this is a
+     corner badge.
+  7. **No storage key, no version bump, and every other mode is untouched.** The badge is a
+     projection over tiles the adapter already replays (`applyDownedSecurityGrids`) and over
+     discovery flags that already ship, so every existing profile lights it up the moment the build
+     lands. Arena, daily, gauntlet and practice sectors carry no `gridBands`, so
+     `countIntactGridBands` answers 0 and nothing draws.
+  8. **Not seen in a browser yet.** Filed as `POLISH-MAP-GRID-BAND-BADGE` under `## Human gates`.
 
 - [ ] **BALANCE-LOCKOUT-SHORTCUT-CLAUSE** (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL):
   counting one shortcut per lit band, and printing it as a third clause after `N SITES`, are
@@ -13179,6 +13217,21 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-GRID-BAND-BADGE** (filed by FEAT-GRID-BAND-CHART-CELL, baba1b8). The corridor-band
+  bars have never been seen in a browser. Open the chart a few rooms into an expedition on a seed
+  that fences corridors, with and without the Phase Cloak. (a) do three vertical bars read as
+  "a fence you have not opened", or do they read as a bar chart or a signal-strength meter?
+  (b) fence magenta (`0xff3ea5`) is one hue away from the objective pin's rose (`0xff5fa2`) and both
+  can sit in one cell: does corner-versus-top-edge separate them, or does the badge need its own
+  hue? (c) at zoom 0.5 the badge is 3 px in a cell that may also carry a lead badge, a pin, a mark
+  and POI glyphs: is it legible, or does the lane need a zoom floor (the same question (b) of
+  POLISH-SORTIE-CHART-BADGE and (c) of POLISH-MAP-STIR-BADGE ask, so answer all three at once)?
+  (d) the badge draws whether or not you hold the cloak: to a player who cannot pass one yet, does
+  it read as a promise or as clutter? (e) seed 20260727 puts 8 bands in 48 sectors, so a
+  well-explored profile can show several at once: does that read as a route network or as noise?
+  (f) `SEALED SHORTCUT` is the legend label: does it match what the LOCKED OUT panel's `N SHORTCUTS`
+  clause and the readout's `Corridor grid` line call the same thing? Do not retune any of it blind.
 
 - [ ] **POLISH-MAP-STIR-BADGE** (filed by FEAT-STIR-CHART-CELL, 7f39fb1). The stir ripple has
   never been seen in a browser. Open the chart a few rooms into an expedition that has stirred
