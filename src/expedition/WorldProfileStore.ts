@@ -56,6 +56,12 @@ export interface WorldProfileState {
    *  payload written before this field shipped reads as 0, which is why WORLD_PROFILE_VERSION
    *  does NOT move. */
   expeditionCount: number;
+  /** The last room a ship stood in in this world, other than the hangar and the boss arena, as
+   *  a `sectorKey`. Seeds the next expedition's one SORTIE, so a death does not mean re-crossing
+   *  every charted room. Optional in storage for the same reason `conquered` is: a payload
+   *  written before this field shipped reads as null, which is why WORLD_PROFILE_VERSION does
+   *  NOT move. */
+  fieldAnchorSectorKey: string | null;
   /** True once this profile has killed this world's boss. Optional in storage on purpose:
    *  a payload written before this field shipped reads false, which is why
    *  WORLD_PROFILE_VERSION does NOT move: a bump would discard every remembered wall. */
@@ -69,6 +75,7 @@ function emptyProfile(worldSeed: number, worldGenVersion: number): WorldProfileS
     markedSectorIds: [],
     sectorNotes: {},
     expeditionCount: 0,
+    fieldAnchorSectorKey: null,
     conquered: false,
   };
 }
@@ -126,6 +133,11 @@ export function loadWorldProfile(
             .slice(0, MAX_SECTOR_MARKS),
           sectorNotes,
           expeditionCount: sanitizeExpeditionCount(parsed.expeditionCount),
+          fieldAnchorSectorKey:
+            typeof parsed.fieldAnchorSectorKey === 'string'
+              && SECTOR_KEY.test(parsed.fieldAnchorSectorKey)
+              ? parsed.fieldAnchorSectorKey
+              : null,
           conquered: parsed.conquered === true,
         };
       }
@@ -259,4 +271,26 @@ export function advanceExpeditionCount(worldSeed: number, worldGenVersion: numbe
   profile.expeditionCount = Math.min(MAX_EXPEDITION_COUNT, profile.expeditionCount + 1);
   saveWorldProfile(profile);
   return profile.expeditionCount;
+}
+
+/**
+ * Remembers the room a ship is standing in, so the next expedition into this world has
+ * somewhere to fly back to. Change-guarded because this is called on every sector crossing:
+ * an unchanged key must not pay a storage write, and the adapter re-announces the current
+ * sector on a restore's first frame.
+ */
+export function recordFieldAnchor(
+  worldSeed: number, worldGenVersion: number, sector: string,
+): boolean {
+  if (!SECTOR_KEY.test(sector)) return false;
+  const profile = loadWorldProfile(worldSeed, worldGenVersion);
+  if (profile.fieldAnchorSectorKey === sector) return true;
+  profile.fieldAnchorSectorKey = sector;
+  return saveWorldProfile(profile);
+}
+
+export function getFieldAnchor(
+  worldSeed: number, worldGenVersion: number,
+): string | null {
+  return loadWorldProfile(worldSeed, worldGenVersion).fieldAnchorSectorKey;
 }

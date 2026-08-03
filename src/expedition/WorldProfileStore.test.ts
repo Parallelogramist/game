@@ -13,12 +13,14 @@ vi.mock('../storage', () => {
 
 import { SecureStorage } from '../storage';
 import {
+  getFieldAnchor,
   getSectorMarks,
   getSectorNotes,
   isWorldConquered,
   loadWorldProfile,
   markWorldConquered,
   recordBrokenBarrier,
+  recordFieldAnchor,
   setSectorMark,
   setSectorNote,
 } from './WorldProfileStore';
@@ -91,5 +93,30 @@ describe('world profile sector notes', () => {
     expect(setSectorMark(34, 1, '1,1', null)).toBe(true);
     expect(getSectorNotes(34, 1)).toEqual(new Map());
     expect(loadWorldProfile(34, 1).brokenBreakableIds).toEqual(['edge:1,1:south']);
+  });
+});
+
+describe('world profile field anchor', () => {
+  test('the last room round-trips and only changes when the room does', () => {
+    expect(getFieldAnchor(71, 1)).toBeNull();
+    expect(recordFieldAnchor(71, 1, '3,-2')).toBe(true);
+    expect(getFieldAnchor(71, 1)).toBe('3,-2');
+    expect(recordFieldAnchor(71, 1, '3,-2')).toBe(true);
+    expect(recordFieldAnchor(71, 1, '0,4')).toBe(true);
+    expect(getFieldAnchor(71, 1)).toBe('0,4');
+  });
+
+  test('a payload written before the field shipped reads no anchor and keeps its walls', () => {
+    SecureStorage.setItem('survivor-world-profile', JSON.stringify({
+      version: 1, worldSeed: 72, worldGenVersion: 1,
+      brokenBreakableIds: ['edge:2,2:north'],
+    }));
+    expect(getFieldAnchor(72, 1)).toBeNull();
+    expect(loadWorldProfile(72, 1).brokenBreakableIds).toEqual(['edge:2,2:north']);
+  });
+
+  test('a key that is not a sector key is refused rather than stored', () => {
+    expect(recordFieldAnchor(73, 1, 'edge:0,0:north')).toBe(false);
+    expect(getFieldAnchor(73, 1)).toBeNull();
   });
 });

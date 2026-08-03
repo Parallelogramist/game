@@ -63,7 +63,7 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
+import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, parseSectorKey, rectCenter, rectHeight, rectWidth, sectorCenterWorld, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
 import { buildSectorSupply, sectorTagsOf } from '../../world/sectorTags';
 import { SPINE_BIOME_ID } from '../../world/generateWorld';
@@ -100,8 +100,8 @@ import {
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import {
-  advanceExpeditionCount, getSectorMarks, isWorldConquered, markWorldConquered,
-  recordBrokenBarrier, recordDownedSecurityGrid,
+  advanceExpeditionCount, getFieldAnchor, getSectorMarks, isWorldConquered, markWorldConquered,
+  recordBrokenBarrier, recordDownedSecurityGrid, recordFieldAnchor,
 } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import {
@@ -1155,6 +1155,13 @@ export class GameScene extends Phaser.Scene {
       // A delivery lands on ARRIVAL, so the entry event is the producer. An arrival with an empty
       // hold folds to nothing, which is why this is unconditional like the two above it.
       this.recordExpeditionQuest({ kind: 'deliverItem', sectorTags: tags });
+      // The chart remembers where the ship got to, so the next expedition's SORTIE has
+      // somewhere to go. Never the hangar (a jump into the room a run already starts in is not
+      // a trip) and never the boss arena (dropping a level-1 ship into the warden's room at
+      // t=0 is the sealed-fight problem beginExpeditionJump already refuses from inside).
+      if (payload.sectorKey !== map.startKey && payload.sectorKey !== map.bossArenaKey) {
+        recordFieldAnchor(map.seed, map.worldGenVersion, payload.sectorKey);
+      }
     }
     const regionChanged = sector ? this.applySectorStage(sector) : false;
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
@@ -1290,6 +1297,10 @@ export class GameScene extends Phaser.Scene {
     if (!this.shouldRestore) {
       this.chartedSectorsAtRunStart = getDiscoveryManager().getVisitedSectorCount();
     }
+    // A fresh expedition inherits one jump back to where the last one ended. Never on a
+    // restore: that run's own anchor is already in the save, spent or unspent, and re-seeding
+    // here would refund a jump the player has taken every time the page reloads.
+    if (!this.shouldRestore) this.seedSortieAnchorFromChart(map);
     const completionPercent = getDiscoveryManager().getCompletionPercent();
     this.mapCompletionMilestoneShown = highestCompletionMilestone(completionPercent);
     // A profile that charted before this shipped reads correct on its first bind instead of
@@ -1297,6 +1308,31 @@ export class GameScene extends Phaser.Scene {
     getAchievementManager().recordWorldCompletionPercent(completionPercent);
     getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
+  }
+
+  /**
+   * The one SORTIE a fresh expedition starts with: the chart's field anchor, the last room a
+   * previous run reached in this world. The sector CENTRE rather than a remembered point,
+   * because a stored point can be inside rock that an ambient stir dropped on it while the
+   * room's key cannot move; the arrival snaps through the same freeSpotNear a recall does.
+   */
+  private seedSortieAnchorFromChart(map: WorldMap): void {
+    const anchorKey = getFieldAnchor(map.seed, map.worldGenVersion);
+    if (anchorKey === null) return;
+    const sector = map.sectors.get(anchorKey);
+    const coord = parseSectorKey(anchorKey);
+    if (!sector || !coord) return;
+    const centre = sectorCenterWorld(coord);
+    this.sortieAnchor = { x: centre.x, y: centre.y };
+    this.toastManager?.showToast({
+      tier: 'notable',
+      title: 'SORTIE READY',
+      description: `The chart holds SECTOR ${anchorKey}, DEPTH ${sector.depth}.`
+        + ' Open the map to fly straight back.',
+      icon: 'rocket',
+      color: ACCENT_COLORS.primary,
+      duration: 3600,
+    });
   }
 
   /** What the death screen says about the world. Undefined in every arena-substrate mode,
