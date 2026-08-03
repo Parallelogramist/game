@@ -5,6 +5,8 @@ import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
 import { setPracticeAbilityKit } from '../../meta/TraversalAbilityManager';
 import type { PracticeAbilityKit } from '../../meta/TraversalAbilityManager';
+import { setPracticeChartMode } from '../../expedition/DiscoveryManager';
+import type { PracticeChartMode } from '../../expedition/DiscoveryManager';
 import { SHIP_CHARACTERS, getDefaultShip } from '../../data/ShipCharacters';
 import { getUltimateForShip } from '../../data/ShipUltimates';
 import { createIcon } from '../../utils/IconRenderer';
@@ -36,6 +38,8 @@ import type { WorldRegion } from '../../world/worldRegions';
 const PRACTICE_WEAPON_IDS: string[] = ['projectile', ...UNLOCKABLE_WEAPONS.map((w) => w.id)];
 
 const PRACTICE_ABILITY_KIT_CYCLE: readonly PracticeAbilityKit[] = ['owned', 'full', 'none'];
+
+const PRACTICE_CHART_MODE_CYCLE: readonly PracticeChartMode[] = ['owned', 'full'];
 
 interface PracticeWeaponEntry {
   id: string;
@@ -87,6 +91,10 @@ export class PracticeScene extends Phaser.Scene {
    *  so a barrier the profile holds no key for could not be reached from the dock at all and
    *  one it already holds could never be seen shut. */
   private selectedAbilityKit: PracticeAbilityKit = 'owned';
+  /** Map memory was the last axis a practice run still inherited from the real profile, so every
+   *  chart lane that draws only for a VISITED room, a walked door or a sighted vault was
+   *  unreachable from the dock without first flying an entire expedition to earn it. */
+  private selectedChartMode: PracticeChartMode = 'owned';
   /** The live world's regions, or null until the first MODE press builds them. Keyed on the
    *  seed because CHART A NEW WORLD can move it between two visits and a Phaser scene
    *  instance outlives scene.start(). */
@@ -137,6 +145,7 @@ export class PracticeScene extends Phaser.Scene {
       this.evolvedEnabled = false;
       this.selectedShipIndex = 0;
       this.selectedAbilityKit = 'owned';
+      this.selectedChartMode = 'owned';
     }
 
     this.renderHeader();
@@ -558,6 +567,29 @@ export class PracticeScene extends Phaser.Scene {
     });
     addButtonInteraction(this, startButton.container);
     this.controlButtons.push(startButton);
+
+    // The START row's left half is the only free slot on the dock: the LEVEL row's right half
+    // went to KIT and its left is the LEVEL label, the EVOLVED/MODE row is full at two 168-unit
+    // buttons, and a new row would need PRACTICE_CONTROL_BOTTOM_RESERVE raised past 140, which is
+    // the vertical growth HudScale.test.ts pins this scene against.
+    const chartButton = createMenuButton({
+      scene: this,
+      x: centerX - 190,
+      y: startY,
+      width: 140,
+      height: 36,
+      label: `CHART: ${this.selectedChartMode.toUpperCase()}`,
+      variant: this.selectedChartMode === 'owned' ? 'neutral' : 'magenta',
+      fontSize: scaledInt(fontScale, 13),
+      onActivate: () => {
+        const index = PRACTICE_CHART_MODE_CYCLE.indexOf(this.selectedChartMode);
+        this.selectedChartMode =
+          PRACTICE_CHART_MODE_CYCLE[(index + 1) % PRACTICE_CHART_MODE_CYCLE.length];
+        this.renderControls();
+      },
+    });
+    addButtonInteraction(this, chartButton.container);
+    this.controlButtons.push(chartButton);
   }
 
   /** Cache-only: renderControls runs from create(), and one generateWorld is 33 ms, which
@@ -628,6 +660,7 @@ export class PracticeScene extends Phaser.Scene {
 
     setPracticeSession(true);
     setPracticeAbilityKit(this.selectedAbilityKit);
+    setPracticeChartMode(this.selectedChartMode);
     fadeOut(this, 200, () => {
       this.scene.start('GameScene', {
         startingWeapon: this.selectedWeaponId,

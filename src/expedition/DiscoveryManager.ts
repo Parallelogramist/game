@@ -7,6 +7,7 @@
  */
 
 import { SecureStorage } from '../storage';
+import { isPracticeSession } from '../utils/practiceSession';
 import type { WorldMap } from '../world/worldTypes';
 import { PoiFlags, SecretFlags, SectorFlags, emptyChanges, hasChanges } from './DiscoveryTypes';
 import type { DiscoveryChanges, DiscoveryState } from './DiscoveryTypes';
@@ -15,6 +16,7 @@ import {
   emptyDiscoveryState,
   emptyIdUniverse,
   newlyPassableEdges,
+  revealEntireWorld,
   revealOnAmbushNestSighted,
   revealOnEdgeTraversal,
   revealOnMapFragment,
@@ -31,6 +33,16 @@ import type { WorldIdUniverse } from './discoveryRules';
 import { readArchivedWorld, writeArchivedWorld } from './worldArchive';
 
 const STORAGE_KEY_DISCOVERY = 'survivor-expedition-discovery';
+
+/** What the PRACTICE dock's CHART control asked of the next bind. `owned` is the shipped
+ *  behaviour: the profile's own map memory, exactly as a real run reads it. */
+export type PracticeChartMode = 'owned' | 'full';
+
+let practiceChartMode: PracticeChartMode = 'owned';
+
+export function setPracticeChartMode(mode: PracticeChartMode): void {
+  practiceChartMode = mode;
+}
 
 export class DiscoveryManager {
   private map: WorldMap | null = null;
@@ -63,6 +75,12 @@ export class DiscoveryManager {
     this.map = map;
     this.universe = buildIdUniverse(map);
     this.state = this.loadState(map.seed, map.worldGenVersion);
+    // Gated on the live practice flag as well as on the mode, and applied to `state` directly
+    // rather than through commit(): a stale 'full' must never chart a real profile's world, and a
+    // reveal that took the commit path would call saveState and put it on disk.
+    if (practiceChartMode === 'full' && isPracticeSession()) {
+      revealEntireWorld(this.state, map, this.universe);
+    }
     this.revision++;
     this.newlyPassableEdgeIds.clear();
     this.updatedObjectiveQuestIds.clear();

@@ -15,12 +15,15 @@ import {
   DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges, hasChanges,
 } from './DiscoveryTypes';
 import {
-  buildIdUniverse, emptyDiscoveryState, newlyPassableEdges, revealOnEdgeTraversal,
+  buildIdUniverse, emptyDiscoveryState, newlyPassableEdges, revealEntireWorld,
+  revealOnEdgeTraversal,
   revealOnMapFragment,
   revealOnScanPulse, revealOnSecretFound, revealOnSecretVaultSeen, revealOnSectorEntry,
   revealOnVaultGuardCleared,
   sanitizeDiscoveryState,
 } from './discoveryRules';
+import { buildRegionVaults } from '../world/secretCapstones';
+import { generateExpeditionWorld } from './expeditionWorld';
 
 const OPEN_EDGE: EdgeDef = { kind: EdgeKind.Open, apertureStart: 10, apertureEnd: 13 };
 const SEED = 1;
@@ -468,5 +471,36 @@ describe('revealOnSecretVaultSeen', () => {
     );
 
     expect(reloaded.secrets[SECRET_POI_ID]).toBe(SecretFlags.VAULT_SEEN);
+  });
+});
+
+describe('revealEntireWorld (the PRACTICE dock chart reveal)', () => {
+  it('charts every room, door and cache, points a lead at every secret, badges only the region vaults, and finds nothing', () => {
+    const map = generateExpeditionWorld(20260727);
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(map.seed, map.worldGenVersion);
+
+    revealEntireWorld(state, map, universe);
+
+    const charted = SectorFlags.VISITED | SectorFlags.DISCOVERED;
+    for (const sectorKey of universe.sectorKeys) {
+      expect(state.sectors[sectorKey] & charted).toBe(charted);
+    }
+    const walked = EdgeFlags.KNOWN | EdgeFlags.TRAVERSED;
+    for (const edgeId of universe.edgeIds) {
+      expect(state.edges[edgeId] & walked).toBe(walked);
+    }
+    for (const poiId of universe.poiIds) {
+      expect(state.pois[poiId] & PoiFlags.SEEN).toBe(PoiFlags.SEEN);
+    }
+
+    const vaultSecretIds = new Set(buildRegionVaults(map).keys());
+    expect(vaultSecretIds.size).toBeGreaterThan(0);
+    for (const secretId of universe.secretIds) {
+      const flags = state.secrets[secretId];
+      expect(flags & SecretFlags.HINTED).toBe(SecretFlags.HINTED);
+      expect(flags & SecretFlags.FOUND).toBe(0);
+      expect((flags & SecretFlags.VAULT_SEEN) !== 0).toBe(vaultSecretIds.has(secretId));
+    }
   });
 });

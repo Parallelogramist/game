@@ -104,7 +104,7 @@ import {
   advanceExpeditionCount, getFieldAnchor, getSectorMarks, isWorldConquered, markWorldConquered,
   recordBrokenBarrier, recordDownedSecurityGrid, recordFieldAnchor,
 } from '../../expedition/WorldProfileStore';
-import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { getDiscoveryManager, setPracticeChartMode } from '../../expedition/DiscoveryManager';
 import {
   getCurrentExpeditionSeasonIndex, getCurrentExpeditionSeed, recordLiveWorldProgress,
 } from '../../expedition/ExpeditionSeasonStore';
@@ -9307,6 +9307,7 @@ export class GameScene extends Phaser.Scene {
    * next real run's first write. A reload drops it and re-reads clean state.
    */
   private exitPracticeSession(): void {
+    setPracticeChartMode('owned');
     setPracticeAbilityKit('owned');
     setPracticeSession(false);
     window.location.reload();

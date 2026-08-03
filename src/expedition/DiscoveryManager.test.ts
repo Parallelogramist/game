@@ -11,8 +11,9 @@ import {
   EdgeKind, PoiKind, SECTOR_TILE_COUNT, TileKind, WALL_EDGE,
 } from '../world/worldTypes';
 import type { EdgeDef, EdgeDirection, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
-import { SectorFlags } from './DiscoveryTypes';
-import { DiscoveryManager } from './DiscoveryManager';
+import { SecretFlags, SectorFlags } from './DiscoveryTypes';
+import { DiscoveryManager, setPracticeChartMode } from './DiscoveryManager';
+import { setPracticeSession } from '../utils/practiceSession';
 
 vi.mock('../storage', () => {
   const store = new Map<string, string>();
@@ -146,5 +147,24 @@ describe('DiscoveryManager', () => {
     manager.clearMapOpenReveal();
     manager.applyScanPulse('0,0', 1);
     expect(manager.getNewlyChartedSectorKeys().size).toBe(0);
+  });
+
+  it('charts the whole world for a practice session, in memory and for that session only', () => {
+    setPracticeSession(true);
+    setPracticeChartMode('full');
+    const practice = new DiscoveryManager();
+    practice.bindWorld(makeWorld(801));
+
+    expect(practice.getVisitedSectorCount()).toBe(3);
+    expect(practice.getSecretFlags('poi:0,0:1') & SecretFlags.FOUND).toBe(0);
+
+    // Still 'full', deliberately: the mode alone must not chart a world outside a practice
+    // session, and nothing above may have reached the store this reader loads from.
+    setPracticeSession(false);
+    const real = new DiscoveryManager();
+    real.bindWorld(makeWorld(801));
+
+    expect(real.getVisitedSectorCount()).toBe(0);
+    setPracticeChartMode('owned');
   });
 });

@@ -20,6 +20,7 @@ import {
   edgeIdFor,
 } from '../world/worldTypes';
 import type { WorldMap } from '../world/worldTypes';
+import { buildRegionVaults } from '../world/secretCapstones';
 import {
   DISCOVERY_VERSION,
   EDGE_VALID_MASK,
@@ -289,6 +290,41 @@ export function revealOnSecretVaultSeen(
   const changes = emptyChanges();
   if (!universe.secretIds.has(secretId)) return changes;
   addSecret(state, changes, secretId, SecretFlags.VAULT_SEEN);
+  return changes;
+}
+
+/**
+ * Charts a whole world at once: the PRACTICE dock's sandbox reveal, and never a play path.
+ *
+ * Deliberately NOT the union of the rules above. HINTED is granted but FOUND never is, because a
+ * found secret despawns its cache and erases both the lead badge and the vault badge, which are
+ * exactly the marks a chart playtest exists to read. VAULT_SEEN goes only to the region vaults
+ * buildRegionVaults names, so a plain cache cannot draw a badge that means "this room refused
+ * you". CLEARED_ONCE is left alone because the game has no writer for it, and a sandbox must not
+ * invent a state a real run cannot reach.
+ */
+export function revealEntireWorld(
+  state: DiscoveryState,
+  map: WorldMap,
+  universe: WorldIdUniverse,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  for (const sectorKey of universe.sectorKeys) {
+    addSector(state, changes, sectorKey, SectorFlags.VISITED | SectorFlags.DISCOVERED);
+  }
+  for (const edgeId of universe.edgeIds) {
+    addEdge(state, changes, edgeId, EdgeFlags.TRAVERSED | EdgeFlags.KNOWN);
+  }
+  for (const poiId of universe.poiIds) {
+    addPoi(state, changes, poiId, PoiFlags.SEEN);
+  }
+  for (const secretId of universe.secretIds) {
+    addSecret(state, changes, secretId, SecretFlags.HINTED);
+  }
+  for (const vaultSecretId of buildRegionVaults(map).keys()) {
+    if (!universe.secretIds.has(vaultSecretId)) continue;
+    addSecret(state, changes, vaultSecretId, SecretFlags.VAULT_SEEN);
+  }
   return changes;
 }
 
