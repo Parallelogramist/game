@@ -22,6 +22,7 @@ import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
 import { buildRunEarnings, formatRunEarningsLine, hasPermanentUnlock, type EarlyRunEndRecord, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
 import { buildVictoryKicker, type VictoryConquest } from '../runend/victoryKicker';
+import { buildExpeditionDebriefRow, type ExpeditionDebrief } from '../runend/expeditionDebrief';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -363,6 +364,12 @@ export interface GameOverData {
   totalDamageTaken?: number;
   /** Per-source damage-taken tally for the run-end threat panel. Ordered + shared there. */
   damageBySource?: DamageSourceTally[];
+  /**
+   * The expedition world this death happened in. Absent in every arena-substrate mode
+   * (skirmish, daily, weekly, practice, gauntlet), where there is no world to name —
+   * the same rule VictoryData.expeditionConquest follows on the win screen.
+   */
+  expedition?: ExpeditionDebrief;
   /** Attribution bucket of the lethal hit. Undefined/null when the run ended without one. */
   killedBy?: string | null;
   /** The hunter the next run will field, if this death planted one. */
@@ -2431,7 +2438,9 @@ export class PauseMenuManager {
     const hasLedgerRow = goldFound > 0 || goldSpent > 0;
     const hasQuestRow = questGold > 0;
     const hasEconomy = hasLedgerRow || hasQuestRow;
-    const statRowCount = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0) + (hasQuestRow ? 1 : 0);
+    const hasExpeditionRow = data.expedition !== undefined;
+    const statRowCount = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0)
+      + (hasQuestRow ? 1 : 0) + (hasExpeditionRow ? 1 : 0);
     const statRowHeight = 34;
     const statsPanelWidth = 480;
     const statsPanelHeight = statRowCount * statRowHeight + 22;
@@ -2528,6 +2537,16 @@ export class PauseMenuManager {
     if (hasQuestRow) {
       const questRow = (hasDamageRow ? 3 : 2) + (hasLedgerRow ? 1 : 0);
       addStatCell(leftCellLeftX, leftCellRightX, statRowY(questRow), 'Quest Gold', `+${questGold}`, { fontSize: '16px', color: '#ffdd44' });
+    }
+
+    // Which world the death happened in. Every other number on this overlay is
+    // mode-agnostic, so before this row an expedition death and a skirmish death read
+    // identically — and the win screen has named its world since FEAT-EXPEDITION-SEASONS.
+    if (data.expedition) {
+      const expeditionRow = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0) + (hasQuestRow ? 1 : 0);
+      const { worldLabel, chartedLabel } = buildExpeditionDebriefRow(data.expedition);
+      addStatCell(leftCellLeftX, leftCellRightX, statRowY(expeditionRow), 'World', worldLabel, { fontSize: '16px', color: '#66ccff' });
+      addStatCell(rightCellLeftX, rightCellRightX, statRowY(expeditionRow), 'Charted', chartedLabel, { fontSize: '16px', color: '#66ccff' });
     }
 
     // ── Gold pill ──────────────────────────────────────────────────────────

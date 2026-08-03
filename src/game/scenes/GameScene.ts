@@ -212,6 +212,7 @@ import {
   recordRunOutcome,
   type RunFacts,
 } from '../runend/runSettlement';
+import type { ExpeditionDebrief } from '../runend/expeditionDebrief';
 import { getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
@@ -720,6 +721,10 @@ export class GameScene extends Phaser.Scene {
    *  that runs on a timer and each read is a SecureStorage decrypt. Marks can only change while
    *  MapScene holds the pause, so refreshing on its close is exact. */
   private markedSectorKeys: string[] = [];
+  /** Sectors already charted in this world when the run bound it, so the run-end debrief can
+   *  report what THIS run added. Null on an arena run and on a reload-restored run, which
+   *  binds mid-run and would otherwise report the gain since the reload as the run's own. */
+  private chartedSectorsAtRunStart: number | null = null;
   /** Wider than ABILITY_DOOR_OPEN_RADIUS (60) on purpose: the notice has to land while the
    *  door is still on screen and before the ship is nose-first against it. */
   private static readonly SEALED_DOOR_NOTICE_RADIUS = 150;
@@ -1273,6 +1278,7 @@ export class GameScene extends Phaser.Scene {
    *  write the discovery key, and the event it would carry is never emitted there. */
   private bindExpeditionDiscovery(): void {
     this.markedSectorKeys = [];
+    this.chartedSectorsAtRunStart = null;
     const map = this.worldMode.worldMap();
     if (!map) return;
     this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
@@ -1280,6 +1286,9 @@ export class GameScene extends Phaser.Scene {
       getHeldWorldKeyIds(map.seed, map.worldGenVersion));
     this.markedSectorKeys = [...getSectorMarks(map.seed, map.worldGenVersion).keys()];
     getDiscoveryManager().bindWorld(map);
+    if (!this.shouldRestore) {
+      this.chartedSectorsAtRunStart = getDiscoveryManager().getVisitedSectorCount();
+    }
     const completionPercent = getDiscoveryManager().getCompletionPercent();
     this.mapCompletionMilestoneShown = highestCompletionMilestone(completionPercent);
     // A profile that charted before this shipped reads correct on its first bind instead of
@@ -1287,6 +1296,24 @@ export class GameScene extends Phaser.Scene {
     getAchievementManager().recordWorldCompletionPercent(completionPercent);
     getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
+  }
+
+  /** What the death screen says about the world. Undefined in every arena-substrate mode,
+   *  where there is no world: the adapter is rebuilt from the save's own runMode on a
+   *  restore, so `kind` is right on both paths. */
+  private buildExpeditionDebrief(): ExpeditionDebrief | undefined {
+    if (this.worldMode.kind !== 'expedition') return undefined;
+    const discovery = getDiscoveryManager();
+    const sectorsCharted = discovery.getVisitedSectorCount();
+    return {
+      seasonIndex: getCurrentExpeditionSeasonIndex(),
+      completionPercent: discovery.getCompletionPercent(),
+      sectorsCharted,
+      knowableSectors: discovery.getKnowableSectorCount(),
+      chartedThisRun: this.chartedSectorsAtRunStart === null
+        ? null
+        : sectorsCharted - this.chartedSectorsAtRunStart,
+    };
   }
 
   /**
@@ -9778,6 +9805,7 @@ export class GameScene extends Phaser.Scene {
       totalDamageDealt: this.totalDamageDealt,
       totalDamageTaken: this.totalDamageTaken,
       damageBySource: this.getDamageTakenBySource(),
+      expedition: this.buildExpeditionDebrief(),
       killedBy: this.killedBySourceName,
       nemesis: nemesisAfterDeath && nemesisName
         ? { name: nemesisName, grudge: nemesisAfterDeath.grudge }
