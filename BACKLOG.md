@@ -2911,6 +2911,56 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-QUEST-BRIEFING** (done, 80464ce) (new 2026-08-02): the objectives you carry are
+  readable between runs. Value: George can read every active expedition objective, its current
+  step, its progress and which of its rooms are about to restart, from the main menu before he
+  launches, instead of only from the HUD ticker once a run is already underway.
+  1. **What shipped**: the pure `src/expedition/questBriefing.ts` (`buildQuestBriefingLines`,
+     Phaser-free, type-only imports, on the `runTicker.ts` model); an `OBJECTIVES` card in the
+     `GAME MODES` submenu carrying the active-objective count as a badge; and the informational
+     dialog behind it, which lists every active step with its position in its chain, its progress
+     against the target and its note.
+  2. **The gap it closed, symptom first.** `getActiveQuestStepViews` had exactly three consumers
+     and all three lived inside a run (the HUD ticker line, the map screen's OBJECTIVES panel, the
+     pause row). Outside a run the only quest text in the game was the world-bound warning the
+     CHART dialog prints while trading a world away, so "what am I flying for" was answerable only
+     by launching.
+  3. **The clause that is not a duplicate of an in-run surface.** A `reachSector` sweep keeps its
+     visited set stamped with the world it counted rooms in, and `dropStaleWorldBoundProgress`
+     drops that set when the next run binds a different world, so a stored `14 / 20` is a number
+     that starts the next run at `0 / 20`. The briefing is the only surface that says so before
+     the player has already committed to a world, which is the only moment it can be acted on
+     (fly this world first, then trade it).
+  4. **Consistency by construction**: the badge and the list come from one call to the same read
+     model with the same filter, so they cannot disagree, and the badge takes the
+     `WORLDGEN_VERSION` shortcut `describeBankedWorlds` already uses, so the menu build pays no
+     `generateWorld`. The dialog pays one `summariseCurrentExpedition` on the button press, the
+     same price the CHART dialog already pays.
+  5. **The informational-dialog idiom**: `choiceLabels: []` gives `showNewGameConfirmation` a
+     single centred BACK button (`choiceLabels ?? [confirmLabel]` yields `buttonCount === 1`), so
+     no new dialog machinery was written for a read-only surface.
+  6. **Deliberately not built**: per-step gold, because the shipped `QuestStepView` read model
+     carries none and a definition lookup for one clause is surface the ticker and the panel do
+     without (filed as `FEAT-QUEST-BRIEFING-REWARDS`); no in-run entry point, because the map's
+     OBJECTIVES panel already owns that; and no storage key, no version bump, no `GameSaveState`
+     field, so every existing profile gets it the moment the build lands.
+  7. **Filed with it**: `POLISH-QUEST-BRIEFING` under `## Human gates`, plus
+     `FEAT-EXPEDITION-DEBRIEF` and `FEAT-QUEST-BRIEFING-REWARDS` below.
+- [ ] **FEAT-EXPEDITION-DEBRIEF** (new 2026-08-02, from FEAT-QUEST-BRIEFING): `GameOverData`
+  carries no expedition field, so an expedition death shows an arena scoreline that never names
+  the world. Measured this session: the honest marginal content is one stats-grid row of two
+  cells (`World` = `W3 · 42%`, `Charted` = `18 / 43 (+4)`), because the main menu already prints
+  the percent on the next screen and `runNotices` already lists the run's secrets, routes and
+  quest steps. The `(+n)` delta needs a bind-time baseline in `GameScene` and must hide on a
+  restored run, the way `totalDamageTaken` already does. Value: a run end names the world it
+  happened in. Deps: none.
+- [ ] **FEAT-QUEST-BRIEFING-REWARDS** (new 2026-08-02, from FEAT-QUEST-BRIEFING): the briefing
+  names no payout, because `QuestStepView` carries `progress`/`target` and no gold, and the
+  ticker and the OBJECTIVES panel do not show gold either. Adding `stepGoldReward` to the shared
+  read model would light all three surfaces at once, which is the reason to do it there rather
+  than with a per-call definition lookup. Value: the briefing says what an objective pays before
+  you fly for it. Deps: none, but the ticker and panel copy would change with it, so it wants
+  `POLISH-QUEST-BRIEFING`'s answer on line length first.
 - [x] **FEAT-QUEST-WORLD-BOUND-TELL** (done, dea5d49) (new 2026-08-02, from
   FEAT-QUEST-SWEEP-WORLD-RESET-TELL): a cross-run room sweep says which world it belongs to,
   before you trade that world away and after you have. Value: George can see, at the moment the
@@ -12120,6 +12170,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-QUEST-BRIEFING** (new 2026-08-02, from FEAT-QUEST-BRIEFING). The main menu now has
+  an OBJECTIVES card and a briefing dialog behind it, and none of it has been read on a screen.
+  Questions for the operator: (a) a three-objective body runs up to 14 centred lines in a dialog
+  card that is 660 scaled px wide: does that read at portrait width, or does it need two columns
+  or a shorter line per step? (b) `GAME MODES` is now an eighth card: does that crowd the submenu
+  in portrait, where the grid is one column and `rowHeight` floors at 40 px? (c) does
+  `N rooms were charted in another world and restart here.` read as a warning worth acting on, or
+  as trivia? (d) should the badge count active objectives, as built, or remaining steps? Do not
+  retune any of this blind.
 
 - [ ] **POLISH-QUEST-WORLD-BOUND-TELL** (new 2026-08-02, from FEAT-QUEST-WORLD-BOUND-TELL). A
   world change now says what it costs a room sweep, before and after, and none of it has been
