@@ -193,6 +193,13 @@ again inside one life. Three consequences the implementing chunks must honor:
   return per recall, spent on arrival and persisted across a refresh. The sentence's remaining
   word is `refit`, filed as `FEAT-EXPEDITION-HANGAR-REFIT` and parked on the `FEAT-ECON-WARDS`
   balance call.
+  **The leg carried across deaths at `049b50f`** as `FEAT-EXPEDITION-FIELD-ANCHOR`: the world
+  profile remembers the last room a ship stood in (`fieldAnchorSectorKey`, never the hangar and
+  never the boss arena), and a FRESH expedition seeds its single SORTIE from it, so the return
+  leg is now "back to where the last run ended" as well as "back to where this run recalled
+  from". Same channel, same break rules, same one-use consumption, and no `MapScene` change: the
+  footer already reads SORTIE when the ship stands at the hangar with an anchor available. The
+  playtest half is `POLISH-SORTIE-CARRYOVER`.
 
 The stranding guarantee doc 04 relies on is unchanged: recall is always *available*
 outside a lock, so physical stranding is impossible and a soft-lock reduces to a

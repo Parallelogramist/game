@@ -2911,6 +2911,69 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-EXPEDITION-FIELD-ANCHOR** (done, 049b50f) (new 2026-08-03, proposed by the planner):
+  a fresh expedition starts with one jump back to where the last one ended. Value: George can fly
+  straight back to the room his previous expedition died in, once per run, instead of re-crossing
+  every charted sector from the hangar after every death.
+  1. **What shipped**: `fieldAnchorSectorKey` on `WorldProfileState` with
+     `recordFieldAnchor` / `getFieldAnchor`; a write on every non-hangar, non-boss sector entry;
+     and a fresh-run seed of `GameScene.sortieAnchor` from that key, plus a `SORTIE READY` toast
+     naming the room.
+  2. **The gap it closed.** `ExpeditionModeAdapter.playerStartPoint()` returns a free spot near
+     `map.startKey` and nothing else, so every run began at the hangar, and
+     `resetInRunFeatureState` nulled `sortieAnchor` at every fresh start. A profile twelve sectors
+     deep re-flew twelve charted rooms after every death, which is the one thing the persistent
+     world did not persist.
+  3. **It reuses the whole verb rather than adding one.** The 3 s channel, the break-on-damage
+     rule, the sector-lock refusal, the `freeSpotNear` arrival snap and the one-use consumption
+     are `FEAT-EXPEDITION-RECALL` + `FEAT-EXPEDITION-SORTIE` unchanged. **`MapScene` was not
+     touched at all**: `createRecallButton` already reads `SORTIE` when the ship stands at
+     `startKey` with an anchor available, and a fresh run starts exactly there.
+  4. **The sector CENTRE, not a remembered point.** A stored world point can end up inside rock
+     that `FEAT-STIR-COLLAPSE` dropped on it between runs, while a room's key cannot move. The
+     centre goes through the same `freeSpotNear` snap the recall arrival uses, so the failure mode
+     is identical to the shipped hangar recall.
+  5. **Two rooms are never recorded.** The hangar, because a jump into the room the run already
+     starts in is not a trip, and the boss arena, because dropping a level-1 ship into the
+     warden's room at t = 0 is the sealed-fight problem `beginExpeditionJump` already refuses from
+     the inside. The hangar is *skipped*, never *cleared*, so a push that ends with a recall home
+     and a death at the hangar still keeps the anchor the push earned.
+  6. **It trades power for position rather than granting one.** Taking the jump at t = 0 arrives
+     at the frontier at ship level 1, skipping the XP the flight out pays. `sector.danger` feeds
+     only worldgen geometry and hazard stamping (`sectorInterior.ts:128`, `:160`) and does not
+     scale enemies, so the frontier is not harder than the hangar: the ship is weaker for having
+     skipped the trip.
+  7. **The seed is fresh-run-only, and the ordering is why.** `resetInRunFeatureState` runs
+     BEFORE `bindExpeditionDiscovery` on the fresh path and AFTER it on the restore path, where
+     the run's own anchor is then read back from the save. Seeding on both paths would refund a
+     spent jump on every browser refresh.
+  8. No new storage key, no `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` /
+     `WORLD_PROFILE_VERSION` bump and no `GameSaveState` field: one optional field on the existing
+     `survivor-world-profile` payload, on the same subtraction rule `conquered`,
+     `markedSectorIds`, `sectorNotes` and `expeditionCount` each shipped under. It is
+     archive-backed, so `RETURN` to a banked world brings that world's own anchor back with it.
+     Arena, daily, weekly, practice and gauntlet are untouched by construction: `expedition:
+     sector-entered` is never emitted there and `bindExpeditionDiscovery` returns early with no
+     world map.
+  9. **Filed with it**: `POLISH-SORTIE-CARRYOVER` under `## Human gates`, plus
+     `FEAT-SORTIE-CHART-TELL` and `FEAT-SORTIE-DEBRIEF-ROW`.
+
+- [ ] **FEAT-SORTIE-CHART-TELL** (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR): the room
+  the next SORTIE will fly to is named in a run-start toast and nowhere on the chart, so a player
+  who dismissed it cannot find it again without pressing the button. Held back for exactly the
+  reason `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL` are: the cell already carries a
+  cleared notch, a hint badge, an objective-updated badge, sector marks and POI icons, so another
+  mark needs a legend row and a placement the chart has not budgeted. Value: the jump is a place
+  on the map, not a line that scrolled past. Deps: the same chart-crowding call those two wait on.
+
+- [ ] **FEAT-SORTIE-DEBRIEF-ROW** (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR): the death
+  screen is the moment the anchor is written and it says nothing about it, so the player learns
+  they can skip the flight out only after launching the next run. `ExpeditionDebrief` already
+  carries the world block the row would join. Held back because it is a sixth cell on a grid
+  `POLISH-COMPLETION-RECORD` question (a) is already asking about, and adding one before that
+  answer lands is exactly the blind retune the convention forbids. Value: the run that ends tells
+  you where the next one can start. Deps: `POLISH-COMPLETION-RECORD` (a).
+
 - [x] **FEAT-EXPEDITION-COMPLETION-RECORD** (done, 6e069a9) (new 2026-08-02, proposed by the
   planner from `references/map/README.md` section 6): a charted world is a record you can beat.
   Value: George gets a lifetime best-completion number (the most of any one world this profile
@@ -12351,6 +12414,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-SORTIE-CARRYOVER** (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR). The
+  carried-over SORTIE was validated as geometry and lifecycle, never flown. Four questions, all
+  feel: (a) does arriving at the frontier at ship level 1 read as a shortcut or as a trap, given
+  it skips the XP the flight out pays? (b) is one jump per run the right budget, or should the
+  anchor re-arm after a recall the way the within-run leg does? (c) is the `SORTIE READY` toast
+  at run start enough of a tell, or does the anchor want a glyph on the chart (that is
+  `FEAT-SORTIE-CHART-TELL`, held for the chart-crowding call)? (d) should the anchor track the
+  DEEPEST room reached rather than the LAST, which differ whenever a run turns back before it
+  dies? Do not retune any of it blind.
 
 - [ ] **POLISH-COMPLETION-RECORD** (new 2026-08-02, from FEAT-EXPEDITION-COMPLETION-RECORD). The
   record now has three surfaces and every width on them was reasoned from the panel geometry, not
