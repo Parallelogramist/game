@@ -34,7 +34,7 @@ import { planMapOpenReveal, sampleMapOpenReveal } from '../../expedition/mapReve
 import type { MapRevealPlan } from '../../expedition/mapReveal';
 import { getSettingsManager } from '../../settings';
 import { buildLockoutRows } from '../../expedition/lockouts';
-import type { LockoutQuestState, LockoutRow } from '../../expedition/lockouts';
+import type { LockoutQuestState, LockoutRow, LockoutTravel } from '../../expedition/lockouts';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
@@ -98,6 +98,9 @@ const MAX_LEAD_ROWS = 4;
 /** Rows the LOCKED OUT panel draws before it collapses the rest into a count. Same cap and
  *  same reason as MAX_LEAD_ROWS: the left column shares one screen with the chart. */
 const MAX_LOCKOUT_ROWS = 4;
+/** One, against the detail bar's two: a lockout row already carries up to three count clauses
+ *  before it reaches the trip, on a 12 px line in a 340 px panel. */
+const MAX_LOCKOUT_REQUIREMENTS = 1;
 /** Fixed so the legend and the chart can be laid out once, at create time, against a bar
  *  whose height never depends on which sector happens to be focused. */
 const DETAIL_BAR_HEIGHT = 104;
@@ -111,9 +114,25 @@ const NOTE_BUTTON_WIDTH = 120;
  *  scale so the pair reads as one group rather than as two strays. */
 const FOOTER_BUTTON_GAP = 12;
 
-function sectorsOutClause(label: string, distance: number): string {
-  if (distance === 0) return `${label} IN THIS SECTOR`;
-  return `${label} ${distance} SECTOR${distance === 1 ? '' : 'S'} OUT`;
+/** The trip the panel is about to send the player on, as the chart measures it: hops over
+ *  charted rooms, and what is shut on the way, never a straight line across a world of walls. */
+function travelClause(label: string, travel: LockoutTravel): string {
+  switch (travel.kind) {
+    case 'here':
+      return `${label} IN THIS SECTOR`;
+    case 'none':
+      return `${label} NO CHARTED COURSE`;
+    case 'hops':
+      return `${label} ${travel.hops} HOP${travel.hops === 1 ? '' : 'S'}`;
+    case 'blocked': {
+      const hops = `${label} ${travel.hops} HOP${travel.hops === 1 ? '' : 'S'}`;
+      if (travel.requirements.length === 0) return `${hops} · WAY SHUT`;
+      const named = travel.requirements.slice(0, MAX_LOCKOUT_REQUIREMENTS);
+      const unnamed = travel.requirements.length - named.length;
+      const more = unnamed > 0 ? ` +${unnamed}` : '';
+      return `${hops} · NEEDS ${named.join(', ').toUpperCase()}${more}`;
+    }
+  }
 }
 
 /** A zero clause is omitted rather than printed as "0 DOORS": a row exists only because
@@ -129,19 +148,19 @@ function describeLockoutRow(row: LockoutRow): string {
   const source = row.source;
   switch (source.kind) {
     case 'vault':
-      clauses.push(sectorsOutClause('VAULT', source.distance));
+      clauses.push(travelClause('VAULT', source.travel));
       break;
     case 'questActive':
       clauses.push(`ACTIVE STEP ${source.stepNumber}/${source.stepCount}`);
       break;
     case 'questBoard':
-      clauses.push(sectorsOutClause('BOARD', source.distance));
+      clauses.push(travelClause('BOARD', source.travel));
       break;
     case 'questSlotsFull':
       clauses.push('ALL OBJECTIVE SLOTS FULL');
       break;
     case 'wardenArena':
-      clauses.push(sectorsOutClause('ARENA', source.distance));
+      clauses.push(travelClause('ARENA', source.travel));
       break;
     case 'unfound':
       clauses.push(

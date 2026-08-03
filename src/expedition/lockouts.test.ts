@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { generateWorld } from '../world/generateWorld';
 import { STAGES } from '../data/Stages';
 import { buildLockoutRows } from './lockouts';
+import { getTraversalAbility } from '../data/TraversalAbilities';
 import type { LockoutInputs } from './lockouts';
 import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 import { EDGE_DIRECTIONS, EdgeKind, PoiKind, TileKind, edgeIdFor } from '../world/worldTypes';
@@ -92,7 +93,7 @@ describe('buildLockoutRows', () => {
     expect(unhinted).toBe(0);
   });
 
-  test('an ability row names the vault that grants it', () => {
+  test('an ability row names the vault that grants it, measured as a flight not a line', () => {
     const vaults = [...GATED.sectors.values()]
       .filter(sector => sector.poiSlots.some(slot =>
         slot.kind === PoiKind.AbilityPowerUp && slot.grantsAbilityId === 'ability_blink_drive'))
@@ -101,15 +102,44 @@ describe('buildLockoutRows', () => {
         distance: Math.max(Math.abs(sector.sx), Math.abs(sector.sy)),
       }));
     expect(vaults.length).toBeGreaterThan(0);
-    const nearest = Math.min(...vaults.map(vault => vault.distance));
 
     const row = rowsFor().find(candidate => candidate.id === 'ability_blink_drive')!;
     expect(row).toBeDefined();
     expect(row.source.kind).toBe('vault');
     if (row.source.kind !== 'vault') throw new Error('unreachable');
-    expect(row.source.distance).toBe(nearest);
-    expect(vaults.filter(vault => vault.distance === nearest).map(vault => vault.key))
-      .toContain(row.source.sectorKey);
+    const vaultSource = row.source;
+    const named = vaults.find(vault => vault.key === vaultSource.sectorKey);
+    expect(named).toBeDefined();
+
+    // A vault that grants an ability is never behind its own door, so this one is flyable, and
+    // a real route through rooms can never be shorter than the straight line across them.
+    expect(row.source.travel.kind).toBe('hops');
+    if (row.source.travel.kind !== 'hops') throw new Error('unreachable');
+    expect(row.source.travel.hops).toBeGreaterThanOrEqual(named!.distance);
+  });
+
+  test('a vault behind a door this profile cannot open is reported shut, and names the door', () => {
+    const row = rowsFor().find(candidate => candidate.id === 'ability_magno_tether')!;
+    expect(row.source.kind).toBe('vault');
+    if (row.source.kind !== 'vault') throw new Error('unreachable');
+    expect(row.source.travel.kind).toBe('blocked');
+    if (row.source.travel.kind !== 'blocked') throw new Error('unreachable');
+    expect(row.source.travel.requirements)
+      .toContain(getTraversalAbility('ability_blink_drive')!.name);
+  });
+
+  test('holding the blocking ability turns that same vault into a flight', () => {
+    const shut = rowsFor().find(candidate => candidate.id === 'ability_magno_tether')!;
+    const open = rowsFor(GATED, { holdsAbility: id => id === 'ability_blink_drive' })
+      .find(candidate => candidate.id === 'ability_magno_tether')!;
+    expect(shut.source.kind).toBe('vault');
+    expect(open.source.kind).toBe('vault');
+    if (shut.source.kind !== 'vault' || open.source.kind !== 'vault') {
+      throw new Error('unreachable');
+    }
+    expect(shut.source.sectorKey).toBe(open.source.sectorKey);
+    expect(shut.source.travel.kind).toBe('blocked');
+    expect(open.source.travel.kind).toBe('hops');
   });
 
   test('a vault in a sector the profile has never entered names no place', () => {
