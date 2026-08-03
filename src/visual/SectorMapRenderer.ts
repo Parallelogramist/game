@@ -54,6 +54,11 @@ export const COLLECTED_ALPHA = 0.4;
 export const LEGEND_GLYPH_SIZE = 5;
 /** The hazard orange the world already uses for a sealed, guarded vault core. */
 const GUARDED_RING = WORLD_GEOMETRY_COLORS.hazard.stroke;
+/** A room this expedition's ambient stir changed. The hazard orange the world already paints the
+ *  ground a bloom grows, so the chart names a change in the colour the room itself will show it
+ *  in. Shared with GUARDED_RING and unconfusable with it: that is a ring around a POI glyph in the
+ *  cell interior, this is a badge in the cell's own bottom-right corner. */
+const STIR_BADGE = WORLD_GEOMETRY_COLORS.hazard.stroke;
 
 const BIOME_TINTS = new Map<string, number>(STAGES.map(stage => [stage.id, stage.gridPulseColor]));
 
@@ -362,6 +367,26 @@ export function drawSortieBadge(
 }
 
 /**
+ * A room whose ground bloomed or whose walls shifted this expedition. Occupant 2 of the
+ * destination lane (README section 4.4), so it draws only in a cell the sortie badge did not take.
+ * A doubled ripple rather than the Breakable door's single crack: the same "this is not the ground
+ * you learned" vocabulary, doubled so a corner badge can never be misread as an edge glyph.
+ */
+export function drawStirBadge(
+  graphics: Phaser.GameObjects.Graphics, centreX: number, centreY: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1.5, size * 0.34), STIR_BADGE, 1);
+  for (const rippleY of [centreY - size * 0.5, centreY + size * 0.5]) {
+    graphics.strokePoints([
+      { x: centreX - size, y: rippleY },
+      { x: centreX - size * 0.33, y: rippleY - size * 0.4 },
+      { x: centreX + size * 0.33, y: rippleY + size * 0.4 },
+      { x: centreX + size, y: rippleY },
+    ], false);
+  }
+}
+
+/**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
  * be satisfied by anything, so it always reads sealed.
@@ -437,6 +462,11 @@ export interface SectorMapDrawInput {
    *  precedent: a call site that forgets it is a compile error rather than a chart that silently
    *  stops saying where the jump goes. */
   sortieSectorKey: string | null;
+  /** Rooms this expedition's ambient stir bloomed or shifted, unioned by the caller: the lane
+   *  draws ONE badge per cell (README section 4.4), so a room that took both is one mark. Required
+   *  rather than optional, on the sortieSectorKey precedent: a call site that forgets it is a
+   *  compile error rather than a chart that silently stops saying what changed. */
+  stirredSectorKeys: ReadonlySet<string>;
   /** Doc 03 section 7 moments 3 and 4: the one-time replay running on THIS map open. Required
    *  rather than optional, on the updatedObjectiveSectorKeys precedent: a call site that forgets
    *  it is a compile error rather than a chart that silently never replays anything. Null on
@@ -540,10 +570,18 @@ export class SectorMapRenderer {
         }
       }
 
+      // Occupant order is README section 4.4's: the sortie wins the lane, because an action one
+      // press away beats a fact. The stir badge takes the VISITED gate sectorDetail's own bloom and
+      // shift rows take: a stir is an interior fact, and marking it on a room charted only as an
+      // outline would describe an interior the chart refuses to draw.
+      const laneBadge = Math.max(3, 4.5 * input.view.scale);
+      const laneX = cell.x + cell.width - laneBadge - 3;
+      const laneY = cell.y + cell.height - laneBadge - 3;
       if (input.sortieSectorKey === sector.key) {
-        const badge = Math.max(3, 4.5 * input.view.scale);
-        drawSortieBadge(
-          graphics, cell.x + cell.width - badge - 3, cell.y + cell.height - badge - 3, badge);
+        drawSortieBadge(graphics, laneX, laneY, laneBadge);
+      } else if (input.stirredSectorKeys.has(sector.key)
+        && (flags & SectorFlags.VISITED) !== 0) {
+        drawStirBadge(graphics, laneX, laneY, laneBadge);
       }
 
       this.drawPoiIcons(sector, input);

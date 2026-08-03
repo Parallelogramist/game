@@ -15,7 +15,7 @@ import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
   drawLeadBadge, drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
-  drawSectorNoteDot, drawSortieBadge, drawVaultGuardRing,
+  drawSectorNoteDot, drawSortieBadge, drawStirBadge, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { getSectorMarks, getSectorNotes, setSectorMark,
   setSectorNote } from '../../expedition/WorldProfileStore';
@@ -227,6 +227,9 @@ export class MapScene extends Phaser.Scene {
   private spentNestSectorKeys: ReadonlySet<string> = new Set();
   private bloomedSectorKeys: ReadonlySet<string> = new Set();
   private shiftedSectorKeys: ReadonlySet<string> = new Set();
+  /** The union the chart's destination lane draws. Built once in init() rather than per redraw:
+   *  neither source set can change while the chart is open. */
+  private stirredSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private revealPlan: MapRevealPlan | null = null;
   private revealElapsedMs = 0;
@@ -277,6 +280,7 @@ export class MapScene extends Phaser.Scene {
     this.spentNestSectorKeys = new Set(data.spentNestSectorKeys ?? []);
     this.bloomedSectorKeys = new Set(data.bloomedSectors ?? []);
     this.shiftedSectorKeys = new Set(data.shiftedSectors ?? []);
+    this.stirredSectorKeys = new Set([...this.bloomedSectorKeys, ...this.shiftedSectorKeys]);
     this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
     this.sortieAvailable = data.sortieAvailable === true;
     this.sortieAnchorSectorKey = data.sortieAnchorSectorKey;
@@ -715,6 +719,10 @@ export class MapScene extends Phaser.Scene {
     rows.push({
       label: 'Sortie lands here',
       draw: (graphics, x, y) => drawSortieBadge(graphics, x, y, LEGEND_GLYPH_SIZE),
+    });
+    rows.push({
+      label: 'Changed this run',
+      draw: (graphics, x, y) => drawStirBadge(graphics, x, y, LEGEND_GLYPH_SIZE),
     });
     for (const kind of SECTOR_MARK_CYCLE) {
       rows.push({
@@ -1271,6 +1279,7 @@ export class MapScene extends Phaser.Scene {
         ? course.sectorKeys : [],
       courseBlocked: course.kind === 'blocked',
       sortieSectorKey: this.sortieLandingKey(),
+      stirredSectorKeys: this.stirredSectorKeys,
       mapOpenReveal: this.revealPlan
         ? sampleMapOpenReveal(this.revealPlan, this.revealElapsedMs)
         : null,
