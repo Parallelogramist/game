@@ -3220,13 +3220,50 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   completion number counts everything the world holds. Deps: an operator call on whether banked
   rows are re-scored or grandfathered.
 
-- [ ] **FEAT-VICTORY-COMPLETION-ROW** (new 2026-08-02, from FEAT-EXPEDITION-COMPLETION-RECORD):
+- [x] **FEAT-VICTORY-COMPLETION-ROW** (done, e5caeb1) (new 2026-08-02, from FEAT-EXPEDITION-COMPLETION-RECORD):
   conquering a world writes the record but shows nothing, because `PauseMenuManager.showVictory`
   carries no expedition block at all (the `World` / `Charted` cells live in `gameOver` only) and
   the win screen names its world by another route. A victory is the run end most likely to set the
   record, so it is the one that most deserves the `NEW BEST` tell. Value: the screen that
   celebrates a conquest says what it was worth. Deps: none, but it is a second stats grid to lay
   out, so it wants `POLISH-COMPLETION-RECORD`'s answer on (a) and (e) first.
+  **What shipped.** One stat row on the victory grid, and the fold that stopped being invisible.
+  1. **The gap it closed, symptom first.** `GameScene.showVictory` called
+     `recordExpeditionCompletion(...)` and drew nothing from it, with the code admitting it in
+     place: *"The victory overlay carries no expedition block, so this writes without
+     displaying: the number shows up on the next death screen and on the CHART dialog."* A
+     profile could therefore set its lifetime best chart by conquering a world and first learn
+     of it on a later death screen, attributed to a run that did not set it.
+  2. **One row, not the death screen's two, and no `World` cell.** Two independent reasons, and
+     a later session must not "restore parity" by adding one. (a) `buildVictoryKicker` already
+     prints `W3 CONQUERED  ·  100% CHARTED` above the title on every expedition win, so a
+     `World  W3 · 100%` cell is the same two facts 190 px lower. (b) The victory button row is
+     pinned at `scale.height / 2 + 175` while the streak line rides the panel
+     (`victoryStatsTop + victoryStatsHeight + 52`), so one 34 px row moves the streak to
+     `centerY + 130` and clears the buttons by 22.5 px, and a second would put it at
+     `centerY + 164`, inside them. The file's own earnings comment already warned that
+     "growing the 400-wide panel pushes the button row".
+  3. **The panel widens 400 → 480 only when the row is present.** At 400 a cell is 160 px
+     inside and `Charted` plus `43 / 43 (+7)` does not reliably fit; at 480 it is 200 px,
+     wider than the 194 px the game-over grid already renders that exact pair in. Outside
+     expedition the width, the height (`1 * 34 + 22 = 56`) and row 0's centre (`top + 31`) are
+     unchanged, so every arena-substrate end screen is pixel-identical.
+  4. **The labels and hues are the death screen's, deliberately.** `Charted`, `Best Chart`,
+     `#66ccff`, gold `#ffdd44` on `isNewBest`, 16 px, and the record cell suppressed when
+     `recordLabel` is null. That is what discharges this entry's own `POLISH-COMPLETION-RECORD`
+     (a)/(e) caveat: the two end screens now say the same words, so one answer moves both.
+  5. **The run folds the record exactly once.** The bare `recordExpeditionCompletion` call was
+     REPLACED by `this.buildExpeditionDebrief()`, which folds internally. Calling both would
+     have returned `isNewBest: false` on the second call (the record is a strictly-greater max)
+     and silently deleted the `NEW BEST` tell this item exists for.
+  6. **No new operator question was filed.** The two browser verdicts are appended to the
+     already-open `POLISH-COMPLETION-RECORD` as questions (f) and (g), the same
+     "extended in place rather than duplicated" call `FEAT-EXPEDITION-SECRET-DENOMINATOR`
+     note 6 made about `POLISH-CHART-DIALOG-PORTRAIT`.
+  7. **No storage key, no version constant, no save shape.** Everything drawn already existed
+     on `ExpeditionDebrief`. Arena, daily, weekly, practice and gauntlet are untouched by
+     construction: `buildExpeditionDebrief()` returns `undefined` outside expedition, so the
+     row, the extra height and the wider panel are all unreachable there.
 
 - [x] **FEAT-EXPEDITION-SECRET-DENOMINATOR** (done, 2309d5a) (new 2026-08-03): every per-world
   secret count says how many that world holds. Value: George can read, for the world he is flying
@@ -12705,7 +12742,13 @@ Never agent work. The fleet must not do any of these.
   (c) does the `   ·   BEST 61% (W2)` clause fit the CHART dialog's `Charted` line on a portrait
   phone, where that line is already three clauses long; (d) is suppressing the clause once the
   live world catches the record the right call, or should it read `BEST EVER` there instead of
-  disappearing; (e) `Best Chart` as a label, against `Record` or `Best World`.
+  disappearing; (e) `Best Chart` as a label, against `Record` or `Best World`;
+  (f) on the victory screen, does `Charted 43 / 43 (+7)` beside `Best Chart NEW BEST` read as
+  the payoff for the conquest, or as a second helping of the kicker that already says
+  `W3 CONQUERED · 100% CHARTED` two lines above it; (g) the win panel widens 400 → 480 and
+  grows 56 → 90 only on an expedition win, which drops the streak line from `centerY + 96` to
+  `centerY + 130`, 22.5 units above the button row — does that still read on a landscape phone,
+  or does the stack want the streak line moved rather than the panel grown.
 
 - [ ] **POLISH-EXPEDITION-DEBRIEF** (new 2026-08-03, from FEAT-EXPEDITION-DEBRIEF): the
   game-over stats grid grew a sixth row, so on a run with a damage row, a gold-ledger row

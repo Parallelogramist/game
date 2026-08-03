@@ -440,6 +440,11 @@ first.
   metric's own definition is unchanged**: it still counts sectors visited plus secrets found, not
   quests closed, because the two-axis number is already printed in 20 banked rows and a third axis
   re-scores history the player has been shown. That half is `FEAT-COMPLETION-QUEST-AXIS`.
+  **The win screen shows it too (`FEAT-VICTORY-COMPLETION-ROW`, `e5caeb1`):** the victory grid
+  carries one expedition row, `Charted` beside `Best Chart`, so the run end most likely to set
+  the record is the one that announces it. It deliberately carries NO `World` cell: the victory
+  kicker already prints `W<n> CONQUERED · <p>% CHARTED`, and the pinned button row leaves the
+  panel room for exactly one extra 34-unit row. Do not re-derive either constraint.
 - **Boss rooms as gates, not just fights.** A sector lock that also holds a traversal
   ability behind it makes bosses structural rather than optional.
 
