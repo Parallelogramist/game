@@ -46,7 +46,7 @@ import type { MenuButton } from '../../visual/MenuButton';
 import { transitionToScene } from '../../utils/SceneTransition';
 import {
   MAP_ZOOM_LEVELS, centerViewOn, clampMapView, gridBoundsOfCells, mapPointToSector,
-  nextSectorInDirection, snapZoomLevel,
+  nextSectorInDirection, pinchZoomStep, snapZoomLevel,
 } from '../../visual/mapProjection';
 import type { GridBounds, GridCell, MapCursorDirection,
   MapViewTransform } from '../../visual/mapProjection';
@@ -218,6 +218,14 @@ export class MapScene extends Phaser.Scene {
   private dragPointerId = -1;
   private dragLastX = 0;
   private dragLastY = 0;
+  /** The two live pointer ids of a pinch, their last known panel-space positions, and the
+   *  finger distance the current zoom step was measured from. Null whenever fewer than two
+   *  pointers are down, which on a mouse is always: one device produces one pointer id. */
+  private pinch: {
+    a: { id: number; x: number; y: number };
+    b: { id: number; x: number; y: number };
+    baselineDistance: number;
+  } | null = null;
   private leads: SecretLead[] = [];
   private lockouts: LockoutRow[] = [];
   private hintedSectorKeys: ReadonlySet<string> = new Set();
@@ -297,6 +305,7 @@ export class MapScene extends Phaser.Scene {
     this.zoomOutArmed = false;
     this.noteKeyArmed = false;
     this.dragPointerId = -1;
+    this.pinch = null;
   }
 
   create(): void {
@@ -493,12 +502,14 @@ export class MapScene extends Phaser.Scene {
         this.toggleLegend();
         return;
       }
+      if (this.beginPinch(pointer)) return;
       this.dragPointerId = pointer.id;
       this.dragLastX = pointer.x;
       this.dragLastY = pointer.y;
       this.focusFromPointer(pointer);
     };
     this.pointerMoveHandler = (pointer) => {
+      if (this.updatePinch(pointer)) return;
       if (pointer.id !== this.dragPointerId || !pointer.isDown) {
         // Mouse hover: doc 03 section 4.5 rule 3 accepts cursor, tap OR hover, and hover is
         // the one path that costs no key, no button and no touch target.
@@ -510,6 +521,7 @@ export class MapScene extends Phaser.Scene {
       this.dragLastY = pointer.y;
     };
     this.pointerUpHandler = (pointer) => {
+      if (this.endPinch(pointer)) return;
       if (pointer.id === this.dragPointerId) this.dragPointerId = -1;
     };
     this.input.on('pointerdown', this.pointerDownHandler);
@@ -1154,6 +1166,58 @@ export class MapScene extends Phaser.Scene {
       originY: this.view.originY + deltaY,
       scale: this.view.scale,
     });
+  }
+
+  /** A second pointer converts the drag in progress into a pinch. Returns true when this
+   *  pointer was swallowed, so the caller neither starts a drag nor moves the focus with it. */
+  private beginPinch(pointer: Phaser.Input.Pointer): boolean {
+    if (this.pinch) return true;
+    if (this.dragPointerId < 0 || pointer.id === this.dragPointerId) return false;
+    this.pinch = {
+      a: { id: this.dragPointerId, x: this.dragLastX, y: this.dragLastY },
+      b: { id: pointer.id, x: pointer.x, y: pointer.y },
+      baselineDistance: Math.hypot(pointer.x - this.dragLastX, pointer.y - this.dragLastY),
+    };
+    this.dragPointerId = -1;
+    return true;
+  }
+
+  private updatePinch(pointer: Phaser.Input.Pointer): boolean {
+    const pinch = this.pinch;
+    if (!pinch) return false;
+    let finger: { id: number; x: number; y: number } | null = null;
+    if (pinch.a.id === pointer.id) finger = pinch.a;
+    else if (pinch.b.id === pointer.id) finger = pinch.b;
+    // A third finger is swallowed rather than acted on: it must not pan the chart or move
+    // the focus while two others are sizing it.
+    if (!finger) return true;
+    if (!pointer.isDown) {
+      this.pinch = null;
+      return true;
+    }
+    finger.x = pointer.x;
+    finger.y = pointer.y;
+    const distance = Math.hypot(pinch.a.x - pinch.b.x, pinch.a.y - pinch.b.y);
+    const step = pinchZoomStep(pinch.baselineDistance, distance);
+    if (step !== 0) {
+      pinch.baselineDistance = distance;
+      this.stepZoom(step);
+    }
+    return true;
+  }
+
+  /** Lifting one finger of a pinch hands the chart to the finger still down, at the position
+   *  the pinch last saw it, so a two-finger zoom that becomes a one-finger pan cannot jump. */
+  private endPinch(pointer: Phaser.Input.Pointer): boolean {
+    const pinch = this.pinch;
+    if (!pinch) return false;
+    if (pinch.a.id !== pointer.id && pinch.b.id !== pointer.id) return true;
+    const remaining = pinch.a.id === pointer.id ? pinch.b : pinch.a;
+    this.pinch = null;
+    this.dragPointerId = remaining.id;
+    this.dragLastX = remaining.x;
+    this.dragLastY = remaining.y;
+    return true;
   }
 
   private stepZoom(direction: number): void {

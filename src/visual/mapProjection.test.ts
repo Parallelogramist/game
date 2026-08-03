@@ -6,6 +6,7 @@ import {
   gridBoundsOfCells,
   mapPointToSector,
   nextSectorInDirection,
+  pinchZoomStep,
   sectorCellRect,
   snapZoomLevel,
   worldPointToMap,
@@ -32,6 +33,25 @@ describe('snapZoomLevel', () => {
   test('a non-finite scale falls back to the default level', () => {
     expect(snapZoomLevel(NaN)).toBe(1);
     expect(snapZoomLevel(Infinity)).toBe(1);
+  });
+});
+
+describe('pinchZoomStep', () => {
+  test('a pinch inside the threshold earns no step', () => {
+    expect(pinchZoomStep(100, 100)).toBe(0);
+    expect(pinchZoomStep(100, 134)).toBe(0);
+    expect(pinchZoomStep(100, 75)).toBe(0);
+  });
+
+  test('spreading past the threshold zooms in, closing past its reciprocal zooms out', () => {
+    expect(pinchZoomStep(100, 140)).toBe(1);
+    expect(pinchZoomStep(135, 90)).toBe(-1);
+  });
+
+  test('a degenerate distance earns no step', () => {
+    expect(pinchZoomStep(0, 120)).toBe(0);
+    expect(pinchZoomStep(100, 0)).toBe(0);
+    expect(pinchZoomStep(NaN, 120)).toBe(0);
   });
 });
 

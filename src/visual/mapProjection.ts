@@ -40,6 +40,28 @@ export function snapZoomLevel(scale: number): number {
   return best;
 }
 
+/** How far apart or together two fingers must travel, as a ratio of the distance the last
+ *  step was measured from, before the chart takes another zoom step. Under this a two-finger
+ *  drag that is really a pan would step the zoom; far over it the gesture stops answering. */
+export const PINCH_ZOOM_STEP_RATIO = 1.35;
+
+/**
+ * Whole zoom steps a pinch has earned since its baseline: +1 spread, -1 close, 0 not yet.
+ *
+ * MAP_ZOOM_LEVELS is the only set of scales the chart draws, so a pinch reports steps for
+ * stepZoom rather than a continuous scale, and the caller re-baselines on every non-zero
+ * answer. The close threshold is the reciprocal of the spread threshold, so closing undoes a
+ * spread over the same finger travel.
+ */
+export function pinchZoomStep(baselineDistance: number, currentDistance: number): number {
+  if (!Number.isFinite(baselineDistance) || !Number.isFinite(currentDistance)) return 0;
+  if (baselineDistance <= 0 || currentDistance <= 0) return 0;
+  const ratio = currentDistance / baselineDistance;
+  if (ratio >= PINCH_ZOOM_STEP_RATIO) return 1;
+  if (ratio <= 1 / PINCH_ZOOM_STEP_RATIO) return -1;
+  return 0;
+}
+
 export function sectorCellRect(
   gridX: number, gridY: number, view: MapViewTransform,
 ): { x: number; y: number; width: number; height: number } {
