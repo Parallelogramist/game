@@ -2911,6 +2911,60 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-EXPEDITION-SECRET-DENOMINATOR** (done, 2309d5a) (new 2026-08-03): every per-world
+  secret count says how many that world holds. Value: George can read, for the world he is flying
+  and for every world he banked, how many of its secrets he has found out of how many exist
+  (`7 / 24 secrets`), so "is this world picked clean, or is it still worth flying" is answerable
+  before he trades it away, instead of a bare count with no scale.
+  1. **What shipped**: `DiscoveryManager.getKnowableSecretCount()`,
+     `ExpeditionProgressSummary.knowableSecrets`, the pure `describeSecretsFound()`, the
+     denominator on the RETURN dialog's banked rows and on both the RETURN and CHART summary
+     lines, and the in-run map-completion milestone toast's secret clause.
+  2. **The gap it closed, symptom first.** The CHART card printed `7 secrets` (found so far, for
+     the world being flown) four lines above `24 secrets` (held in total, for a candidate world):
+     the same word for two different quantities, inside one card. Meanwhile every sector count in
+     the game already carried its denominator (`18 / 43 sectors`), and `getKnowableSectorCount`
+     exists precisely to supply it.
+  3. **The identity that made it exact and cheap.** `buildIdUniverse` adds to `secretIds` on
+     `slot.kind === PoiKind.Secret` and `previewExpeditionWorld` increments `secretSlots` on the
+     same test, both walking `sector.poiSlots` over the same generated map, so they are the same
+     number by construction. The live world reads its denominator free off the bound discovery
+     manager and a banked world reads the same one off a preview. Pinned by a test, because a
+     denominator counted from a different set prints a fraction that is merely wrong rather than
+     an error.
+  4. **The untrusted denominator**: a world banked under an older generator keeps the found count
+     it was banked with while its preview regenerates at the current `WORLDGEN_VERSION`, so
+     `describeSecretsFound` drops the denominator rather than printing `9 / 7`, which reads as a
+     bug rather than as the version bump it is.
+  5. **The memo change**: `previewExpeditionWorld` is now memoised per seed, replacing a
+     single-slot memo keyed on the seed list that the CHART, RETURN and paste dialogs evicted from
+     each other. A RETURN page press costs at most three `generateWorld` calls, and zero on a page
+     the session has already shown. The BootScene comment warning about the old eviction went with
+     it.
+  6. **No new line and no new operator question**: all four surfaces gained or replaced a clause
+     on a line that already existed, and the toast clause got shorter
+     (`7 secrets recovered` becomes `7 of 24 secrets`). The card-width question is
+     `POLISH-CHART-DIALOG-PORTRAIT`, already open, extended in place rather than duplicated.
+  7. **Deliberately not built**: the RETURN dialog's `secrets` sort still ranks by secrets found
+     (filed as `FEAT-RETURN-SECRETS-LEFT-SORT`); the codex's lifetime `Secrets Found` stays a bare
+     count because it aggregates across worlds and no single denominator is true for it; the CHART
+     candidate rows keep their wording, since a bare `24 secrets` reads as the total by contrast
+     once the rows above it print a `/`.
+  8. No storage key, no `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` /
+     `WORLD_PROFILE_VERSION` bump and no `GameSaveState` field, so every existing profile gets it
+     on the next build. Arena is unchanged by construction: every touched surface is behind an
+     expedition-only path.
+- [ ] **FEAT-RETURN-SECRETS-LEFT-SORT** (new 2026-08-03, from
+  FEAT-EXPEDITION-SECRET-DENOMINATOR): the RETURN dialog's `secrets` order still ranks by secrets
+  FOUND (`returnWorlds.ts:60`), which sorts the worlds you have already picked over to the top.
+  Now that each row carries its world's slot count, "most left first" is authorable and is
+  probably the order a player reaching for that button actually wants. Held back deliberately:
+  re-ranking a shipped sort is exactly question (a) of `POLISH-RETURN-SORT-ORDERS` ("are
+  `charted`, `secrets` and `conquered` the three the player actually reaches for"), and the sort
+  runs over all 20 banked rows while the denominator is only paid for the three on the page, so
+  the ordering half would pay 20 `generateWorld` calls per press unless the slot count is banked
+  onto `BankedSeason` instead. Value: the button surfaces the world with the most left to find.
+  Deps: `POLISH-RETURN-SORT-ORDERS` (a).
 - [x] **FEAT-QUEST-BRIEFING** (done, 80464ce) (new 2026-08-02): the objectives you carry are
   readable between runs. Value: George can read every active expedition objective, its current
   step, its progress and which of its rooms are about to restart, from the main menu before he
@@ -8567,7 +8621,10 @@ exploring pays is the end of Phase 5.
   CHART card now carries up to 15 body lines and four buttons across a 660-wide frame. It
   fits landscape at every scale tried, but a narrow portrait viewport is untested and the
   card only grows in height. Pairs with `POLISH-MAP-HEADER-PORTRAIT`: same surface, same
-  question, fix them together. Deps: none.
+  question, fix them together. `FEAT-EXPEDITION-SECRET-DENOMINATOR` then added about five
+  characters to the RETURN rows and to both summary lines without adding a line, so the same
+  portrait question now also asks whether a banked row
+  (`W12 · 87% charted · 41 sectors · 19 / 24 secrets · CONQUERED`) still fits on one. Deps: none.
 
 - [ ] **BALANCE-SEASON-GATE-CARRYOVER** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
   traversal abilities and earned quest keys are profile-scope and the adapter applies them
