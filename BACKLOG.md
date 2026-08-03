@@ -2946,14 +2946,42 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
      field, so every existing profile gets it the moment the build lands.
   7. **Filed with it**: `POLISH-QUEST-BRIEFING` under `## Human gates`, plus
      `FEAT-EXPEDITION-DEBRIEF` and `FEAT-QUEST-BRIEFING-REWARDS` below.
-- [ ] **FEAT-EXPEDITION-DEBRIEF** (new 2026-08-02, from FEAT-QUEST-BRIEFING): `GameOverData`
-  carries no expedition field, so an expedition death shows an arena scoreline that never names
-  the world. Measured this session: the honest marginal content is one stats-grid row of two
-  cells (`World` = `W3 · 42%`, `Charted` = `18 / 43 (+4)`), because the main menu already prints
-  the percent on the next screen and `runNotices` already lists the run's secrets, routes and
-  quest steps. The `(+n)` delta needs a bind-time baseline in `GameScene` and must hide on a
-  restored run, the way `totalDamageTaken` already does. Value: a run end names the world it
-  happened in. Deps: none.
+- [x] **FEAT-EXPEDITION-DEBRIEF** (done, b7eb10a) (new 2026-08-02, from FEAT-QUEST-BRIEFING): a
+  death names the world it happened in. Value: George can see, on the death screen, which world
+  he just died in (`W3 · 42%`) and how much of it he has charted including what this run added
+  (`18 / 43 (+4)`), instead of an arena scoreline that never names the world he was flying
+  through.
+  1. **What shipped**: the pure `src/game/runend/expeditionDebrief.ts` (`ExpeditionDebrief` data
+     shape plus `buildExpeditionDebriefRow`, Phaser-free, on the `victoryKicker.ts` model), plus
+     the sixth stats-grid row on the game-over overlay: `World` = `W3 · 42%`, `Charted` =
+     `18 / 43 (+4)`. `GameOverData` grew one optional `expedition` field, absent in every
+     arena-substrate mode, the same rule `VictoryData.expeditionConquest` follows on the win
+     screen.
+  2. **The gap it closed, symptom first.** Every number on the death screen was mode-agnostic, so
+     an expedition death and a skirmish death read identically: the same time, kills, level,
+     damage and gold rows, with nothing naming the world the run had been flying through. The win
+     screen has named its world since `FEAT-EXPEDITION-SEASONS`, and the death screen is where
+     nearly every expedition run actually ends.
+  3. **The restore rule**: the `(+n)` gain needs a bind-time baseline, so
+     `chartedSectorsAtRunStart` is captured in `bindExpeditionDiscovery` immediately after
+     `bindWorld` (before it, the manager still holds the previous world's counts). A
+     reload-restored run binds mid-run, so it reports `null` and the clause is dropped rather
+     than reporting the gain since the reload as the run's own. Same rule the pace curve
+     (`paceRecordingEnabled`) and the run timeline (`runTimelineComplete`) already use. The
+     `= null` reset at the top of the method mirrors the `markedSectorKeys = []` reset already
+     there, which is what keeps an arena run (early return) from inheriting the previous
+     expedition's baseline across a scene restart.
+  4. **Why the denominator can be dropped**: `getKnowableSectorCount()` is 0 only when no world
+     bound, and `18 / 0` would be a lie rather than a number, so the count stands alone.
+  5. **Cost**: three `DiscoveryManager` reads on the death frame, off the already-bound
+     singleton — no `generateExpeditionWorld`, no storage read.
+  6. **No persistence change**: no storage key, no `SAVE_VERSION` bump, no `GameSaveState` field,
+     no `WORLDGEN_VERSION` bump, so every existing profile gets it on the next build.
+  7. **Deliberately not built**: the victory screen (already names its world through
+     `buildVictoryKicker`/`expeditionConquest`), and any change to the panel's fixed
+     `statsPanelTop`, so the sixth row pushes the gold pill and everything below it down by one
+     `statRowHeight` (34 units) — filed as `POLISH-EXPEDITION-DEBRIEF`.
+  8. **Filed with it**: `POLISH-EXPEDITION-DEBRIEF` under `## Human gates`.
 - [ ] **FEAT-QUEST-BRIEFING-REWARDS** (new 2026-08-02, from FEAT-QUEST-BRIEFING): the briefing
   names no payout, because `QuestStepView` carries `progress`/`target` and no gold, and the
   ticker and the OBJECTIVES panel do not show gold either. Adding `stepGoldReward` to the shared
@@ -12170,6 +12198,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-EXPEDITION-DEBRIEF** (new 2026-08-03, from FEAT-EXPEDITION-DEBRIEF): the
+  game-over stats grid grew a sixth row, so on a run with a damage row, a gold-ledger row
+  and a quest-gold row the panel is now 226 units tall instead of 192 and the gold pill,
+  the streak line and the run-earnings panel below it all sit 34 units lower. The renderer
+  already notes that "at 720 game units tall the stat panel, gold pill and CLOSEST TO
+  UNLOCK already reach the restart hint", and the run-earnings panel is clamped to
+  `scale.height - 24 - tailReserve`, so nothing can run off-screen — but whether the stack
+  still READS on a landscape phone needs a browser. Questions: (a) on a 720-tall canvas
+  with all six rows, is the run-earnings panel still legible or has it clamped to
+  uselessness? (b) is `World` / `Charted` the right pair, or would `W3 · 42%` be better as
+  a clause on the title kicker with the panel left at five rows? (c) is `#66ccff` the
+  right register against the gold and red rows above it, or does the row read as an error?
+  (d) does `18 / 43 (+4)` parse at 16px, or does the parenthetical need a separate colour?
 
 - [ ] **POLISH-QUEST-BRIEFING** (new 2026-08-02, from FEAT-QUEST-BRIEFING). The main menu now has
   an OBJECTIVES card and a briefing dialog behind it, and none of it has been read on a screen.
