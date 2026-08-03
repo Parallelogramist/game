@@ -278,3 +278,43 @@ export function nextSectorInDirection(
   }
   return best;
 }
+
+/**
+ * The smallest origin shift that brings one cell fully inside the panel, with `margin` px of
+ * clearance on every side.
+ *
+ * `view` and the result are in the SAME space, and that space is the panel space `clampMapView`
+ * works in, NOT `MapScene.view`, whose `originY` carries the header height. A caller holding the
+ * scene's view must subtract the header before calling and let `setView` add it back.
+ *
+ * The view is returned BY REFERENCE, unchanged, when the cell already fits, so a caller can skip
+ * its clamp-and-redraw on a `!==` check rather than comparing two floats. A cell larger than the
+ * panel minus its margins cannot fit at all and is pinned to the near edge, because an
+ * over-zoomed chart showing the cursor's top-left corner beats one showing none of it.
+ */
+export function scrollViewToCell(
+  gridX: number, gridY: number, view: MapViewTransform,
+  panelWidth: number, panelHeight: number, margin: number,
+): MapViewTransform {
+  if (!Number.isFinite(gridX) || !Number.isFinite(gridY)) return view;
+  if (!Number.isFinite(view.originX) || !Number.isFinite(view.originY)) return view;
+  if (!Number.isFinite(panelWidth) || !Number.isFinite(panelHeight)) return view;
+  const safeMargin = Number.isFinite(margin) ? Math.max(0, margin) : 0;
+  const cell = sectorCellRect(gridX, gridY, view);
+  const axisShift = (near: number, size: number, panelSize: number): number => {
+    const minNear = safeMargin;
+    const maxNear = panelSize - safeMargin - size;
+    if (maxNear < minNear) return minNear - near;
+    if (near < minNear) return minNear - near;
+    if (near > maxNear) return maxNear - near;
+    return 0;
+  };
+  const shiftX = axisShift(cell.x, cell.width, panelWidth);
+  const shiftY = axisShift(cell.y, cell.height, panelHeight);
+  if (shiftX === 0 && shiftY === 0) return view;
+  return {
+    originX: view.originX + shiftX,
+    originY: view.originY + shiftY,
+    scale: view.scale,
+  };
+}

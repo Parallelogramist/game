@@ -7,6 +7,7 @@ import {
   mapPointToSector,
   nextSectorInDirection,
   pinchZoomStep,
+  scrollViewToCell,
   sectorCellRect,
   snapZoomLevel,
   worldPointToMap,
@@ -206,5 +207,31 @@ describe('nextSectorInDirection', () => {
     expect(nextSectorInDirection(0, 0, 'right', [])).toBeNull();
     expect(nextSectorInDirection(0, 0, 'right', [{ gridX: 0, gridY: 0 }])).toBeNull();
     expect(nextSectorInDirection(NaN, 0, 'right', CELLS)).toBeNull();
+  });
+});
+
+describe('scrollViewToCell', () => {
+  // Base cell is 64x36 at scale 1 (MAP_BASE_CELL_WIDTH / MAP_BASE_CELL_HEIGHT).
+  const VIEW = { originX: 0, originY: 0, scale: 1 };
+
+  test('a cell already inside the margins returns the very same view object', () => {
+    expect(scrollViewToCell(2, 2, VIEW, 640, 360, 12)).toBe(VIEW);
+  });
+
+  test('a cell past an edge is pulled back by exactly the overshoot plus the margin', () => {
+    // Cell 10 spans x 640..704 in a 640-wide panel; its right edge must land at 640 - 12.
+    expect(scrollViewToCell(10, 0, VIEW, 640, 360, 12).originX).toBeCloseTo(-76);
+    // Cell -1 spans x -64..0; its left edge must land at 12.
+    expect(scrollViewToCell(-1, 0, VIEW, 640, 360, 12).originX).toBeCloseTo(76);
+  });
+
+  test('each axis moves on its own, and the scale is carried through untouched', () => {
+    const moved = scrollViewToCell(10, 2, { originX: 0, originY: 0, scale: 2 }, 640, 360, 12);
+    expect(moved.originY).toBe(0);
+    expect(moved.scale).toBe(2);
+  });
+
+  test('a cell wider than the panel pins to the near edge instead of hiding it', () => {
+    expect(scrollViewToCell(0, 0, VIEW, 40, 360, 12).originX).toBeCloseTo(12);
   });
 });

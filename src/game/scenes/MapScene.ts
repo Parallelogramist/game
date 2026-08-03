@@ -46,7 +46,7 @@ import type { MenuButton } from '../../visual/MenuButton';
 import { transitionToScene } from '../../utils/SceneTransition';
 import {
   MAP_ZOOM_LEVELS, centerViewOn, clampMapView, gridBoundsOfCells, mapPointToSector,
-  nextSectorInDirection, pinchZoomStep, snapZoomLevel,
+  nextSectorInDirection, pinchZoomStep, scrollViewToCell, snapZoomLevel,
 } from '../../visual/mapProjection';
 import type { GridBounds, GridCell, MapCursorDirection,
   MapViewTransform } from '../../visual/mapProjection';
@@ -102,6 +102,7 @@ export interface MapSceneData {
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
 const PAN_SPEED = 420;
+const CURSOR_KEEP_MARGIN = 12;
 const HEADER_HEIGHT = 76;
 const FOOTER_HEIGHT = 44;
 /** Exactly the keys create() captures. Cleared and re-armed around the note field, because a
@@ -355,7 +356,7 @@ export class MapScene extends Phaser.Scene {
     const footerButtonsWidth = RECALL_BUTTON_WIDTH + FOOTER_BUTTON_GAP + NOTE_BUTTON_WIDTH;
     const hintWidth = Math.max(120, width - 40 - footerButtonsWidth);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
-      'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE   ·   TAB LEGEND'
+      'WASD PAN   ·   ARROWS CURSOR   ·   +/- ZOOM   ·   C CENTRE   ·   TAB LEGEND'
       + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE   ·   K / LT PIN COURSE'
       + (this.browsing ? '   ·   L LAUNCH' : '   ·   R RECALL / SORTIE')
       + '   ·   M / ESC CLOSE',
@@ -469,16 +470,19 @@ export class MapScene extends Phaser.Scene {
       up: [], down: [], left: [], right: [],
     };
     if (keyboard) {
-      const cursors = keyboard.createCursorKeys();
-      this.panKeys.up = [cursors.up, keyboard.addKey('W')];
-      this.panKeys.down = [cursors.down, keyboard.addKey('S')];
-      this.panKeys.left = [cursors.left, keyboard.addKey('A')];
-      this.panKeys.right = [cursors.right, keyboard.addKey('D')];
+      this.panKeys.up = [keyboard.addKey('W')];
+      this.panKeys.down = [keyboard.addKey('S')];
+      this.panKeys.left = [keyboard.addKey('A')];
+      this.panKeys.right = [keyboard.addKey('D')];
       this.keydownHandler = (event: KeyboardEvent) => {
         if (this.noteOverlayTeardown) return;
         const key = event.key;
         if (key === 'm' || key === 'M' || key === 'Escape') { this.close(); return; }
         if (key === 'Tab') { this.toggleLegend(); return; }
+        if (key === 'ArrowUp') { this.moveCursor('up'); return; }
+        if (key === 'ArrowDown') { this.moveCursor('down'); return; }
+        if (key === 'ArrowLeft') { this.moveCursor('left'); return; }
+        if (key === 'ArrowRight') { this.moveCursor('right'); return; }
         if (key === 'r' || key === 'R') { this.recall(); return; }
         if (key === 'l' || key === 'L') { this.launch(); return; }
         if (key === 'p' || key === 'P') { this.cycleMark(); return; }
@@ -489,7 +493,10 @@ export class MapScene extends Phaser.Scene {
         if (key === '-' || key === '_') this.stepZoom(-1);
       };
       keyboard.on('keydown', this.keydownHandler);
-      keyboard.addCapture('TAB');
+      // The arrows lost their implicit capture when createCursorKeys went: without this the
+      // browser scrolls the page under the chart. This is also the constant the note overlay and
+      // shutdown already restore, so create() and the two restore sites now agree.
+      keyboard.addCapture(MAP_KEY_CAPTURES);
     }
 
     this.wheelHandler = (_pointer, _over, _deltaX, deltaY) => {
@@ -1257,13 +1264,37 @@ export class MapScene extends Phaser.Scene {
 
   private moveCursor(direction: MapCursorDirection): void {
     if (!this.focusedCell) {
-      if (this.knownCells.length > 0) this.setFocus(this.knownCells[0]);
+      const first = this.knownCells[0];
+      if (first) {
+        this.setFocus(first);
+        this.keepCursorVisible(first);
+      }
       return;
     }
     const next = nextSectorInDirection(
       this.focusedCell.gridX, this.focusedCell.gridY, direction, this.knownCells,
     );
-    if (next) this.setFocus(next);
+    if (next) {
+      this.setFocus(next);
+      this.keepCursorVisible(next);
+    }
+  }
+
+  /** A cursor step can walk past the panel edge and setFocus never scrolls, so the view is nudged
+   *  the minimum that brings the new cell back on screen. Deliberately NOT inside setFocus: the
+   *  pointer paths focus a cell the hand is already over, and scrolling under the mouse would
+   *  fight it, while centreOnShip has already centred by the time it focuses. */
+  private keepCursorVisible(cell: GridCell): void {
+    const panelView: MapViewTransform = {
+      originX: this.view.originX,
+      originY: this.view.originY - HEADER_HEIGHT,
+      scale: this.view.scale,
+    };
+    const scrolled = scrollViewToCell(
+      cell.gridX, cell.gridY, panelView,
+      this.panelWidth(), this.panelHeight(), CURSOR_KEEP_MARGIN,
+    );
+    if (scrolled !== panelView) this.setView(scrolled);
   }
 
   private setFocus(cell: GridCell): void {
