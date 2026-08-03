@@ -2911,6 +2911,64 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-MAPUI-MENU-SURVEY** (done, 4d4d618) (new 2026-08-02, proposed by the planner): the
+  world chart opens from the main menu, between runs. Value: George can open his expedition
+  world's real chart before he launches, read what he has charted, what is still locked out and
+  how many rooms the flight to each of them is, and mark and annotate rooms for the next sortie,
+  instead of having to start a run to look at the map.
+  1. **What shipped**: `MapSceneData.returnTo` widened to `'GameScene' | 'BootScene'` and is read
+     for the first time; a `browsing` mode on `MapScene`; `bindCurrentExpeditionWorld` in
+     `src/expedition/expeditionWorld.ts`; and a `SURVEY` tile in the GAME MODES submenu between
+     CHART and OBJECTIVES.
+  2. **The gap it closed, symptom first.** `grep -rn "MapScene" src/ --include=*.ts` returned one
+     launcher, `GameScene.ts:1374`, and `returnTo` was declared `'GameScene'` and never read. Every
+     surface built on that screen (OBJECTIVES, LEADS, LOCKED OUT with its hop counts, the plotted
+     course, POI icons, marks and notes, the sector readout) was reachable only from inside a live
+     run. Between runs the menu offered four summary numbers and a text briefing.
+  3. **Browse measures from the hangar, and that is the point.** A fresh expedition starts at
+     `map.startKey` unconditionally, so every LOCKED OUT hop count and every plotted course on the
+     survey is the trip the next run actually makes. The ship marker is left drawn on that cell
+     rather than replaced by a new glyph: between runs the ship IS docked at the hangar, and a new
+     marker would need a legend row on the surface four filed items are already queued behind.
+  4. **The run-scoped inputs are empty and the warden is not.** Nests, lairs, spent hives and this
+     expedition's blooms and shifts exist only once a run has stocked them, so browse passes none of
+     them. The warden stands in its arena until the world is conquered, so it is passed whenever
+     `isWorldConquered` is false: it is the one dormant threat a pre-run chart must name.
+  5. **One guard closes every recall path.** `recall()` returns early when browsing, which covers
+     the footer button (not created), the `r` key and gamepad `X` at once. Without it
+     `this.scene.get('GameScene')` would hand back a scene that was never started.
+  6. **It adds nothing to any crowded surface**, which is exactly why it was reachable when its
+     neighbours are not: no chart glyph, no legend row, no radar waypoint slot, no HUD line, no
+     fourth left-column panel. It reuses the whole screen.
+  7. **Close returns to the submenu, not the deck row**, through the `{ relayout: true,
+     openSubmenu: 'GAME MODES' }` payload `BootLaunchData` already accepts, so a player comparing
+     CHART, SURVEY and OBJECTIVES does not reopen the submenu between each.
+  8. **Nothing persists and no version moved**: no storage key, no `SAVE_VERSION` /
+     `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `WORLD_PROFILE_VERSION` / `WORLD_ARCHIVE_VERSION`
+     change, no save shape. Marks and notes write through the unchanged `setSectorMark` /
+     `setSectorNote`, keyed on `(seed, worldGenVersion)` exactly as in a run. Arena, daily, weekly,
+     practice and gauntlet are untouched by construction: `MapScene` is expedition-only.
+  9. **Filed with it**: `POLISH-MAP-SURVEY` under `## Human gates`, plus
+     `FEAT-SURVEY-TILE-BADGE` and `FEAT-SURVEY-LAUNCH-FROM-CHART` under `## Proposed (auto)`.
+- [ ] **FEAT-SURVEY-TILE-BADGE** (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY): the SURVEY tile
+  carries no badge, where CHART carries `W<n>` and OBJECTIVES carries its active count. The obvious
+  badge is the world's completion percent, and it is deliberately absent: reading it needs
+  `summariseCurrentExpedition()`, whose own doc comment forbids calling it from a scene's `create()`
+  because it is one 33 ms `generateWorld`, and the deck is built in `create()`. Making it cheap
+  means banking the percent onto the season store at run end, which is the same "bank the derived
+  number rather than regenerate for it" question `FEAT-RETURN-SECRETS-LEFT-SORT` is already asking
+  for its own sort. Value: the tile says whether the world is worth surveying before it is opened.
+  Deps: pairs with `FEAT-RETURN-SECRETS-LEFT-SORT`; build them together or the store field is
+  designed twice.
+- [ ] **FEAT-SURVEY-LAUNCH-FROM-CHART** (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY): the survey
+  is a read-only screen, so a player who decides on it where to go still closes it, backs out of the
+  submenu and presses SKIRMISH. A LAUNCH footer button would close the loop. Held back deliberately:
+  the expedition launch path is `startSkirmishWithConfirmation`'s confirmation flow plus the
+  save-loss dialog, and reaching it from a scene BootScene has already stopped means either
+  duplicating that flow or handing MapScene a launch intent to pass back through `BootLaunchData`,
+  which is a second start-a-run entry point rather than a button. Value: the plan you make on the
+  chart is one press from being flown. Deps: none, but it wants `POLISH-MAP-SURVEY`'s answer on
+  whether the survey should be able to start a run at all.
 - [x] **FEAT-LOCKOUT-COURSE** (done, fd55c37) (new 2026-08-03, proposed by the planner): the
   LOCKED OUT panel stops measuring in straight lines. Value: George can read, for every vault,
   board and arena the panel sends him to, how many rooms the flight there actually is and
@@ -12520,6 +12578,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-MAP-SURVEY** (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY). Value: the chart now
+  opens from the GAME MODES submenu as SURVEY, and none of it has been seen outside a run.
+  Questions: (a) does the screen read as a planning surface when nothing is flying, or does the
+  ship marker sitting on the hangar read as a bug; (b) is measuring every hop count and course from
+  the hangar right, or should it measure from the field anchor the next SORTIE flies to when the
+  profile holds one; (c) does the footer with only NOTE on it read as unfinished now that RECALL is
+  gone; (d) is closing back into the open GAME MODES submenu right, or should it land on the deck
+  row; (e) on a fresh profile that has charted nothing, the survey shows one cell and three empty
+  panels: is that honest, or is it a dead end that wants a line of copy; (f) is SURVEY the right
+  word, against CHART (which trades worlds) and OBJECTIVES (which lists quests) beside it.
 - [ ] **POLISH-LOCKOUT-COURSE** (new 2026-08-03, from FEAT-LOCKOUT-COURSE). The panel's new trip
   clause was validated as graph math against the test fixture, never read on a screen. Questions,
   all feel: (a) does `VAULT 13 HOPS` read as useful information or as a discouraging number,

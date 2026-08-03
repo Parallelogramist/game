@@ -230,6 +230,15 @@ the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph b
   names: flyable over gated over unroutable, then fewer hops. `LockoutRow.nearestDistance` stays
   Chebyshev on purpose: it is a sort tiebreak, never rendered.
 
+- **The chart is reachable outside a run (`FEAT-MAPUI-MENU-SURVEY`, `4d4d618`).** `MapSceneData.returnTo`
+  is now read: `'BootScene'` is the between-runs survey opened from the GAME MODES submenu, where
+  there is no run to pause, no recall to fire and no ship flying. Browse substitutes the hangar
+  (`map.startKey`) for the ship position, so every hop count and every plotted course measures the
+  trip the next run actually makes; it passes the run-scoped inputs (nests, lairs, spent hives,
+  this expedition's blooms and shifts) empty because they exist only once a run has stocked them,
+  and passes the warden whenever the world is unconquered because it does not. It adds no glyph, no
+  legend row and no panel: it is the same screen, opened earlier.
+
 The in-run half (a next-hop bearing on the radar disc) is deliberately not built and is
 `FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdicts are
 `POLISH-MAP-COURSE` for the chart and `POLISH-LOCKOUT-COURSE` for the panel.
