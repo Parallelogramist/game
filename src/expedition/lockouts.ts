@@ -43,8 +43,11 @@ export type LockoutKind = 'ability' | 'questKey' | 'warden';
 export type LockoutSource =
   /** The ability vault that grants it. Always reachable WITHOUT the ability it grants:
    *  placeAbilityGates hosts a vault outside its own gate's subtree, by construction. It may
-   *  still sit behind a DIFFERENT ability's door, which is what a blocked travel reports. */
-  | { kind: 'vault'; sectorKey: string; travel: LockoutTravel }
+   *  still sit behind a DIFFERENT ability's door, which is what a blocked travel reports.
+   *  guardCleared is PoiFlags.GUARD_CLEARED, which AbilityVaultManager writes when the last
+   *  guard dies and NOT at the claim, so an unclaimed vault whose guard is cleared is a
+   *  walk-in pickup the player has already paid for. */
+  | { kind: 'vault'; sectorKey: string; travel: LockoutTravel; guardCleared: boolean }
   /** The quest is accepted and running, so the key is steps away rather than sectors. */
   | { kind: 'questActive'; stepNumber: number; stepCount: number }
   /** The quest is on offer and this is the best board the profile has seen: the shortest flight
@@ -74,6 +77,7 @@ export interface AbilityVaultSite {
   sectorKey: string;
   sx: number;
   sy: number;
+  guardCleared: boolean;
 }
 
 export interface AbilityVaultInputs {
@@ -194,7 +198,8 @@ export function findUnclaimedAbilityVaults(inputs: AbilityVaultInputs): AbilityV
     for (const slot of sector.poiSlots) {
       if (slot.kind !== PoiKind.AbilityPowerUp) continue;
       if (slot.grantsAbilityId === undefined) continue;
-      if ((inputs.poiFlagsOf(slot.id) & PoiFlags.SEEN) === 0) continue;
+      const poiFlags = inputs.poiFlagsOf(slot.id);
+      if ((poiFlags & PoiFlags.SEEN) === 0) continue;
       if (inputs.holdsAbility(slot.grantsAbilityId)) continue;
       sites.push({
         abilityId: slot.grantsAbilityId,
@@ -202,6 +207,7 @@ export function findUnclaimedAbilityVaults(inputs: AbilityVaultInputs): AbilityV
         sectorKey: sector.key,
         sx: sector.sx,
         sy: sector.sy,
+        guardCleared: (poiFlags & PoiFlags.GUARD_CLEARED) !== 0,
       });
     }
   }
@@ -320,11 +326,14 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
     }
   }
 
-  const vaultByAbilityId = new Map<string, { sectorKey: string; travel: LockoutTravel }>();
+  const vaultByAbilityId = new Map<string, {
+    sectorKey: string; travel: LockoutTravel; guardCleared: boolean;
+  }>();
   for (const site of findUnclaimedAbilityVaults(inputs)) {
     const candidate = {
       sectorKey: site.sectorKey,
       travel: travelOf(courseTo(inputs, site.sectorKey)),
+      guardCleared: site.guardCleared,
     };
     const incumbent = vaultByAbilityId.get(site.abilityId);
     if (incumbent === undefined || isBetterPlace(candidate, incumbent)) {
@@ -342,7 +351,12 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
     if (accumulator.kind === 'ability') {
       const vault = vaultByAbilityId.get(accumulator.id);
       if (!vault) return { kind: 'unfound' };
-      return { kind: 'vault', sectorKey: vault.sectorKey, travel: vault.travel };
+      return {
+        kind: 'vault',
+        sectorKey: vault.sectorKey,
+        travel: vault.travel,
+        guardCleared: vault.guardCleared,
+      };
     }
     if (accumulator.kind === 'warden') {
       const arena = inputs.map.sectors.get(inputs.map.bossArenaKey);
@@ -384,9 +398,16 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
     if (row.source.kind === 'unfound') return 2;
     return sourceTravel(row.source)?.kind === 'none' ? 1 : 0;
   };
+  // A vault whose pack is already dead is a walk-in pickup; a guarded one is the fight that most
+  // likely killed the player last time. At an equal opening count and an equal action rank the
+  // cheaper trip goes first, so the panel's order agrees with the word its row now prints. No
+  // other source kind carries a known fight, so every one of them ranks with the open vault.
+  const guardRank = (row: LockoutRow): number =>
+    row.source.kind === 'vault' && !row.source.guardCleared ? 1 : 0;
   return built.sort((a, b) =>
     (b.doors + b.sites + b.shortcuts) - (a.doors + a.sites + a.shortcuts)
     || actionRank(a) - actionRank(b)
+    || guardRank(a) - guardRank(b)
     || a.nearestDistance - b.nearestDistance
     || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
     || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

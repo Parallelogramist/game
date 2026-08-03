@@ -142,6 +142,20 @@ describe('buildLockoutRows', () => {
     expect(open.source.travel.kind).toBe('hops');
   });
 
+  test('a vault row says whether its guard is still standing', () => {
+    const guarded = rowsFor().find(candidate => candidate.id === 'ability_blink_drive')!;
+    const cleared = rowsFor(GATED, {
+      poiFlagsOf: () => PoiFlags.SEEN | PoiFlags.GUARD_CLEARED,
+    }).find(candidate => candidate.id === 'ability_blink_drive')!;
+    expect(guarded.source.kind).toBe('vault');
+    expect(cleared.source.kind).toBe('vault');
+    if (guarded.source.kind !== 'vault' || cleared.source.kind !== 'vault') {
+      throw new Error('unreachable');
+    }
+    expect(guarded.source.guardCleared).toBe(false);
+    expect(cleared.source.guardCleared).toBe(true);
+  });
+
   test('a vault in a sector the profile has never entered names no place', () => {
     const rows = rowsFor(GATED, { poiFlagsOf: () => 0 }).filter(row => row.kind === 'ability');
     expect(rows.length).toBeGreaterThan(0);

@@ -153,7 +153,8 @@ function describeLockoutRow(row: LockoutRow): string {
   const source = row.source;
   switch (source.kind) {
     case 'vault':
-      clauses.push(travelClause('VAULT', source.travel));
+      clauses.push(travelClause(
+        source.guardCleared ? 'UNSEALED VAULT' : 'GUARDED VAULT', source.travel));
       break;
     case 'questActive':
       clauses.push(`ACTIVE STEP ${source.stepNumber}/${source.stepCount}`);
