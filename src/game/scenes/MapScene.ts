@@ -15,7 +15,7 @@ import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
   drawLeadBadge, drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
-  drawSectorNoteDot, drawVaultGuardRing,
+  drawSectorNoteDot, drawSortieBadge, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { getSectorMarks, getSectorNotes, setSectorMark,
   setSectorNote } from '../../expedition/WorldProfileStore';
@@ -90,6 +90,11 @@ export interface MapSceneData {
    *  there is no run and BootScene answers it from the world profile's field anchor, which is the
    *  same fact one screen earlier: this profile has a sortie in hand for this world. */
   sortieAvailable: boolean;
+  /** The room a sortie would return to: GameScene's `sortieAnchor` as a sector key in a run, and
+   *  the profile's field anchor between runs. Passed in rather than read here for the same reason
+   *  sortieAvailable is: reading the store here would be a second source of truth and a
+   *  SecureStorage decrypt. Null exactly when sortieAvailable is false. */
+  sortieAnchorSectorKey: string | null;
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -231,6 +236,7 @@ export class MapScene extends Phaser.Scene {
   private noteKeyArmed = false;
   private recallState: 'ready' | 'locked' | 'home' | 'sortie' = 'ready';
   private sortieAvailable = false;
+  private sortieAnchorSectorKey: string | null = null;
   private browsing = false;
   private detailHeadlineText!: Phaser.GameObjects.Text;
   private detailDoorsText!: Phaser.GameObjects.Text;
@@ -264,6 +270,7 @@ export class MapScene extends Phaser.Scene {
     this.shiftedSectorKeys = new Set(data.shiftedSectors ?? []);
     this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
     this.sortieAvailable = data.sortieAvailable === true;
+    this.sortieAnchorSectorKey = data.sortieAnchorSectorKey;
     this.closed = false;
     this.zoomOutArmed = false;
     this.noteKeyArmed = false;
@@ -689,6 +696,10 @@ export class MapScene extends Phaser.Scene {
         drawObjectiveUpdatedBadge(graphics, x, y - LEGEND_GLYPH_SIZE, LEGEND_GLYPH_SIZE * 1.2);
       },
     });
+    rows.push({
+      label: 'Sortie lands here',
+      draw: (graphics, x, y) => drawSortieBadge(graphics, x, y, LEGEND_GLYPH_SIZE),
+    });
     for (const kind of SECTOR_MARK_CYCLE) {
       rows.push({
         label: `${SECTOR_MARKS[kind].label} (yours)`,
@@ -949,6 +960,17 @@ export class MapScene extends Phaser.Scene {
     return key === this.mapData.bossArenaKey ? null : key;
   }
 
+  /**
+   * Where a sortie lands if it is fired right now, which is what the chart badges: the focused
+   * room whenever sortieDestinationKey offers one, and the anchor already held otherwise. Routed
+   * through that one method rather than re-deriving the permits, so the badge and the footer
+   * button can never name two different rooms for one jump.
+   */
+  private sortieLandingKey(): string | null {
+    if (this.sortieAnchorSectorKey === null) return null;
+    return this.sortieDestinationKey() ?? this.sortieAnchorSectorKey;
+  }
+
   private refreshSortieLabel(): void {
     const destination = this.sortieDestinationKey();
     if (this.browsing) {
@@ -1189,6 +1211,7 @@ export class MapScene extends Phaser.Scene {
       courseSectorKeys: course.kind === 'plotted' || course.kind === 'blocked'
         ? course.sectorKeys : [],
       courseBlocked: course.kind === 'blocked',
+      sortieSectorKey: this.sortieLandingKey(),
       mapOpenReveal: this.revealPlan
         ? sampleMapOpenReveal(this.revealPlan, this.revealElapsedMs)
         : null,

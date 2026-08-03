@@ -343,6 +343,25 @@ export function drawSectorNoteDot(
 }
 
 /**
+ * Where a sortie puts the ship down. Bottom-right is the last corner a cell can spare: the
+ * pin owns the top edge, the cleared notch the top-right, the lead badge the top-left and the
+ * player's own mark the bottom-left. It draws in the ship marker's cyan rather than in the
+ * player-mark white, because a landing site is where the world will put the ship, not something
+ * the player drew, and it makes both ends of one jump read as the same colour.
+ */
+export function drawSortieBadge(
+  graphics: Phaser.GameObjects.Graphics, centreX: number, centreY: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1.5, size * 0.4), PLAYER_MARKER, 1);
+  graphics.lineBetween(centreX, centreY - size, centreX, centreY + size * 0.35);
+  graphics.lineBetween(
+    centreX - size * 0.6, centreY - size * 0.25, centreX, centreY + size * 0.35);
+  graphics.lineBetween(
+    centreX + size * 0.6, centreY - size * 0.25, centreX, centreY + size * 0.35);
+  graphics.lineBetween(centreX - size, centreY + size, centreX + size, centreY + size);
+}
+
+/**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
  * be satisfied by anything, so it always reads sealed.
@@ -412,6 +431,12 @@ export interface SectorMapDrawInput {
   courseSectorKeys: readonly string[];
   /** True when the course crosses a door this profile cannot open. */
   courseBlocked: boolean;
+  /** The room a sortie lands in right now: the focused room whenever the chart says the ship
+   *  could fly there, and the anchor the profile already holds otherwise. Null when this profile
+   *  holds no sortie for this world. Required rather than optional, on the courseSectorKeys
+   *  precedent: a call site that forgets it is a compile error rather than a chart that silently
+   *  stops saying where the jump goes. */
+  sortieSectorKey: string | null;
   /** Doc 03 section 7 moments 3 and 4: the one-time replay running on THIS map open. Required
    *  rather than optional, on the updatedObjectiveSectorKeys precedent: a call site that forgets
    *  it is a compile error rather than a chart that silently never replays anything. Null on
@@ -513,6 +538,12 @@ export class SectorMapRenderer {
         if (input.notedSectorKeys.has(sector.key)) {
           drawSectorNoteDot(graphics, markX, markY, markSize);
         }
+      }
+
+      if (input.sortieSectorKey === sector.key) {
+        const badge = Math.max(3, 4.5 * input.view.scale);
+        drawSortieBadge(
+          graphics, cell.x + cell.width - badge - 3, cell.y + cell.height - badge - 3, badge);
       }
 
       this.drawPoiIcons(sector, input);

@@ -1469,6 +1469,9 @@ export class GameScene extends Phaser.Scene {
       shiftedSectors: this.worldMode.shiftedSectorKeys(),
       recallAvailable: !this.worldMode.isSectorLocked(),
       sortieAvailable: this.sortieAnchor !== null,
+      sortieAnchorSectorKey: this.sortieAnchor === null
+        ? null
+        : sectorKey(sectorOfWorldPoint(this.sortieAnchor.x, this.sortieAnchor.y)),
     });
     this.scene.pause();
   }

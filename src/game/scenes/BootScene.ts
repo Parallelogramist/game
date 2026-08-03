@@ -722,6 +722,7 @@ export class BootScene extends Phaser.Scene {
       const map = bindCurrentExpeditionWorld();
       const hangar = parseSectorKey(map.startKey) ?? { col: 0, row: 0 };
       const hangarCentre = sectorCenterWorld(hangar);
+      const fieldAnchorKey = getFieldAnchor(map.seed, map.worldGenVersion);
       const payload: MapSceneData = {
         returnTo: 'BootScene',
         map,
@@ -749,7 +750,8 @@ export class BootScene extends Phaser.Scene {
         // The one thing between runs that a fresh run really will hold: seedSortieAnchorFromChart
         // reads this same anchor at bind, so the chart offers a destination exactly when the run
         // will honour one.
-        sortieAvailable: getFieldAnchor(map.seed, map.worldGenVersion) !== null,
+        sortieAvailable: fieldAnchorKey !== null,
+        sortieAnchorSectorKey: fieldAnchorKey,
       };
       transitionToScene(this, 'MapScene', payload);
     };
