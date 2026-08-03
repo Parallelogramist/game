@@ -29,6 +29,17 @@ export function resetInputSystem(): void {
   smoothedVelY = 0;
 }
 
+/**
+ * A dash's velocity for the frame it is active, in px/s, already scaled by the player's move
+ * speed. The dash is computed in GameScene (cooldown, direction, duration) but must not write
+ * Velocity itself: inputSystem is the single writer of player velocity and runs later in the
+ * same frame, so a direct write is overwritten before MovementSystem ever reads it.
+ */
+export interface DashVelocity {
+  velocityX: number;
+  velocityY: number;
+}
+
 // Control mode tracks which input device the player is actively using
 export type ControlMode = 'keyboard' | 'mouse' | 'joystick' | 'gamepad';
 
@@ -64,11 +75,23 @@ export function inputSystem(
   input: InputState,
   deltaSeconds: number = 0,
   accelerationMultiplier: number = 1,
+  dashVelocity: DashVelocity | null = null,
 ): IWorld {
   const players = playerQuery(world);
 
   for (let i = 0; i < players.length; i++) {
     const playerId = players[i];
+
+    // A dash owns the frame it fires in. The dash speed is assigned into the smoothed state
+    // rather than only into Velocity, so the frame the dash ends the ship eases down from dash
+    // speed instead of snapping back to stick speed.
+    if (dashVelocity) {
+      smoothedVelX = dashVelocity.velocityX;
+      smoothedVelY = dashVelocity.velocityY;
+      Velocity.x[playerId] = smoothedVelX;
+      Velocity.y[playerId] = smoothedVelY;
+      continue;
+    }
 
     let directionX = 0;
     let directionY = 0;

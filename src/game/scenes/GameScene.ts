@@ -23,7 +23,7 @@ import {
   NemesisTag,
   AmbushSpawnTag,
 } from '../../ecs/components';
-import { inputSystem } from '../../ecs/systems/InputSystem';
+import { inputSystem, type DashVelocity } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
 import type { WallCollisionContext } from '../../ecs/systems/MovementSystem';
@@ -440,6 +440,7 @@ const enemySpawnSpot = { x: 0, y: 0 };
 const apertureSpawnSpot = { x: 0, y: 0 };
 const blinkCollisionResult = createCollisionResult();
 const blinkDirection = { x: 0, y: 0 };
+const dashFrameVelocity: DashVelocity = { velocityX: 0, velocityY: 0 };
 const BLINK_DRIVE_ID = 'ability_blink_drive';
 const MAGNO_TETHER_ID = 'ability_magno_tether';
 const PHASE_CLOAK_ID = 'ability_phase_cloak';
@@ -7838,12 +7839,16 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ DASH ABILITY ═══
     const dashState = this.inputController.updateDash(deltaSeconds);
+    let dashVelocityThisFrame: DashVelocity | null = null;
     if (dashState.isDashing) {
       this.hasDashedThisRun = true;
-      // Apply dash velocity (dashState velocities are multipliers, scale by moveSpeed)
+      // Handed to inputSystem below rather than written into Velocity here: inputSystem runs
+      // later in this same frame and assigns every player's velocity unconditionally, so a
+      // write here would never survive to MovementSystem.
       const dashSpeed = this.playerStats.moveSpeed;
-      Velocity.x[this.playerId] = dashState.velocityX * dashSpeed;
-      Velocity.y[this.playerId] = dashState.velocityY * dashSpeed;
+      dashFrameVelocity.velocityX = dashState.velocityX * dashSpeed;
+      dashFrameVelocity.velocityY = dashState.velocityY * dashSpeed;
+      dashVelocityThisFrame = dashFrameVelocity;
 
       // Spawn afterimage ghosts every 30ms during dash
       this.dashAfterimageTimer += deltaSeconds;
@@ -8077,7 +8082,8 @@ export class GameScene extends Phaser.Scene {
     // A region's drift rides the same product the Quick Start upgrade does, so a player who
     // bought acceleration flies out of the slippery region's grip rather than being taxed twice.
     inputSystem(this.world, inputState, deltaSeconds,
-      this.playerStats.accelerationMultiplier * this.activeStageDriftFactor);
+      this.playerStats.accelerationMultiplier * this.activeStageDriftFactor,
+      dashVelocityThisFrame);
     updateAIGameTime(this.gameTime);
     enemyAISystem(this.world, deltaSeconds);
 
