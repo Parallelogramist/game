@@ -3004,6 +3004,69 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   10. **No new `POLISH-*` item was filed**: this is a dev-dock affordance rather than a
       game-facing feel change, so the convention that would demand a playtest gate does not fire,
       and the open human-gate count is unchanged at 67.
+- [x] **FEAT-WORLDGEN-STREAM-WAVE-RETIRE** (done, 8ce8d93) (new 2026-08-03, proposed by the
+  planner as a slice of `FEAT-WORLDGEN-STREAM`, whose own row reads `Deps: none outstanding`): the
+  departed room keeps its own fight. Value: an ambush nest George flies away from goes back to
+  sleep and re-arms for the next visit, instead of scattering six to nine enemies that walk after
+  him for the rest of the run and leaving a hive that can never pay its chest.
+  **The defect, measured before the fix:** `AmbushSpawnTag`'s own comment
+  (`src/ecs/components/index.ts:41-45`) promises the tag "exempts the wave from the enemy leash, so
+  fleeing a nest leaves the fight in the room instead of dragging it along", and `applyEnemyLeash`
+  honoured exactly half of it. Skipping the tag stops the wave being teleported onto the spawn ring
+  beside the ship, but the leash is the only thing in the game that acts on distance, so the pack
+  kept steering at the player from any range and trickled in from off-screen for the rest of the
+  run. Meanwhile `updateAmbushNests` pays a nest's guaranteed special chest only when its wave list
+  empties, so the reward for a fled hive was collectible only if the scattered wave eventually
+  caught the player, a world away from the hive. Nothing in the handoff had ever looked at an
+  enemy: `retireDepartedSector` swept loose loot, and `retirePoiSlots` swept the four-member
+  `PoiSlotObject` union (chest, crate, boost, shrine), which a nest is not a member of. A nest
+  slot never even gets a `poiSlotObjects` record, because `addAmbushNest` returns no object.
+  **The rule was not invented, it was already shipped:** the restore path
+  (`GameScene.ts:3451-3457`) restores nests dormant, in its own words, "the wave is not persisted,
+  so a refresh mid-fight re-arms the ambush rather than leaving an unclearable hive". The seam
+  crossing was the parallel path that never learned it, which is the first bug class `CLAUDE.md`
+  names under Development Guidelines.
+  **What shipped:** `retireDepartedWaves`, called at the end of `retireDepartedSector`. A woken
+  nest inside the departed room and beyond the 600 px keep radius has its whole live wave silently
+  despawned, its list emptied, `awake` set back to false and its graphics redrawn dormant, so
+  walking back in wakes it fresh. Every other `AmbushSpawnTag` enemy in that room and beyond the
+  keep radius is swept too, which is what finally retires a hold objective's besiegers:
+  `endExpeditionSiege` abandons them with the comment "left to the world's own teardown", and this
+  is that teardown. Both passes reuse `planSectorRetire`, the primitive slice 1 already ships and
+  tests, with the nest's array index standing in for an entity id, so the slice adds no pure code
+  and no new geometry rule.
+  **The guard that matters, so nobody removes it:** a nest kept because it is near the ship (or
+  because it belongs to another room) has its members held out of the second sweep by
+  `keptWaveIds`. Without that set, sweeping one member of a kept nest drains its list and
+  `updateAmbushNests` fires `clearAmbushNest` on the next tick: burst, `NEST CLEARED` toast, a
+  guaranteed special chest and a `clearHazard` quest credit, all paid for running away. A nest is
+  therefore judged atomically by its own position, never member by member, which also stops a
+  half-swept wave leaving stragglers a later re-wake would stand a second wave on top of.
+  **Untouched on purpose:** arena mode by construction (the handler that calls this only fires in
+  expedition); `Destructible` entities, which carry `EnemyTag` but never `AmbushSpawnTag`, so the
+  query cannot see them and `retirePoiSlots` stays their owner; vault guards, already retired every
+  sector change by `AbilityVaultManager.destroyVaults`; and the world boss, behind an
+  `isBossActive()` guard that a sector lock should already make unreachable. `despawnVaultGuard`
+  was renamed `despawnEnemySilently` (body unchanged) because it gained a second caller; the vault
+  manager's `despawnGuard` dependency key is deliberately unchanged. **No tests were added**: the
+  pure primitive is already covered and the rest is Phaser-coupled scene wiring this repo verifies
+  by play. The playtest half is questions (f) and (g) appended to `POLISH-POI-RETIRE-RESTOCK`
+  rather than a new gate row.
+
+- [ ] **FEAT-WORLDGEN-STREAM-ELITE-RETIRE** (new 2026-08-03, from
+  FEAT-WORLDGEN-STREAM-WAVE-RETIRE): the other leash-exempt class, enemies with
+  `EnemyType.xpValue >= LEASH_EXEMPT_XP_FLOOR` (30), which is minibosses at 60 to 300 and bosses at
+  1000; every regular enemy is 1 to 10 and the leash already walks it onto the ring beside the
+  ship, so regulars were never the problem. A miniboss the player outran is left behind exactly the
+  way a nest's wave was, and follows at walking speed for the rest of the run. Cut deliberately,
+  not forgotten: it is one entity rather than a pack of nine, and unlike a nest it has no re-arm,
+  because it is director-spawned rather than placed. Retiring it deletes a fight the player may
+  have taken to 5% health and flown out to heal from, so whether it reads as "escaping worked" or
+  as "the game stole my kill" is a feel question with no shipped precedent to settle it, where the
+  nest had one in the restore path. Value: the run stops dragging every elite the player ever
+  outran behind it. Deps: an operator call on whether fleeing an elite should end the fight, best
+  asked alongside `POLISH-POI-RETIRE-RESTOCK` (f).
+
 - [ ] **CHORE-PRACTICE-CHART-SURVEY** (new 2026-08-03, from FEAT-PRACTICE-CHART-REVEAL): the
   reveal only reaches a chart opened INSIDE a practice run, because the practice flag is what
   gates it and the SURVEY chart on the GAME MODES submenu binds its world from `BootScene` with
@@ -14586,6 +14649,15 @@ Never agent work. The fleet must not do any of these.
   with the room and is stood back up identically on return (a Shrine slot's roll is run-stable),
   so the only felt change should be that the ambient altar every 38 s keeps coming: does the room
   emptying and re-filling read at all, or is it invisible?
+  (f) `FEAT-WORLDGEN-STREAM-WAVE-RETIRE` extends the same handoff to a woken ambush nest: fly into
+  a hive, let it wake, leave the room, come back. Does the nest sitting dormant again and standing
+  up a fresh wave read as "I did not finish that, it is still there", or as "the game undid my
+  fight" when you had it down to the last two? The same press is the operator call
+  `FEAT-WORLDGEN-STREAM-ELITE-RETIRE` waits on: does an outrun miniboss vanishing feel like escape
+  or like theft?
+  (g) the wave is retired only when the nest itself is beyond the 600 px keep radius, so a hive
+  right on the seam keeps its pack and you cross with the fight in tow. Does that boundary read as
+  a rule, or does it look like the same nest behaves two different ways on two different exits?
 
 - [ ] **POLISH-CARGO-CRATE-FEEL** (new 2026-08-02, from FEAT-CARGO-PICKUP-ENTITY, 372c301).
   Value: a delivery's crate now stands beside the quest board and is flown into, but every number
