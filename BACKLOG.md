@@ -12869,12 +12869,37 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   traversal ability is meant to trivialise its own barrier the way `tryOpenAbilityDoor` does.
   Deps: `POLISH-BREACH-CHARGE-FEEL`.
 
-- [ ] **FEAT-MAPUI-CURSOR-KEYBOARD** (new 2026-07-31, from FEAT-MAPUI-DOORS-05): the sector
+- [x] **FEAT-MAPUI-CURSOR-KEYBOARD** (done, `b4b24a3`) (new 2026-07-31, from FEAT-MAPUI-DOORS-05): the sector
   cursor has no keyboard path. WASD and the arrows are the chart's pan (shipped in
   FEAT-MAPUI-MAPSCENE-04) and rebinding them would take the pan away, so this chunk gave the
   cursor to hover, tap and the D-pad only. A keyboard-only player can inspect a sector with
   the mouse but not from the keys. Value: the one input path of the four that cannot reach a
   shipped readout. Deps: none, but it needs a free key pair or a pan/cursor mode toggle.
+  **What shipped.** The arrows drive the cursor and `WASD` keeps the pan, so the split cost no new
+  key and no mode. The item deferred the shape to "a free key pair or a pan/cursor mode toggle";
+  neither was needed, because `panKeys` bound BOTH sets to the pan (`MapScene.ts:473-476`) while
+  `moveCursor` had exactly one caller family, the gamepad D-pad. Splitting the two does not take
+  the pan away, which was the item's stated objection: `WASD`, pointer drag and the gamepad left
+  stick all still pan. The mapping is the one the game already teaches, since the D-pad is what
+  moves the cursor on a pad. Six shipped features stop needing a mouse: the detail bar, `P MARK`,
+  `N NOTE`, the plotted course, the `K` course pin and the `L LAUNCH` / `R SORTIE` destination.
+  **A live gamepad defect went with it**, and it was not introduced by the keyboard: `setFocus`
+  raises `viewDirty` but never scrolls, so a D-pad step past the panel edge has always selected a
+  cell the player cannot see. `moveCursor` now calls the new `keepCursorVisible`, so both input
+  paths get it. The pointer paths and `centreOnShip` deliberately do not: the pointer is already
+  over a visible cell and scrolling under the mouse would fight the hand, and `centreOnShip` has
+  centred before it focuses. The new pure `scrollViewToCell` in `src/visual/mapProjection.ts`
+  returns the caller's view BY REFERENCE when the cell already fits, which is how the scene skips
+  a clamp-and-redraw without comparing floats, and pins a cell bigger than the panel to the near
+  edge rather than pushing it off the far one. **The header offset is the one trap:**
+  `MapScene.view.originY` carries `HEADER_HEIGHT` while `clampMapView` and the new helper work in
+  panel space, so the caller subtracts it and lets `setView` add it back; passing `this.view`
+  straight in drifts the chart 76 px per step. `create()`'s key capture widened from `'TAB'` to
+  the existing `MAP_KEY_CAPTURES`, because the arrows lost their implicit capture when
+  `createCursorKeys()` went and the page would otherwise scroll under the chart; that also makes
+  `create()` agree with the two restore sites that already used the constant. Persists nothing: no
+  storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump. The
+  browser verdict is `POLISH-MAP-CURSOR-KEYS`.
 
 - [ ] **POLISH-MAP-DETAIL-BAR-PORTRAIT** (new 2026-07-31, from FEAT-MAPUI-DOORS-05): the
   readout bar is a fixed 104 px so the chart region, the legend anchor and the clamp can all
@@ -13779,6 +13804,22 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-CURSOR-KEYS** (filed by FEAT-MAPUI-CURSOR-KEYBOARD, b4b24a3). The
+  chart's arrows now move the sector cursor instead of panning, and none of it has been seen in a
+  browser. Open the chart mid-expedition and from the BootScene survey. (a) does losing
+  arrows-as-pan read as a loss on a desktop keyboard, given `WASD`, drag and the left stick all
+  still pan, or is the split invisible because nobody used both? (b) `CURSOR_KEEP_MARGIN` is 12 px
+  against a base cell 36 px tall: is a cell arriving 12 px off the edge enough clearance to read,
+  or should the step centre the cell the way `C` centres the ship? (c) `nextSectorInDirection`
+  takes the nearest charted cell inside a 45-degree cone, so on a sparse chart one press can jump
+  several rooms sideways: does that read as reaching the next room or as the cursor slipping? (d)
+  OS key repeat drives a held arrow, so the cursor accelerates on the operating system's cadence
+  rather than the game's, unlike the D-pad's one-step-per-press: does a held arrow feel like
+  scanning or like a runaway? (e) the footer now reads `WASD PAN · ARROWS CURSOR · ...` and is one
+  clause longer: does it still fit its plate on a portrait phone, where
+  `POLISH-MAP-DETAIL-BAR-PORTRAIT` is already asking about the line below it? Retuning any of the
+  five before a browser verdict is exactly the blind retune the convention forbids.
 
 - [ ] **POLISH-PRACTICE-EXPEDITION** (filed by FEAT-PRACTICE-EXPEDITION, 8f19bed). PRACTICE can
   now start an expedition and none of it has been seen in a browser. Questions: (a) does the
