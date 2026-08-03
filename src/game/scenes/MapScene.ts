@@ -1168,10 +1168,11 @@ export class MapScene extends Phaser.Scene {
   }
 
   private panBy(deltaX: number, deltaY: number): void {
+    const panel = this.panelView();
     this.setView({
-      originX: this.view.originX + deltaX,
-      originY: this.view.originY + deltaY,
-      scale: this.view.scale,
+      originX: panel.originX + deltaX,
+      originY: panel.originY + deltaY,
+      scale: panel.scale,
     });
   }
 
@@ -1233,12 +1234,13 @@ export class MapScene extends Phaser.Scene {
     const scale = MAP_ZOOM_LEVELS[next];
     // Zoom about the panel centre so the sector being read stays under the eye.
     const centreX = this.panelWidth() / 2;
-    const centreY = this.panelHeight() / 2 + HEADER_HEIGHT;
-    const ratio = scale / this.view.scale;
+    const centreY = this.panelHeight() / 2;
+    const panel = this.panelView();
+    const ratio = scale / panel.scale;
     this.zoomIndex = next;
     this.setView({
-      originX: centreX - (centreX - this.view.originX) * ratio,
-      originY: centreY - (centreY - this.view.originY) * ratio,
+      originX: centreX - (centreX - panel.originX) * ratio,
+      originY: centreY - (centreY - panel.originY) * ratio,
       scale,
     });
   }
@@ -1285,11 +1287,7 @@ export class MapScene extends Phaser.Scene {
    *  pointer paths focus a cell the hand is already over, and scrolling under the mouse would
    *  fight it, while centreOnShip has already centred by the time it focuses. */
   private keepCursorVisible(cell: GridCell): void {
-    const panelView: MapViewTransform = {
-      originX: this.view.originX,
-      originY: this.view.originY - HEADER_HEIGHT,
-      scale: this.view.scale,
-    };
+    const panelView = this.panelView();
     const scrolled = scrollViewToCell(
       cell.gridX, cell.gridY, panelView,
       this.panelWidth(), this.panelHeight(), CURSOR_KEEP_MARGIN,
@@ -1384,6 +1382,17 @@ export class MapScene extends Phaser.Scene {
     if (!setSectorNote(this.mapData.seed, this.mapData.worldGenVersion, sector, note)) return;
     if (note === null) this.sectorNotes.delete(sector);
     else this.sectorNotes.set(sector, note);
+  }
+
+  /** `this.view` is screen space: its originY carries HEADER_HEIGHT, which the pure helpers
+   *  (clampMapView, scrollViewToCell) know nothing about because they measure the panel. Any
+   *  candidate built out of the live view has to come back through here first. */
+  private panelView(): MapViewTransform {
+    return {
+      originX: this.view.originX,
+      originY: this.view.originY - HEADER_HEIGHT,
+      scale: this.view.scale,
+    };
   }
 
   /** Every view mutation funnels through the pure clamp: the scene never clamps itself. */
