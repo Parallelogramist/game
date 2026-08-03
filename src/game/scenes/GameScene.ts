@@ -306,6 +306,7 @@ const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 const retireHealthQuery = defineQuery([Transform, HealthPickupTag]);
 const retireMagnetQuery = defineQuery([Transform, MagnetPickupTag]);
 const retireConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
+const retireAmbushQuery = defineQuery([Transform, EnemyTag, AmbushSpawnTag]);
 
 const HUD_OVERLAY_DEPTH = OverlayDepths.HUD_OVERLAY; // Warnings / notifications / coach marks — above HUD, below minimap. NOT the pause menu (PauseMenuManager).
 
@@ -5358,7 +5359,7 @@ export class GameScene extends Phaser.Scene {
       applyDampedAffixStats: (entityId, affix) => this.applyDampedAffixStats(entityId, affix),
       createGuardHealthBar: (entityId, name) =>
         { this.hudManager?.createBossHealthBar(entityId, name, false); },
-      despawnGuard: (entityId) => this.despawnVaultGuard(entityId),
+      despawnGuard: (entityId) => this.despawnEnemySilently(entityId),
       playDeathBurst: (x, y, color) => this.effectsManager.playDeathBurst(x, y, color),
       showDamageNumber: (x, y, text, color) =>
         this.effectsManager.showDamageNumber(x, y, text, color),
@@ -5581,8 +5582,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Silent removal: no rewards, no kill flash, no kill/combo credit. A guard that was not
-   *  beaten was not killed, so it must not route through handleEnemyDeath. */
-  private despawnVaultGuard(enemyId: number): void {
+   *  beaten was not killed, and neither is a wave the ship simply flew away from, so neither
+   *  may route through handleEnemyDeath. */
+  private despawnEnemySilently(enemyId: number): void {
     if (!hasComponent(this.world, EnemyTag, enemyId)) return;
     this.hudManager?.removeBossHealthBar(enemyId);
     this.deathRippleManager.unregisterEnemy(enemyId);
@@ -5593,6 +5595,64 @@ export class GameScene extends Phaser.Scene {
     unregisterSprite(enemyId);
     removeEntity(this.world, enemyId);
     this.enemyCount--;
+  }
+
+  /**
+   * FEAT-WORLDGEN-STREAM: the departed room keeps its own fight.
+   *
+   * A nest's wave and a hold objective's besiegers carry AmbushSpawnTag, which exempts them from
+   * the leash so the pack is never teleported after the ship. Nothing stopped them WALKING after
+   * it, so every hive the player fled trickled in for the rest of the run and its chest could only
+   * be paid a world away from the hive it belongs to.
+   *
+   * A nest whose wave is retired goes back to sleep and re-arms on the next visit. That is not a
+   * new rule: the restore path already ships it, because the wave is not persisted and a refresh
+   * mid-fight must re-arm the ambush rather than leave an unclearable hive.
+   *
+   * A nest is judged by its own position, never per member, so a kept nest never loses stragglers
+   * and a slept one never leaves orphans. Its wave must therefore be held out of the sweep that
+   * follows, which is what keptWaveIds is for.
+   */
+  private retireDepartedWaves(fromSectorKey: string, playerX: number, playerY: number): void {
+    // A sector lock means the seam cannot be crossed mid-boss, so this is belt and braces: a
+    // silent despawn of the world's boss would be unrecoverable, and skipping one handoff is not.
+    if (this.bossFightDirector.isBossActive()) return;
+
+    this.retireCandidates.length = 0;
+    for (let index = 0; index < this.activeAmbushNests.length; index++) {
+      const nest = this.activeAmbushNests[index];
+      this.retireCandidates.push({ entityId: index, x: nest.x, y: nest.y });
+    }
+    const nestIndicesToSleep = new Set(planSectorRetire({
+      fromSectorKey, playerX, playerY, candidates: this.retireCandidates,
+    }));
+
+    const keptWaveIds = new Set<number>();
+    for (let index = 0; index < this.activeAmbushNests.length; index++) {
+      const nest = this.activeAmbushNests[index];
+      if (!nest.awake) continue;
+      if (!nestIndicesToSleep.has(index)) {
+        for (const entityId of nest.waveEntityIds) keptWaveIds.add(entityId);
+        continue;
+      }
+      for (const entityId of nest.waveEntityIds) this.despawnEnemySilently(entityId);
+      nest.waveEntityIds = [];
+      nest.awake = false;
+      this.drawAmbushNest(nest);
+    }
+
+    this.retireCandidates.length = 0;
+    for (const entityId of retireAmbushQuery(this.world)) {
+      if (keptWaveIds.has(entityId)) continue;
+      this.retireCandidates.push({
+        entityId, x: Transform.x[entityId], y: Transform.y[entityId],
+      });
+    }
+    for (const entityId of planSectorRetire({
+      fromSectorKey, playerX, playerY, candidates: this.retireCandidates,
+    })) {
+      this.despawnEnemySilently(entityId);
+    }
   }
 
   /**
@@ -5632,6 +5692,8 @@ export class GameScene extends Phaser.Scene {
         this.destroyRetiredPickup(entityId);
       }
     }
+
+    this.retireDepartedWaves(fromSectorKey, playerX, playerY);
   }
 
   /** Sprite first, then the registration, then the entity: the removal order this repo's
