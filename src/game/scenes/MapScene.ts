@@ -7,8 +7,8 @@ import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEntries,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { questWorldStamp } from '../../systems/QuestProgress';
-import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB,
-  GAMEPAD_BUTTON_RT, GAMEPAD_BUTTON_SELECT, GAMEPAD_BUTTON_START,
+import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_LT,
+  GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_RT, GAMEPAD_BUTTON_SELECT, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
   GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP, GamepadManager } from '../../input/GamepadManager';
 import {
@@ -18,8 +18,8 @@ import {
   drawGridBandBadge, drawSectorNoteDot, drawSortieBadge, drawStirBadge, drawVaultChartBadge,
   drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
-import { getSectorMarks, getSectorNotes, setSectorMark,
-  setSectorNote } from '../../expedition/WorldProfileStore';
+import { getPinnedCourse, getSectorMarks, getSectorNotes, setPinnedCourse,
+  setSectorMark, setSectorNote } from '../../expedition/WorldProfileStore';
 import { MAX_SECTOR_NOTE_LENGTH, SECTOR_MARKS, SECTOR_MARK_CYCLE,
   nextSectorMarkKind, sanitizeSectorNote } from '../../expedition/sectorMarks';
 import type { SectorMarkKind } from '../../expedition/sectorMarks';
@@ -237,6 +237,8 @@ export class MapScene extends Phaser.Scene {
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
   private course: SectorCourse = { kind: 'none' };
+  private pinnedCourseSectorKey: string | null = null;
+  private pinnedCourse: SectorCourse = { kind: 'none' };
   private markedSectorKinds: Map<string, SectorMarkKind> = new Map();
   private sectorNotes: Map<string, string> = new Map();
   private noteOverlayTeardown: (() => void) | null = null;
@@ -339,7 +341,7 @@ export class MapScene extends Phaser.Scene {
     const hintWidth = Math.max(120, width - 40 - footerButtonsWidth);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE   ·   TAB LEGEND'
-      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE'
+      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE   ·   K / LT PIN COURSE'
       + (this.browsing ? '   ·   L LAUNCH' : '   ·   R RECALL / SORTIE')
       + '   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
@@ -415,6 +417,8 @@ export class MapScene extends Phaser.Scene {
     this.mapRenderer = new SectorMapRenderer(this.graphics);
     this.markedSectorKinds = getSectorMarks(this.mapData.seed, this.mapData.worldGenVersion);
     this.sectorNotes = getSectorNotes(this.mapData.seed, this.mapData.worldGenVersion);
+    this.pinnedCourseSectorKey = getPinnedCourse(
+      this.mapData.seed, this.mapData.worldGenVersion);
 
     this.knownCells = [];
     for (const sector of this.mapData.sectors.values()) {
@@ -463,6 +467,7 @@ export class MapScene extends Phaser.Scene {
         if (key === 'r' || key === 'R') { this.recall(); return; }
         if (key === 'l' || key === 'L') { this.launch(); return; }
         if (key === 'p' || key === 'P') { this.cycleMark(); return; }
+        if (key === 'k' || key === 'K') { this.togglePinnedCourse(); return; }
         if (key === 'n' || key === 'N') { this.editNote(); return; }
         if (key === 'c' || key === 'C') { this.centreOnShip(); return; }
         if (key === '+' || key === '=') { this.stepZoom(1); return; }
@@ -975,15 +980,21 @@ export class MapScene extends Phaser.Scene {
     }) : null;
 
     const shipSectorKey = sectorKey(sectorOfWorldPoint(this.playerWorldX, this.playerWorldY));
-    this.course = this.focusedCell ? plotSectorCourse({
+    const plotFrom = (toSectorKey: string): SectorCourse => plotSectorCourse({
       map: this.mapData,
       fromSectorKey: shipSectorKey,
-      toSectorKey: `${this.focusedCell.gridX},${this.focusedCell.gridY}`,
+      toSectorKey,
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
-    }) : { kind: 'none' };
+    });
+    this.course = this.focusedCell
+      ? plotFrom(`${this.focusedCell.gridX},${this.focusedCell.gridY}`)
+      : { kind: 'none' };
+    this.pinnedCourse = this.pinnedCourseSectorKey === null
+      ? { kind: 'none' }
+      : plotFrom(this.pinnedCourseSectorKey);
 
     if (!detail) {
       this.detailHeadlineText.setText('NO SECTOR SELECTED');
@@ -999,10 +1010,12 @@ export class MapScene extends Phaser.Scene {
       ? `   ·   MARKED ${SECTOR_MARKS[markKind].label.toUpperCase()}`
         + (note ? `   ·   "${note}"` : '')
       : '';
+    const pinClause = this.pinnedCourseSectorKey === detail.sectorKey
+      ? '   ·   COURSE PINNED' : '';
     const courseClause = `   ·   ${describeSectorCourse(this.course).toUpperCase()}`;
     this.detailHeadlineText.setText(
       `${detail.headline.toUpperCase()}   ·   ${detail.place.toUpperCase()}`
-      + `   ·   SECTOR ${detail.sectorKey}${courseClause}${markClause}`);
+      + `   ·   SECTOR ${detail.sectorKey}${courseClause}${pinClause}${markClause}`);
     this.detailDoorsText.setText(detail.doors.length > 0
       ? `DOORS   ${detail.doors.join('     ').toUpperCase()}`
       : 'DOORS   NONE CHARTED HERE YET');
@@ -1085,6 +1098,10 @@ export class MapScene extends Phaser.Scene {
       if (pad.justPressed(GAMEPAD_DPAD_LEFT)) this.moveCursor('left');
       if (pad.justPressed(GAMEPAD_DPAD_RIGHT)) this.moveCursor('right');
       if (pad.justPressed(GAMEPAD_BUTTON_A)) this.cycleMark();
+      // No arming guard, unlike RT and LB: nothing in the game binds LT, so it cannot be held on
+      // the frame the chart appears the way the ship's auto-fire holds RT, and a stray pin costs
+      // one press to undo rather than opening an overlay over the screen.
+      if (pad.justPressed(GAMEPAD_BUTTON_LT)) this.togglePinnedCourse();
       if (this.noteKeyArmed && pad.justPressed(GAMEPAD_BUTTON_RT)) {
         this.editNote();
         return;
@@ -1204,6 +1221,21 @@ export class MapScene extends Phaser.Scene {
     this.viewDirty = true;
   }
 
+  /** One press pins the focused room's course, a second press on the same room clears it. A
+   *  refused write is not shown, on cycleMark's rule: the chart never draws a pin a refresh would
+   *  lose. A pin on the ship's own room, or on a room nothing charted connects, is allowed rather
+   *  than refused: it is still a room the player means to reach, the ring says so, and the line
+   *  appears by itself the moment the chart learns the way. */
+  private togglePinnedCourse(): void {
+    if (!this.focusedCell) return;
+    const key = sectorKey({ col: this.focusedCell.gridX, row: this.focusedCell.gridY });
+    const next = this.pinnedCourseSectorKey === key ? null : key;
+    if (!setPinnedCourse(this.mapData.seed, this.mapData.worldGenVersion, next)) return;
+    this.pinnedCourseSectorKey = next;
+    this.refreshDetail();
+    this.viewDirty = true;
+  }
+
   /** The typed half of a mark. The field is DOM over the canvas (the CodeEntryOverlay idiom), so
    *  two things must stand down or the typing lands on the map instead of in the field: this
    *  scene's own keydown handler and gamepad block, gated on noteOverlayTeardown, and the WASD /
@@ -1270,6 +1302,7 @@ export class MapScene extends Phaser.Scene {
   private redraw(): void {
     const discovery = getDiscoveryManager();
     const course = this.course;
+    const pinnedCourse = this.pinnedCourse;
     this.mapRenderer.draw({
       map: this.mapData,
       view: this.view,
@@ -1287,6 +1320,11 @@ export class MapScene extends Phaser.Scene {
       courseSectorKeys: course.kind === 'plotted' || course.kind === 'blocked'
         ? course.sectorKeys : [],
       courseBlocked: course.kind === 'blocked',
+      pinnedCourseSectorKeys:
+        pinnedCourse.kind === 'plotted' || pinnedCourse.kind === 'blocked'
+          ? pinnedCourse.sectorKeys : [],
+      pinnedCourseBlocked: pinnedCourse.kind === 'blocked',
+      pinnedCourseSectorKey: this.pinnedCourseSectorKey,
       sortieSectorKey: this.sortieLandingKey(),
       stirredSectorKeys: this.stirredSectorKeys,
       mapOpenReveal: this.revealPlan

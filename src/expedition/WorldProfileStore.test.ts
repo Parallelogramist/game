@@ -14,6 +14,7 @@ vi.mock('../storage', () => {
 import { SecureStorage } from '../storage';
 import {
   getFieldAnchor,
+  getPinnedCourse,
   getSectorMarks,
   getSectorNotes,
   isWorldConquered,
@@ -21,6 +22,7 @@ import {
   markWorldConquered,
   recordBrokenBarrier,
   recordFieldAnchor,
+  setPinnedCourse,
   setSectorMark,
   setSectorNote,
 } from './WorldProfileStore';
@@ -118,5 +120,30 @@ describe('world profile field anchor', () => {
   test('a key that is not a sector key is refused rather than stored', () => {
     expect(recordFieldAnchor(73, 1, 'edge:0,0:north')).toBe(false);
     expect(getFieldAnchor(73, 1)).toBeNull();
+  });
+});
+
+describe('world profile pinned course', () => {
+  test('the pinned room round-trips, re-pins cheaply and clears', () => {
+    expect(getPinnedCourse(81, 1)).toBeNull();
+    expect(setPinnedCourse(81, 1, '2,-3')).toBe(true);
+    expect(getPinnedCourse(81, 1)).toBe('2,-3');
+    expect(setPinnedCourse(81, 1, '2,-3')).toBe(true);
+    expect(setPinnedCourse(81, 1, null)).toBe(true);
+    expect(getPinnedCourse(81, 1)).toBeNull();
+  });
+
+  test('a payload written before the field shipped reads no pin and keeps its walls', () => {
+    SecureStorage.setItem('survivor-world-profile', JSON.stringify({
+      version: 1, worldSeed: 82, worldGenVersion: 1,
+      brokenBreakableIds: ['edge:3,3:west'],
+    }));
+    expect(getPinnedCourse(82, 1)).toBeNull();
+    expect(loadWorldProfile(82, 1).brokenBreakableIds).toEqual(['edge:3,3:west']);
+  });
+
+  test('a key that is not a sector key is refused rather than stored', () => {
+    expect(setPinnedCourse(83, 1, 'mark:0,0:danger')).toBe(false);
+    expect(getPinnedCourse(83, 1)).toBeNull();
   });
 });

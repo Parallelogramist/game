@@ -44,6 +44,12 @@ const COURSE_ALPHA = 0.55;
 /** A course through a door that is still shut draws fainter and dashed: the chart says "this is
  *  the way" without saying "go". */
 const COURSE_BLOCKED_ALPHA = 0.32;
+/** A pinned course outlives the focus that drew it, so it draws as the steadier of the two: one
+ *  pixel wider and softer, under the focus line rather than over it, and ringed at the room it
+ *  ends in. Same white, because a pin is still the player's own decision. */
+const PINNED_COURSE_WIDTH = 3;
+const PINNED_COURSE_ALPHA = 0.4;
+const PINNED_COURSE_BLOCKED_ALPHA = 0.24;
 const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;
@@ -518,6 +524,16 @@ export interface SectorMapDrawInput {
   courseSectorKeys: readonly string[];
   /** True when the course crosses a door this profile cannot open. */
   courseBlocked: boolean;
+  /** The pinned course, same shape and same two rules as courseSectorKeys. Empty when nothing is
+   *  pinned, and also when the pinned room is the ship's own room or nothing charted connects the
+   *  two, which is exactly when there is no line to draw. */
+  pinnedCourseSectorKeys: readonly string[];
+  /** True when the pinned course crosses a door this profile cannot open. */
+  pinnedCourseBlocked: boolean;
+  /** The pinned ROOM, carried separately from the route because the pin must still show on a
+   *  chart with no line to draw: both of the cases above plot to fewer than two keys, and the ring
+   *  is the only tell there. Null when nothing is pinned. */
+  pinnedCourseSectorKey: string | null;
   /** The room a sortie lands in right now: the focused room whenever the chart says the ship
    *  could fly there, and the anchor the profile already holds otherwise. Null when this profile
    *  holds no sortie for this world. Required rather than optional, on the courseSectorKeys
@@ -672,26 +688,56 @@ export class SectorMapRenderer {
    */
   private drawCourse(input: SectorMapDrawInput): void {
     if (input.mapOpenReveal !== null) return;
-    if (input.courseSectorKeys.length < 2) return;
+    this.strokeCourse(input, input.pinnedCourseSectorKeys, input.pinnedCourseBlocked, true);
+    this.drawPinnedDestination(input);
+    this.strokeCourse(input, input.courseSectorKeys, input.courseBlocked, false);
+  }
+
+  private strokeCourse(
+    input: SectorMapDrawInput,
+    sectorKeys: readonly string[],
+    blocked: boolean,
+    pinned: boolean,
+  ): void {
+    if (sectorKeys.length < 2) return;
     const { graphics } = this;
     const points: Array<{ x: number; y: number }> = [];
-    for (const key of input.courseSectorKeys) {
+    for (const key of sectorKeys) {
       const sector = input.map.sectors.get(key);
       if (sector === undefined) return;
       const cell = sectorCellRect(sector.sx, sector.sy, input.view);
       points.push({ x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 });
     }
-    const alpha = input.courseBlocked ? COURSE_BLOCKED_ALPHA : COURSE_ALPHA;
-    graphics.lineStyle(2, COURSE_STROKE, alpha);
+    const alpha = pinned
+      ? (blocked ? PINNED_COURSE_BLOCKED_ALPHA : PINNED_COURSE_ALPHA)
+      : (blocked ? COURSE_BLOCKED_ALPHA : COURSE_ALPHA);
+    graphics.lineStyle(pinned ? PINNED_COURSE_WIDTH : 2, COURSE_STROKE, alpha);
     for (let step = 0; step + 1 < points.length; step++) {
       const from = points[step];
       const to = points[step + 1];
-      if (input.courseBlocked) strokeDashedLine(graphics, from.x, from.y, to.x, to.y);
+      if (blocked) strokeDashedLine(graphics, from.x, from.y, to.x, to.y);
       else graphics.lineBetween(from.x, from.y, to.x, to.y);
     }
     const dotRadius = Math.max(1.5, 2 * input.view.scale);
     graphics.fillStyle(COURSE_STROKE, alpha);
     for (const point of points) graphics.fillCircle(point.x, point.y, dotRadius);
+  }
+
+  /** The ring that says a room is pinned, taken from the room itself rather than from the end of
+   *  the line, so a pin with no plottable route still shows. An uncharted room draws nothing, on
+   *  the renderer's standing leak rule. */
+  private drawPinnedDestination(input: SectorMapDrawInput): void {
+    const key = input.pinnedCourseSectorKey;
+    if (key === null) return;
+    const sector = input.map.sectors.get(key);
+    if (sector === undefined) return;
+    if (input.sectorFlagsOf(key) === 0) return;
+    const cell = sectorCellRect(sector.sx, sector.sy, input.view);
+    const dotRadius = Math.max(1.5, 2 * input.view.scale);
+    this.graphics.lineStyle(2, COURSE_STROKE,
+      input.pinnedCourseBlocked ? PINNED_COURSE_BLOCKED_ALPHA : PINNED_COURSE_ALPHA);
+    this.graphics.strokeCircle(
+      cell.x + cell.width / 2, cell.y + cell.height / 2, dotRadius + 2.5);
   }
 
   private drawDoors(sx: number, sy: number, input: SectorMapDrawInput): void {

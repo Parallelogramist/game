@@ -62,6 +62,12 @@ export interface WorldProfileState {
    *  written before this field shipped reads as null, which is why WORLD_PROFILE_VERSION does
    *  NOT move. */
   fieldAnchorSectorKey: string | null;
+  /** The room the player pinned a course to on this world's chart, as a `sectorKey`, or null. A
+   *  course was recomputed from the focused cell and lost on the next cursor move, so the pin is
+   *  what makes a route outlive the focus that drew it. Optional in storage for the same reason
+   *  `conquered` is: a payload written before this field shipped reads as null, which is why
+   *  WORLD_PROFILE_VERSION does NOT move. */
+  pinnedCourseSectorKey: string | null;
   /** True once this profile has killed this world's boss. Optional in storage on purpose:
    *  a payload written before this field shipped reads false, which is why
    *  WORLD_PROFILE_VERSION does NOT move: a bump would discard every remembered wall. */
@@ -76,6 +82,7 @@ function emptyProfile(worldSeed: number, worldGenVersion: number): WorldProfileS
     sectorNotes: {},
     expeditionCount: 0,
     fieldAnchorSectorKey: null,
+    pinnedCourseSectorKey: null,
     conquered: false,
   };
 }
@@ -137,6 +144,11 @@ export function loadWorldProfile(
             typeof parsed.fieldAnchorSectorKey === 'string'
               && SECTOR_KEY.test(parsed.fieldAnchorSectorKey)
               ? parsed.fieldAnchorSectorKey
+              : null,
+          pinnedCourseSectorKey:
+            typeof parsed.pinnedCourseSectorKey === 'string'
+              && SECTOR_KEY.test(parsed.pinnedCourseSectorKey)
+              ? parsed.pinnedCourseSectorKey
               : null,
           conquered: parsed.conquered === true,
         };
@@ -293,4 +305,25 @@ export function getFieldAnchor(
   worldSeed: number, worldGenVersion: number,
 ): string | null {
   return loadWorldProfile(worldSeed, worldGenVersion).fieldAnchorSectorKey;
+}
+
+/**
+ * Pins the room a course is plotted to, so the route survives the focus that drew it, the chart
+ * closing and the run ending. `null` clears the pin. Change-guarded like recordFieldAnchor: a
+ * re-pin of the same room must not pay a storage write.
+ */
+export function setPinnedCourse(
+  worldSeed: number, worldGenVersion: number, sector: string | null,
+): boolean {
+  if (sector !== null && !SECTOR_KEY.test(sector)) return false;
+  const profile = loadWorldProfile(worldSeed, worldGenVersion);
+  if (profile.pinnedCourseSectorKey === sector) return true;
+  profile.pinnedCourseSectorKey = sector;
+  return saveWorldProfile(profile);
+}
+
+export function getPinnedCourse(
+  worldSeed: number, worldGenVersion: number,
+): string | null {
+  return loadWorldProfile(worldSeed, worldGenVersion).pinnedCourseSectorKey;
 }
