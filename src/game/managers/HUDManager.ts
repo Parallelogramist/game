@@ -11,6 +11,8 @@ import { MasteryIconEffectsManager } from '../../visual/MasteryIconEffectsManage
 import { RunEvent, getActiveEvent } from '../../systems/EventSystem';
 import { getNextComboThreshold } from '../../systems/ComboSystem';
 import { TouchActionButtons } from '../../ui/TouchActionButtons';
+import { describeRunControls } from '../../ui/controlsHint';
+import type { ControlMode } from '../../ecs/systems/InputSystem';
 import { Relic, getRelicRarityColor } from '../../data/Relics';
 import { RunModifier } from '../../data/RunModifiers';
 import { Blessing } from '../../data/Blessings';
@@ -298,6 +300,9 @@ export class HUDManager {
 
   // Touch action buttons (dash + fullscreen)
   private touchActionButtons: TouchActionButtons | null = null;
+
+  // Bottom-left controls line
+  private controlsHintText: Phaser.GameObjects.Text | null = null;
 
   // Event indicator
   private eventIndicatorContainer: Phaser.GameObjects.Container | null = null;
@@ -846,18 +851,20 @@ export class HUDManager {
     });
     pauseButtonBg.once('destroy', () => pauseGfx.destroy());
 
-    // Controls hint (bottom left) — desktop input only: on touch devices the
-    // text is meaningless and collided with the auto-upgrade pill at
-    // portrait width.
-    const hintIsTouch = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
-    if (!hintIsTouch) this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
+    // Controls hint (bottom left). Built for every device and shown or hidden per frame from
+    // the live control mode, because a touch-capable machine driven by a gamepad (a Steam
+    // Deck) still needs the line, and the collision the old device check was guarding against
+    // is touch being in use, which is `controlMode === 'joystick'`.
+    this.controlsHintText = this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, '', {
       fontSize: this.scaledFontSize(13),
       color: '#aaaaaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
+    });
+    this.controlsHintText.setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA)
+      .setScrollFactor(0).setVisible(false);
 
     // BGM info display (bottom left, above controls hint)
     this.createBGMDisplay();
@@ -2436,6 +2443,9 @@ export class HUDManager {
     this.fpsText?.destroy();
     this.fpsText = null;
 
+    this.controlsHintText?.destroy();
+    this.controlsHintText = null;
+
     // Destroy auto-buy toggle elements
     this.autoBuyToggleBg?.destroy();
     this.autoBuyToggleBg = null;
@@ -2579,6 +2589,24 @@ export class HUDManager {
    */
   private refreshAutoBuyPanel(): void {
     this.paintAutoBuyPanel(this.isAutoBuyEnabled ? ACCENT_COLORS.gold : ACCENT_COLORS.neutral);
+  }
+
+  /** The bottom-left line names the run's real verbs for the device in hand. It is the exact
+   *  complement of the touch buttons below, which already carry dash, the ultimate and the
+   *  chart on screen, so the two surfaces can never name one verb twice. */
+  updateControlsHint(controlMode: ControlMode): void {
+    if (!this.controlsHintText) return;
+    const line = describeRunControls({
+      controlMode,
+      hasWorldMap: this.options.hasWorldMap?.() ?? false,
+      viewportWidth: this.scene.scale.width,
+    });
+    if (line === null) {
+      this.controlsHintText.setVisible(false);
+      return;
+    }
+    if (this.controlsHintText.text !== line) this.controlsHintText.setText(line);
+    this.controlsHintText.setVisible(true);
   }
 
   /**

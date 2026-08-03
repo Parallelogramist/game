@@ -8220,6 +8220,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update touch button visibility based on control mode
     this.hudManager.updateTouchButtonVisibility(inputState.controlMode);
+    this.hudManager.updateControlsHint(inputState.controlMode);
 
     // Run ECS systems
     this.updatePlayerEffectiveMoveSpeed();
