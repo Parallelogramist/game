@@ -2971,7 +2971,12 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   fourth queued claim on it needs a legend row and a placement the chart has not budgeted.
   A found vault is also the one thing the renderer's leak rule permits drawing, which is a
   second question on the same surface. Value: the vault is a destination on the map, not a
-  toast that scrolled past. Deps: the same chart-crowding call those three wait on.
+  toast that scrolled past. Deps: **the chart-crowding call is settled**
+  (`references/map/README.md` section 4.4, `2e7488c`): the bottom-right corner is the destination
+  lane and this item is occupant 4 of it, behind the sortie badge (shipped),
+  `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL`. The real remaining dep is
+  `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none), because the legend has no room for a second lane row
+  until the panel can collapse. Do not re-derive the placement.
 - [ ] **CHORE-VAULT-LOCKOUT-ROW** (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a locked
   vault is absent from the LOCKED OUT panel, which already answers "what do I need" for
   abilities and quest keys and would answer it for a vault with one more `bump` call keyed
@@ -3064,13 +3069,21 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   read as the run breaking rather than as a jump breaking. Value: the plan flies itself. Deps: an
   operator call on whether the run may move the ship before the player has taken a frame of
   control.
-- [ ] **FEAT-SORTIE-PLAN-DEFAULT-TELL** (new 2026-08-02, from FEAT-SORTIE-BROWSE-DESTINATION): the
+- [x] **FEAT-SORTIE-PLAN-DEFAULT-TELL** (done, 2e7488c) (new 2026-08-02, from FEAT-SORTIE-BROWSE-DESTINATION): the
   survey's LAUNCH button names a destination only once a legal room is focused, so a player who
   plans nothing cannot see from the chart that the run still holds a sortie back to the field
   anchor. The fact exists (`sortieAvailable` is already passed to the survey) and the surface
   does not: naming the default would want either a second clause on a button 176px wide or a cell
   mark on the chart. Value: the jump you already own is visible before you launch. Deps: the same
   chart-crowding call `FEAT-SORTIE-CHART-TELL` and `FEAT-STIR-CHART-CELL` wait on.
+
+  Shipped inside the same badge as `FEAT-SORTIE-CHART-TELL`, and it cost the survey nothing new to
+  read: `BootScene` already called `getFieldAnchor(map.seed, map.worldGenVersion)` for
+  `sortieAvailable`, so the read is hoisted to a const and the same value is handed through as
+  `sortieAnchorSectorKey`. With nothing focused, the between-runs chart now badges the room a
+  plan-nothing launch will seed its sortie back to, which is the fact this item said had no
+  surface. The button was left alone: the cell mark answered it, so no second clause was squeezed
+  onto 176 px. Browser verdict is `POLISH-SORTIE-CHART-BADGE`.
 - [x] **FEAT-BIOME-REGION-SHIFT** (done, 3bae4c7) (new 2026-08-03, proposed by the planner, from
   `references/map/README.md` section 6, "Biome mechanics, not just tints"): the seventh slice, and
   the last of the three sector-scale mechanics that bullet names by hand. An Inferno room
@@ -3463,8 +3476,11 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   chart forgets it. A pinned course would need a store field on `WorldProfileStore` (the
   `markedSectorIds` shape), a clear action, and a chart tell that it is pinned, which is a third
   claim on the same cell `FEAT-SORTIE-CHART-TELL` and `FEAT-STIR-CHART-CELL` are already queued
-  behind. Value: the route survives the screen that drew it. Deps: the same chart-crowding call
-  those two wait on.
+  behind. Value: the route survives the screen that drew it. Deps: **the chart-crowding call is
+  settled and does not gate this one** (`references/map/README.md` section 4.4, `2e7488c`): a
+  pinned course is a line between cells plus a store field, not a corner badge, so it is not an
+  occupant of the bottom-right destination lane. Its only dep is the `markedSectorIds`-shaped
+  write it needs. Do not re-derive the placement.
 
 - [x] **FEAT-EXPEDITION-FIELD-ANCHOR** (done, 049b50f) (new 2026-08-03, proposed by the planner):
   a fresh expedition starts with one jump back to where the last one ended. Value: George can fly
@@ -3513,13 +3529,59 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   9. **Filed with it**: `POLISH-SORTIE-CARRYOVER` under `## Human gates`, plus
      `FEAT-SORTIE-CHART-TELL` and `FEAT-SORTIE-DEBRIEF-ROW`.
 
-- [ ] **FEAT-SORTIE-CHART-TELL** (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR): the room
+- [x] **FEAT-SORTIE-CHART-TELL** (done, 2e7488c) (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR): the room
   the next SORTIE will fly to is named in a run-start toast and nowhere on the chart, so a player
   who dismissed it cannot find it again without pressing the button. Held back for exactly the
   reason `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL` are: the cell already carries a
   cleared notch, a hint badge, an objective-updated badge, sector marks and POI icons, so another
   mark needs a legend row and a placement the chart has not budgeted. Value: the jump is a place
   on the map, not a line that scrolled past. Deps: the same chart-crowding call those two wait on.
+
+  1. **What shipped**: the landing room carries a badge in the cell's **bottom-right corner** (an
+     arrow settling onto a pad), drawn in `PLAYER_MARKER` cyan (`0x66ccff`), the ship marker's own
+     colour, so both ends of one jump read as the same hue. One legend row, `Sortie lands here`,
+     sits after `Objective moved` so the player-owned white glyphs stay contiguous at the end of
+     the panel. `drawSortieBadge` is a new export in `SectorMapRenderer`, sized and inset exactly
+     like the sector mark (`Math.max(3, 4.5 * scale)`, 3 px off both edges), no new constant.
+  2. **The badge marks the LANDING room, not the anchor**: `MapScene.sortieLandingKey()` is
+     `sortieDestinationKey() ?? sortieAnchorSectorKey`, routed through the same method the footer
+     button reads, so the badge and the button can never name two different rooms for one jump.
+     With a legal room focused the badge sits under the cursor (redundant, never wrong); with
+     nothing focused it sits on the anchor, which is the new fact. Pinning it permanently to the
+     anchor was rejected: it would put a second, contradictory destination on screen the moment
+     the player focused a legal room.
+  3. **It draws away from the hangar too.** In a run the footer only reads `SORTIE` while the ship
+     stands at the hangar, so out in the field `sortieDestinationKey()` is null and the badge sits
+     on the anchor: "the room your sortie returns to". That is exactly what the sibling item
+     `FEAT-SORTIE-PLAN-DEFAULT-TELL` asked for, which is why it closes here too. A null anchor
+     draws nothing at all.
+  4. **The corner budget is now settled**, in `references/map/README.md` section 4.4: bottom-right
+     was the last free corner (pin owns the top edge, cleared notch the top-right, lead badge the
+     top-left, the player's mark the bottom-left), it holds at most one badge per cell, its
+     occupants are ordered, and the **legend** (23 rows / 504 px against ~460 px of space) is the
+     real budget. That replaces the vague "chart-crowding call" this item waited on.
+  5. **The badge draws inside the per-sector loop**, after the sector-mark block and before
+     `drawPoiIcons`, which is what makes it inherit three shipped rules for free: a `flags === 0`
+     cell draws nothing (an uncharted anchor cannot leak a position), an off-screen cell is
+     culled, and a cell still fading in under the map-open cascade draws only its outline.
+  6. **`sortieAnchorSectorKey` is passed in, never re-derived.** `GameScene` converts its
+     `sortieAnchor` world point with `sectorKey(sectorOfWorldPoint(...))`; `BootScene` hoists the
+     `getFieldAnchor` read it already made for `sortieAvailable` and hands the same value through.
+     Reading the profile store inside `MapScene` would be a second source of truth and a
+     `SecureStorage` decrypt. `sortieSectorKey` is **required** on `SectorMapDrawInput`, on the
+     `courseSectorKeys` precedent: a call site that forgets it is a compile error, not a chart
+     that silently stops saying where the jump goes.
+  7. **No mechanic moved**: no storage key, no version constant, no generator change, and
+     `sortieDestinationKey()`, `recall()`, `launch()`, `beginExpeditionSortie`,
+     `resolveSortieDestination` and `pendingLaunch.ts` are byte-identical. This is a tell. No arena
+     impact by construction: `openExpeditionMap` returns on a null world map, so `MapScene` never
+     opens in an arena run.
+  8. **No test added, deliberately.** Every line is a Phaser `Graphics` draw or scene state that
+     only exists inside a live `MapScene`, which this repo verifies by play rather than by mocking
+     a scene (`CLAUDE.md`; the same call `FEAT-SORTIE-CHOOSE-DESTINATION` recorded). Suite stayed
+     at 198 files / 2235 tests, `npx tsc --noEmit` clean, `npm run build` green.
+  9. **Filed with it**: `POLISH-SORTIE-CHART-BADGE` under `## Human gates`. The badge has never
+     been seen in a browser.
 
 - [ ] **FEAT-SORTIE-DEBRIEF-ROW** (new 2026-08-03, from FEAT-EXPEDITION-FIELD-ANCHOR): the death
   screen is the moment the anchor is written and it says nothing about it, so the player learns
@@ -8677,7 +8739,11 @@ exploring pays is the end of Phase 5.
   `FEAT-GRID-BAND-CHART-CELL` was: the cell already carries a cleared notch, a hint badge, an
   objective-updated badge, sector marks and POI icons, so another mark needs a legend row and a
   placement the chart has not budgeted. Value: a room that changed is a place, not a line you
-  have to go looking for. Deps: the same chart-crowding call `FEAT-GRID-BAND-CHART-CELL` waits on.
+  have to go looking for. Deps: **the chart-crowding call is settled**
+  (`references/map/README.md` section 4.4, `2e7488c`): the bottom-right corner is the destination
+  lane and this item is occupant 2 of it, first in line behind the shipped sortie badge. The real
+  remaining dep is `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none), because the legend has no room for a
+  second lane row until the panel can collapse. Do not re-derive the placement.
   A shifted room's readout row shipped with `FEAT-STIR-COLLAPSE` (`2462679`) and lands in the same
   readout with the same chart-crowding question, so this one item now covers both marks and no twin
   item is filed for the shift.
@@ -10601,7 +10667,11 @@ exploring pays is the end of Phase 5.
   carries a cleared notch (top-right), a hint badge (top-left), an objective-updated badge (pin
   shoulder), sector marks and POI icons, so a sixth mark needs a legend row and a placement the
   chart has not budgeted. Value: a shortcut you have not opened yet is a place, not a count.
-  Deps: none, but it wants `BALANCE-LOCKOUT-PANEL-ROWS`' play data on chart crowding first.
+  Deps: **the chart-crowding call is settled** (`references/map/README.md` section 4.4,
+  `2e7488c`): the bottom-right corner is the destination lane and this item is occupant 3 of it,
+  behind the shipped sortie badge and `FEAT-STIR-CHART-CELL`. The real remaining dep is
+  `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none), because the legend has no room for a second lane row
+  until the panel can collapse. Do not re-derive the placement.
 
 - [ ] **BALANCE-LOCKOUT-SHORTCUT-CLAUSE** (new 2026-08-02, from FEAT-GRID-BAND-CHART-TELL):
   counting one shortcut per lit band, and printing it as a third clause after `N SITES`, are
@@ -13048,6 +13118,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-SORTIE-CHART-BADGE** (filed by FEAT-SORTIE-CHART-TELL, 2e7488c). The landing badge has
+  never been seen in a browser. Open the chart in a run holding a sortie, and again from GAME
+  MODES between runs. (a) does an arrow-onto-a-pad read as "the ship lands here", or does it need
+  the room key beside it? (b) at zoom 0.5 the badge is 3 px in a 32x18 cell that may also carry a
+  lead badge, a pin, a mark and POI glyphs: is the bottom-right corner still legible, or does the
+  lane need a zoom floor? (c) the badge sits under the focus cursor whenever a legal room is
+  focused, which is correct but redundant: does it read as a second cursor? (d) cyan is the ship
+  marker's colour and the marker can be in the same cell: do the two collide? (e) away from the
+  hangar the badge marks the anchor while the footer button reads RECALL, so the chart offers a
+  destination the button will not fly to yet: does that read as a promise or as a bug? Do not
+  retune any of it blind.
 
 - [ ] **POLISH-SECRET-REGION-VAULT** (filed by FEAT-SECRET-REGION-VAULT, 46ad28d). A region vault
   has never been seen in a browser. Fly a world with an unfound vault and walk into it.

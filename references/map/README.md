@@ -292,6 +292,37 @@ The in-run half (a next-hop bearing on the radar disc) is deliberately not built
 `FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdicts are
 `POLISH-MAP-COURSE` for the chart and `POLISH-LOCKOUT-COURSE` for the panel.
 
+### 4.4 The cell's corner budget is settled, and the fourth corner is the destination lane (2026-08-03)
+
+**Shipped as `FEAT-SORTIE-CHART-TELL` + `FEAT-SORTIE-PLAN-DEFAULT-TELL` (`2e7488c`).** Six filed
+items were queued behind one decision nobody had made: where a new per-sector mark goes and what
+it costs. It is made here so no later chunk re-derives it.
+
+- **The four corners have owners, and `SectorMapRenderer` is where they are enforced.** Top-left
+  is the lead badge, top-right the `CLEARED_ONCE` notch, the top EDGE is the objective pin with
+  its `UPDATED` badge on the pin's own shoulder, and bottom-left is the player's sector mark with
+  the note dot on its upper right. **Bottom-right was the last free corner and is now the
+  destination lane.** The cell interior is not available: POI glyphs sit at their real tile
+  positions and can land anywhere inside it.
+- **The lane holds at most ONE badge per cell**, and its occupants are ordered: the sortie landing
+  room first (an action one press away), then a room this expedition's ambient stir changed
+  (`FEAT-STIR-CHART-CELL`), then a room holding an unopened security-grid band
+  (`FEAT-GRID-BAND-CHART-CELL`), then a found region vault (`FEAT-VAULT-CHART-TELL`). Actionable
+  beats informational, and a fact the focused-sector readout already carries loses to one it does
+  not.
+- **The real budget is the legend, not the cell.** Each occupant costs one legend row, and the
+  panel is already 23 rows / 504 px against roughly 460 px between its clamp and the detail bar on
+  a 720-high canvas: the sortie row is the last one that fits. **The second and later occupants
+  therefore land only after `FEAT-MAPUI-LEGEND-TOGGLE` (deps: none) gives the panel a collapse.**
+  That is now the named dep of every queued lane item, replacing the vague "chart-crowding call".
+- **`FEAT-COURSE-STICKY` is not a lane occupant.** A pinned course is a line between cells plus a
+  store field, not a corner badge, so this section does not gate it: its only dep is the
+  `markedSectorIds`-shaped write it needs.
+- **The badge draws inside the per-sector loop, never after it.** That is what makes it inherit
+  the three rules the loop already enforces: an uncharted cell draws nothing (so an anchor cannot
+  leak a position), an off-screen cell is culled, and a cell still fading in under the map-open
+  cascade draws only its outline.
+
 ### 4.2 Still open, for playtest (not blockers)
 
 - **OQ-1 seam pop.** The camera free-scrolls and can show parts of two sectors, but

@@ -703,6 +703,10 @@ never lies about shape). Rendered by `SectorMapRenderer` from discovery flags:
   path at map scale) positioned by `worldPointToMap` within the current cell
   and rotated to the ship's facing (contract 11.1), so the marker shows both
   where and which way you point.
+- **Corner budget (as built, 2026-08-03)**: the four cell corners have owners and the
+  bottom-right is the destination lane, currently the sortie landing badge. Placement, the
+  one-badge rule, the occupant order and the legend-row budget are settled in
+  `README.md` section 4.4, which wins over this list.
 
 ### 4.5 Legend and the "you cannot open this yet" affordance
 
