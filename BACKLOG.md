@@ -2911,6 +2911,40 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-MAPUI-PINCH-ZOOM** (done, d149b50) (new 2026-08-03, proposed by the planner as the
+  unblocked touch half of `FEAT-MAPUI-TOUCH-A11Y-08`, `references/map/README.md` section 5
+  Phase 6): the chart zooms to a pinch. Value: George can zoom the expedition chart on a phone,
+  which is the one chart control that had no touch path at all.
+  1. **What shipped**: the pure `pinchZoomStep` plus `PINCH_ZOOM_STEP_RATIO` in
+     `src/visual/mapProjection.ts`, and one `pinch` field plus `beginPinch` / `updatePinch` /
+     `endPinch` in `MapScene`, folded into the three pointer handlers it already had.
+  2. **The gap it closed, measured.** The chart had three zoom paths and every one needed
+     hardware a phone lacks: keyboard `+`/`-`, the mouse wheel, and gamepad LB/RB. Touch had
+     drag pan and tap-to-focus and nothing else, and the footer holds RECALL/LAUNCH plus NOTE
+     with no zoom button, so a touch player was pinned at `MAP_ZOOM_LEVELS[1]` and could reach
+     neither the 0.5 overview nor the 2x read.
+  3. **Stepped, never continuous, and it reuses `stepZoom` unchanged**: `MAP_ZOOM_LEVELS` is
+     the only set of scales the chart draws and `setView` already snaps to it, so the gesture
+     reports whole steps and keyboard, wheel, gamepad and pinch stay one zoom code path.
+  4. **The anchor is the panel centre**, because that is what `stepZoom` does for every other
+     input. Anchoring at the pinch midpoint would be a second zoom path; it is question (b) of
+     `POLISH-MAP-PINCH-ZOOM`.
+  5. **A gesture spends zero pixels**, which is why it is this half of the chunk and not an
+     on-screen `+`/`-` pair: the footer's slots are contested by `FEAT-COURSE-PIN-TOUCH` and
+     `BALANCE-CHART-ROW-SIX-BUTTONS`, and the detail bar's height is open under
+     `POLISH-MAP-DETAIL-BAR-PORTRAIT`, so a button would have walked into the operator's open
+     layout queue and a gesture does not.
+  6. **Desktop is untouched by construction**: a pinch needs two distinct pointer ids both
+     down and a mouse only ever produces id 0, so no mouse interaction can enter the branch.
+     `activePointers: 4` was already set in `GameConfig.ts` and was not changed.
+  7. **Lifting one finger hands the chart to the other** at the position the pinch last saw
+     it, so a two-finger zoom that becomes a one-finger pan cannot jump, and a third finger is
+     swallowed rather than allowed to pan or move the focus.
+  8. **Nothing persists and no version moved**: no storage key, no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or
+     `WORLD_ARCHIVE_VERSION` change, and no config change. The playtest half is
+     `POLISH-MAP-PINCH-ZOOM`.
+
 - [x] **FEAT-BIOME-REGION-BLOOM** (done, d0272fb) (new 2026-08-03, proposed by the planner from
   `references/map/README.md` section 6, "Biome mechanics, not just tints"): the eighth slice, and
   the first region mechanic that reacts to the player instead of to the room. Value: George's
@@ -13073,7 +13107,14 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 - [ ] **FEAT-MAPUI-TOUCH-A11Y-08**: the map earns phones and every accessibility setting the
   game already promises: drag pan, pinch zoom snapping to discrete levels, 48px chrome targets,
   a bottom-sheet tooltip below 500px width, and every state distinguishable in high contrast and
-  all three colorblind modes. Deps: `FEAT-MAPUI-DOORS-05`, `FEAT-MAPUI-RADAR-UNDERLAY-06`.
+  all three colorblind modes.
+  **The touch-zoom half shipped as `FEAT-MAPUI-PINCH-ZOOM` (d149b50, 2026-08-03):** pinch
+  snaps through `MAP_ZOOM_LEVELS` via `stepZoom`, so drag pan, tap-to-focus and pinch zoom
+  are all reachable on touch. Still open here and deliberately not agent work: 48px chrome
+  targets and the sub-500px bottom-sheet tooltip (both layout calls, and the footer's slots
+  are already contested), and the high-contrast plus three-colorblind-mode pass (an
+  accessibility pass, which the fleet does not pull autonomously).
+  Deps: `FEAT-MAPUI-DOORS-05`, `FEAT-MAPUI-RADAR-UNDERLAY-06`.
 
 #### Phase 7: promotion
 
@@ -13394,6 +13435,22 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-PINCH-ZOOM** (filed by FEAT-MAPUI-PINCH-ZOOM, d149b50). The chart now zooms
+  to a two-finger pinch and none of it has been felt on a real touchscreen. Open the chart on a
+  phone or on the Deck's touchscreen, mid-expedition and from the BootScene survey. (a) is
+  `PINCH_ZOOM_STEP_RATIO` 1.35 right: does a deliberate pinch step the zoom about when the
+  fingers expect it, or does it fire while the player meant to two-finger pan? (b) the step
+  anchors on the panel centre, like every other zoom path: does the sector being read stay
+  under the eye, or should the pinch anchor at the fingers' midpoint (which would be a second
+  zoom path, so it is a real decision and not a tweak)? (c) three levels is a short ladder:
+  does stepping 0.5 to 1 to 2 read as zooming, or as the chart snapping between three fixed
+  maps? (d) lifting one finger hands the pan to the other at its last known position: does
+  that read as continuous, or as a jump? (e) the footer hint still reads
+  `WASD / ARROWS PAN · +/- ZOOM · C CENTRE · TAB LEGEND`, which names no touch control at all:
+  should it say something else on a touch device, and is there width for it
+  (`MapScene.ts:347-353` sizes the hint against the footer buttons)? Do not retune the ratio
+  blind.
 
 - [ ] **POLISH-REGION-DEATH-BLOOM** (filed by FEAT-BIOME-REGION-BLOOM, d0272fb). An elite kill in
   the Verdant Rot now opens a 60 px void rift for 5 s where it fell, and none of it has been seen
