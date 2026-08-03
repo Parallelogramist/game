@@ -3521,16 +3521,62 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   fifth before that answer lands is the blind retune the convention forbids. Value: the route you
   plotted is a bearing while you fly it. Deps: `BALANCE-MARK-RADAR-RANK`.
 
-- [ ] **FEAT-COURSE-STICKY** (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT): a course lives only
-  as long as the focus that made it, so moving the cursor one cell replaces it and closing the
-  chart forgets it. A pinned course would need a store field on `WorldProfileStore` (the
-  `markedSectorIds` shape), a clear action, and a chart tell that it is pinned, which is a third
-  claim on the same cell `FEAT-SORTIE-CHART-TELL` and `FEAT-STIR-CHART-CELL` are already queued
-  behind. Value: the route survives the screen that drew it. Deps: **the chart-crowding call is
-  settled and does not gate this one** (`references/map/README.md` section 4.4, `2e7488c`): a
-  pinned course is a line between cells plus a store field, not a corner badge, so it is not an
-  occupant of the bottom-right destination lane. Its only dep is the `markedSectorIds`-shaped
-  write it needs. Do not re-derive the placement.
+- [x] **FEAT-COURSE-STICKY** (done, 39deaf9) (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT): a
+  course lives only as long as the focus that made it, so moving the cursor one cell replaces it
+  and closing the chart forgets it. Value: the route survives the screen that drew it.
+  1. **The pin and its two bindings**: `K` on the keyboard and gamepad `LT` call
+     `MapScene.togglePinnedCourse`, which pins the focused room and clears it on a second press of
+     the same room. `LT` takes no arming guard, unlike `RT` and `LB`: nothing else in the game
+     binds it, so it cannot be held on the frame the chart appears, and a stray pin costs one
+     press to undo. `K` needs no `MAP_KEY_CAPTURES` entry: it has no browser default to
+     preventDefault.
+  2. **The store field**: `pinnedCourseSectorKey` on `WorldProfileState`, sanitized on load
+     against the same `SECTOR_KEY` pattern the field anchor uses, with `setPinnedCourse` /
+     `getPinnedCourse` change-guarded like `recordFieldAnchor` so a re-pin pays no storage write.
+     No `WORLD_PROFILE_VERSION` bump: the field is optional in storage exactly as `conquered` is,
+     so a payload written before it reads as no pin, and a bump would discard every remembered
+     wall for nothing.
+  3. **The store holds a ROOM, never a route**, and that is the load-bearing call: the line is
+     re-plotted from the LIVE ship position on every `refreshDetail`, so a stored route cannot go
+     stale against a door that has since opened or a ship that has since moved.
+  4. **Draw order and the ring**: the pinned line strokes first, then its ring, then the focus
+     line over both, so the two read apart where they diverge and the focus wins where they
+     coincide. The pinned line is one pixel wider and softer (3 px / 0.4 against 2 px / 0.55). The
+     ring is taken from the pinned ROOM rather than the end of the line, which is why a pin the
+     chart cannot yet route to (the ship's own room, or a room nothing charted connects) still
+     shows: those plot to fewer than two keys and the ring is the only tell there. An uncharted
+     room draws nothing, on the renderer's standing leak rule.
+  5. **The detail bar says `COURSE PINNED`** on the pinned room, between the course clause and the
+     mark clause, because the mark clause carries the quoted note on its tail.
+  6. **The pin is per world**, keyed by seed and worldgen version like every other profile field,
+     and shared by both entries to the chart: a route planned in the between-runs survey is still
+     drawn inside the run.
+  7. **`FEAT-COURSE-RADAR-BEARING`'s premise is now half-solved.** It stays held on
+     `BALANCE-MARK-RADAR-RANK`, and the radar was not touched, but the fact it should read when it
+     unblocks is this persisted pin rather than a course recomputed from the focus.
+  8. **No touch path and no footer button**, on `P MARK`'s precedent: it has none either, and the
+     footer holds exactly RECALL/LAUNCH plus NOTE. `FEAT-MAPUI-TOUCH-A11Y-08` owns that gap for
+     the whole screen; `FEAT-COURSE-PIN-TOUCH` is filed below.
+  `MapScene` is expedition-only, so arena, daily, weekly, practice and gauntlet are untouched by
+  construction.
+
+- [ ] **FEAT-COURSE-PIN-TOUCH** (new 2026-08-03, from FEAT-COURSE-STICKY): the pin is on `K` and
+  gamepad `LT` and has no touch path, matching `P MARK`, which has none either. A phone can focus a
+  room by tapping it and then cannot pin it. Value: the chart's two player-written facts are
+  reachable on the device most likely to be reading it. Deps: `FEAT-MAPUI-TOUCH-A11Y-08`, which
+  owns the touch gap for this screen, and the footer's third button slot.
+- [ ] **FEAT-COURSE-PIN-ARRIVAL-CLEAR** (new 2026-08-03, from FEAT-COURSE-STICKY): arriving at the
+  pinned room leaves the pin standing, so the ring sits on the room the ship is in and the line is
+  absent until it leaves. Auto-clearing on arrival needs a field-side write (the chart is not open
+  when the ship crosses a border) and answers a design question this item deliberately did not:
+  whether arriving means the pin is spent, or whether a pinned hub should keep drawing the way back.
+  Value: the chart stops showing a route the player already flew. Deps: `POLISH-MAP-PINNED-COURSE`
+  (d).
+- [ ] **CHORE-COURSE-PIN-LEGEND-ROW** (new 2026-08-03, from FEAT-COURSE-STICKY): neither the course
+  nor its pin ring has a legend row, so a player who has never pressed `K` has no way to learn the
+  white ring means "pinned". Left out because the plain course shipped without one and adding one
+  for the pin alone would explain the second half of a pair. Value: the chart explains its own two
+  white marks. Deps: section 4.5's reflow made room, so this is a copy call, not a budget one.
 
 - [x] **FEAT-EXPEDITION-FIELD-ANCHOR** (done, 049b50f) (new 2026-08-03, proposed by the planner):
   a fresh expedition starts with one jump back to where the last one ended. Value: George can fly
@@ -13265,6 +13311,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-PINNED-COURSE** (new 2026-08-03, from FEAT-COURSE-STICKY). The pinned course's
+  five constants are geometry, not feel, and were picked to read as "steadier than the focus line"
+  without a browser. Operator playtest questions: (a) at 3 px / 0.4 alpha under the focus line's
+  2 px / 0.55, are the two lines distinguishable at a glance when they diverge, and does the pinned
+  one read as the committed route? (b) is the destination ring (`dotRadius + 2.5`) readable at the
+  minimum zoom, and does it collide with a POI glyph in the same cell? (c) are `K` and gamepad `LT`
+  the right bindings, or should the pin take a footer button beside NOTE? (d) should arriving at the
+  pinned room clear the pin (`FEAT-COURSE-PIN-ARRIVAL-CLEAR`), or keep drawing the way back?
 
 - [ ] **POLISH-MAP-VAULT-BADGE** (filed by FEAT-VAULT-CHART-TELL, c6223c3). The two rings that mark
   a region vault the ship was refused at have never been seen in a browser. Open the chart after

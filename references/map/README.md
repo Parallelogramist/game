@@ -291,6 +291,17 @@ the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph b
   which is a separate `PoiFlags.COLLECTED` write. An unclaimed vault whose guard is cleared is
   therefore a real state (the player won the fight and died before touching the core), which is
   what makes the word worth printing at all.
+- **And a course can be pinned (`FEAT-COURSE-STICKY`, `39deaf9`).** `K` on the keyboard and gamepad
+  `LT` pin the focused room to the world profile (`pinnedCourseSectorKey`, no
+  `WORLD_PROFILE_VERSION` bump: a payload written before it reads as no pin), so the route survives
+  the cursor moving, the chart closing, the run ending and a reload. The pinned line draws under
+  the focus line, one pixel wider and softer, with a ring on the room it ends in. Two rules worth
+  keeping: the store holds a ROOM and never a route, so the line is re-plotted from the live ship
+  position on every refresh and cannot go stale against a door that has since opened or a ship that
+  has since moved; and a pin on a room the chart cannot yet connect is allowed rather than refused,
+  because the ring is the whole tell there and the line appears by itself once the chart learns the
+  way. The pin is per world and shared by both entries to the chart, so a route planned in the
+  between-runs survey is still drawn inside the run.
 
 The in-run half (a next-hop bearing on the radar disc) is deliberately not built and is
 `FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdicts are
@@ -347,9 +358,9 @@ it costs. It is made here so no later chunk re-derives it.
   a 720-high canvas: the sortie row is the last one that fits. **That budget was spent and then
   reopened: `FEAT-MAPUI-LEGEND-TOGGLE` (`2c776d9`) made the panel reflow into columns and fold
   away, so section 4.5 now owns the row budget and the lane's queued occupants are unblocked.**
-- **`FEAT-COURSE-STICKY` is not a lane occupant.** A pinned course is a line between cells plus a
-  store field, not a corner badge, so this section does not gate it: its only dep is the
-  `markedSectorIds`-shaped write it needs.
+- **`FEAT-COURSE-STICKY` was not a lane occupant, and shipped without spending this budget**
+  (`39deaf9`). A pinned course is a line between cells, a ring on the room it ends in and a store
+  field, not a corner badge, so it cost the lane nothing and the legend no row.
 - **The badge draws inside the per-sector loop, never after it.** That is what makes it inherit
   the three rules the loop already enforces: an uncharted cell draws nothing (so an anchor cannot
   leak a position), an off-screen cell is culled, and a cell still fading in under the map-open
