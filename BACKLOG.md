@@ -3131,7 +3131,7 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   `buildSectorSupply`'s own 0.021 ms, on a path the HUD ticker walks once a second) AND a way to
   tell a world-bound step from a cross-world one, which no flag expresses. Value: a contract could
   ask for two vaults in the 296 of 300 worlds that hold them. Deps: that flag.
-- [ ] **BUG-CONTRACT-GHOST-HIDDEN-FLOOR** (new 2026-08-03, found by
+- [x] **BUG-CONTRACT-GHOST-HIDDEN-FLOOR** (done, 439f389) (new 2026-08-03, found by
   FEAT-QUEST-REGION-SEASON-CONTRACT): the shipped `ghost` template can strand itself. Step 1 is a
   bare `findSecret` (any tier) for three finds and step 2 asks for two `hiddenSector` finds, but
   hidden sectors per world measure min **2** (1 of 300 seeds, median 3, max 3, capped by
@@ -3142,6 +3142,64 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   and changing a shipped target is a second logical change; the honest fixes are step 2 at target
   1, or a `hiddenSector` bound in `seasonQuests.test.ts` beside the `puzzle` and `capstone` ones.
   Value: a contract every world can actually finish. Deps: none.
+
+  **What shipped, and the correction to this row's own severity.** The two steps were swapped so
+  the scarce ask leads. **The stranding does not need the one world in 300 that holds two hidden
+  sectors: it needs no unusual world at all.** `recordQuestEvent` reads
+  `definition.steps[state.stepIndex]` and nothing else (`QuestProgress.ts:279`), so a later step
+  banks nothing while an earlier one runs, whatever its scope; a bare `findSecret` trigger matches
+  every `SecretTier` (`:136-146`); and a hidden sector stays broken for that world for good. So in
+  an ordinary 3-hidden-sector world, spending two of them on step 1's three bare finds leaves one
+  against a target of two, and the contract dies with the world holding it.
+  **Both fixes this row proposed are wrong and were not built.** Target 1 still strands (spend all
+  three on step 1 and zero remain), and a target bound cannot express the defect at all, because
+  the defect is the ORDER rather than the number: `ghost` would clear any bound down to 1 and still
+  strand. What the test gained instead is the ordering invariant, folded into the existing bounds
+  test rather than added as a new one: no template may place a `findSecret` step after one whose
+  trigger already matches every tier it needs. Measured this session, so nobody re-derives it:
+  every world carries exactly 6 `AbilityDoor` and 5 `KeyDoor` edges over 200 seeds through the real
+  `generateExpeditionWorld`, and 3 hidden sectors in all 200.
+  **Rewards stayed with their own asks** (200 on the hidden-sector step, 140 on the bare one), so
+  the contract's payout is unchanged and the template set stays econ-neutral by construction; the
+  gold ladder descends across this one contract on purpose, because moving gold between steps is an
+  econ change inside the budget `FEAT-ECON-WARDS` is parked on. **No save field, no migration and
+  no version bump:** a live profile mid-`ghost` at `stepIndex` 1 lands on the bare ask and skips the
+  scarce one, which is a windfall on one contract on one world rather than a break, and
+  `sanitizeStates` already clamps the index. **No `POLISH-*` gate was filed:** this is which of two
+  already-shipped sentences is shown first, not a feel change with a tuning question behind it.
+
+- [ ] **CHORE-CONTRACT-PURGE-HAZARD-SUPPLY** (new 2026-08-03, from
+  BUG-CONTRACT-GHOST-HIDDEN-FLOOR): the `purge` template asks for two nest clears in one run and
+  then five hazard clears of any kind across expeditions, and a cleared hazard is spent for that
+  world, so the pair wants seven hazard POIs from one world's slots. Subset before superset is the
+  safe ORDER (unlike `ghost`, the leading step cannot exhaust the trailing one's whole pool), so
+  the ordering invariant passes it correctly and this is a SUPPLY question instead: nobody has
+  counted nests plus lairs per world. `BALANCE-POI-DENSITY` is the open row that would measure the
+  denominator. Value: a contract whose second step is reachable in the thinnest world the generator
+  makes. Deps: that measurement.
+- [ ] **CHORE-CONTRACT-WARDEN-GATE-SUPPLY** (new 2026-08-03, from
+  BUG-CONTRACT-GHOST-HIDDEN-FLOOR): the `warden` template asks for two gate opens in one run and
+  six more across expeditions, and a gate opens once per world for good, so it wants eight from a
+  supply measured this session at exactly 6 `AbilityDoor` plus 5 `KeyDoor` edges in every one of
+  200 seeds (the 5 being the four shipped quest doors plus the warden seal). Eight of eleven fits,
+  **but a door only opens for a profile HOLDING its ability or key** (`tryOpenAbilityDoor` /
+  `tryOpenQuestDoor`, `GameScene.ts:7139` and `:7175`), so the effective supply on a profile short
+  of traversal abilities is lower than eight and on a fresh one is zero. That makes it a
+  progression question rather than a template one, which is why it is filed rather than retuned.
+  Value: a contract a mid-progression profile can actually finish. Deps: a measurement of how many
+  of the eleven a profile at each ability count can open.
+- [ ] **CHORE-CONTRACT-SCARCE-SUPPLY-PREACCEPT** (new 2026-08-03, from
+  BUG-CONTRACT-GHOST-HIDDEN-FLOOR): the residual of the same species, left standing deliberately.
+  `recordQuestEvent` skips any quest whose `status` is not `'active'`, and a contract
+  auto-activates only once the chains stop filling the accept cap, so a player who breaks this
+  world's hidden sectors BEFORE the `ghost` contract activates still finds its first step
+  unfeedable. The reorder cannot reach that case, because no step order helps a quest that is not
+  recording yet. The honest fixes are a supply-aware clamp (the same `SectorSupplySnapshot`
+  extension `FEAT-QUEST-CAPSTONE-SUPPLY-CLAMP` is parked on) or seeding a scarce step's progress
+  from persistent discovery state at activation, which is a new engine behaviour. On a profile
+  whose chains are done, contracts auto-activate at world issue and this cannot fire. Value: a
+  contract is feedable no matter what the player did before it activated. Deps:
+  `FEAT-QUEST-CAPSTONE-SUPPLY-CLAMP`'s snapshot field.
 - [ ] **FEAT-QUEST-REGION-CHART-TELL** (new 2026-08-03, from FEAT-QUEST-REGION-CAPSTONE): a
   capstone step names no place, so it produces no `QuestMarker`, no chart pin and no radar bearing
   (`buildQuestMarkers` handles the place-naming kinds only). That is correct as shipped, because a
