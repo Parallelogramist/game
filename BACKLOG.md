@@ -2911,6 +2911,55 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **BUG-MAP-VIEW-HEADER-DRIFT** (done, ddd1a4a) (new 2026-08-03, proposed by the planner):
+  the chart pans and zooms where you push it. Value: George can pan the world chart vertically and
+  zoom it and have the view go where the input said, instead of the chart slamming into its own
+  clamp within about a tenth of a second on `WASD`, the left stick or a finger drag and staying
+  there until `C` re-centres it.
+  1. **The defect, symptom first.** Press `W` or `S` on the chart and it does not scroll: the whole
+     map jams against its vertical clamp with a single 36 px row of cells pinned at the bottom of
+     the panel. Horizontal pan looked fine. Every zoom step also shoved the chart 76 px down on top
+     of the zoom.
+  2. **The cause.** `setView` takes a PANEL-space candidate (it hands `clampMapView` the panel
+     width and height) and stores a SCREEN-space view, re-adding `HEADER_HEIGHT` on the way in.
+     Three of its five callers honoured that: `:454` and `:1248` pass `centerViewOn`, whose output
+     is panel space by construction, and `keepCursorVisible` subtracted the header inline before
+     calling the pure `scrollViewToCell`. `panBy` and `stepZoom` did not: they built their
+     candidate out of `this.view`, which already carries the header, so each call leaked one extra
+     76 px into `originY`.
+  3. **Why it was that bad.** At the shipped constants on a 1280x720 canvas the panel is
+     `720 - 76 - 44 - 104` = 496 px tall, the intended pan step is `PAN_SPEED 420 * scale / 60` = 7
+     px per frame, and the leak is 76 px per frame with a sign that does not depend on the input,
+     so both vertical directions drove the view the same way at eleven times the intended speed.
+     `clampMapView` lets the content top reach `496 - 36` = 460, which the leak reaches in about
+     seven frames. `panBy` runs once per frame while a pan key or the stick is held and once per
+     `pointermove` while dragging, and `stepZoom` leaked the same 76 px on `+`/`-`, `RB`/`LB`, the
+     wheel and every pinch step (pinch routes through `stepZoom`). `originX` carries no offset,
+     which is why only the vertical axis broke.
+  4. **It was never right.** `git log -L 1390,1400:src/game/scenes/MapScene.ts` returns exactly one
+     commit, `36844a0`, so `setView`'s header add and both mismatched callers shipped together with
+     the chart itself. It survived because every `POLISH-MAP-*` row in the playtest queue is still
+     unanswered: this screen has never had a browser verdict.
+  5. **The fix is one converter, not a contract change.** `MapScene.panelView()` turns the live
+     screen-space view back into panel space, and `panBy`, `stepZoom` and `keepCursorVisible` (which
+     had the conversion inline already) all go through it. `setView`'s panel-in / screen-out
+     contract is unchanged, so the two `centerViewOn` callers were not touched. After the change the
+     converter is the ONLY code in the file that reads `this.view.originX` / `this.view.originY`,
+     which is what stops a sixth caller from repeating this by accident.
+  6. **The zoom rewrite is algebraically the old one minus the header.**
+     `(P/2 + H) - ((P/2 + H) - originY_screen) * r - H` is `P/2 - (P/2 - originY_panel) * r`, so
+     "zoom about the panel centre" is preserved exactly and only the leak is gone.
+  7. **No test was added**, on this repo's own rule: the change is a coordinate-space handoff inside
+     a Phaser scene, which is verified by play, and the pure side (`clampMapView`, `centerViewOn`,
+     `scrollViewToCell`) is unchanged and already covered. The structural guard is the grep in
+     point 5, and the suite stayed at 200 files / 2273 tests.
+  8. **Nothing persists and no version constant moved**: frame-local view math. Arena, daily,
+     weekly, practice and gauntlet are untouched by construction, because `MapScene` is
+     expedition-only.
+  9. **No new `POLISH-*` row was filed.** The browser verdict is question (f) appended to the
+     already-open `POLISH-MAP-CURSOR-KEYS`, which is the row that covers how this screen navigates
+     and which already asks about pan. The open human-gate count is unchanged at 68.
+
 - [x] **FEAT-PRACTICE-CHART-REVEAL** (done, bae00d0) (new 2026-08-03, proposed by the planner):
   the sandbox opens the chart with the world already on it. Value: George can press START and
   read a full chart at once, so the lane badges, the course, the legend, the detail bar and the
@@ -13818,8 +13867,14 @@ Never agent work. The fleet must not do any of these.
   rather than the game's, unlike the D-pad's one-step-per-press: does a held arrow feel like
   scanning or like a runaway? (e) the footer now reads `WASD PAN · ARROWS CURSOR · ...` and is one
   clause longer: does it still fit its plate on a portrait phone, where
-  `POLISH-MAP-DETAIL-BAR-PORTRAIT` is already asking about the line below it? Retuning any of the
-  five before a browser verdict is exactly the blind retune the convention forbids.
+  `POLISH-MAP-DETAIL-BAR-PORTRAIT` is already asking about the line below it? (f) vertical pan and
+  zoom were broken from the chart's first commit until `BUG-MAP-VIEW-HEADER-DRIFT`: `panBy` and
+  `stepZoom` leaked one `HEADER_HEIGHT` (76 px) per call into `originY`, so holding `W` or `S`
+  jammed the chart against its clamp in about seven frames and every zoom step shoved it 76 px
+  down. Now that it moves at all: does `PAN_SPEED` 420 read as too slow, right, or too fast at each
+  of the three zoom levels, and does zoom still keep the room you were reading under the eye?
+  Retuning any of the six before a browser verdict is exactly the blind retune the convention
+  forbids.
 
 - [ ] **POLISH-PRACTICE-EXPEDITION** (filed by FEAT-PRACTICE-EXPEDITION, 8f19bed). PRACTICE can
   now start an expedition and none of it has been seen in a browser. Questions: (a) does the
