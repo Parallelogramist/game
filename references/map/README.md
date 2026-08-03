@@ -390,10 +390,21 @@ first.
   visual-quality path disables lighting entirely, so it gets a flat black plate under gameplay
   instead: the atmosphere, never a harder game. Six of the seven stages carry no boost and are
   byte-identical.
-  Of the three named sector-scale mechanics the dark biome is now built; moving walls and
-  low-gravity drift stay deferred on their own merits, because each needs new navigation,
-  collision or movement machinery rather than a knob that already shipped. The stage
-  multipliers are filed as `FEAT-BIOME-REGION-MULTIPLIERS`.
+  **Sixth slice shipped as `FEAT-BIOME-REGION-DRIFT` (`fe560f0`, 2026-08-03):**
+  low-gravity drift, the second of the three named sector-scale mechanics. `StageDefinition.driftFactor`
+  feeds the pure `resolveStageDriftFactor`, which `applyStageVisuals` holds on the scene and
+  `GameScene` multiplies into the `accelerationMultiplier` it already passes `inputSystem`, at the
+  same site the hazard bias, the pack bias and the darkness use. The Ion Field (region index 3 of
+  every world, at depths 6-7) resolves to 0.45, so inside it the ship reaches 95% of top speed in
+  0.222 s against the shipped 0.100 s and coasts up to 29.6 px on a fast build against a 40 px
+  tile; top speed itself never moves and enemies are untouched. **The deferral above was wrong on
+  its stated reason and is corrected here rather than left standing:** drift needed no new movement
+  machinery, because `src/ecs/systems/InputSystem.ts` has run an exponential velocity-approach model
+  (`PLAYER_ACCEL_BASE`, "the single knob for player movement feel") since before this plan existed,
+  and already took the caller's `accelerationMultiplier`. Six of the seven stages author no factor
+  and are byte-identical. **Moving walls stays deferred and its reason still holds**: it needs
+  navigation and collision machinery that does not exist. The stage multipliers are filed as
+  `FEAT-BIOME-REGION-MULTIPLIERS`, and the banner clause as `FEAT-REGION-DRIFT-SIGNATURE-CLAUSE`.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
   world with a new seed, banks the previous completion percentage as a record, and keeps
   traversal abilities. Turns the persistent world into a repeatable chase. **Shipped as

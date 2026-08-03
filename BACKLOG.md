@@ -2911,6 +2911,81 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-BIOME-REGION-DRIFT** (done, fe560f0) (new 2026-08-03, proposed by the planner, from
+  `references/map/README.md` section 6, "Biome mechanics, not just tints"): the sixth slice, and
+  the second of the three sector-scale mechanics that bullet names by hand. The Ion Field region
+  now handles differently: the ship takes twice as long to reach top speed inside it and coasts
+  twice as far after the stick is released. Value: the region you fly into changes how the ship
+  flies, not only what it sends at you.
+  1. **What shipped**: `MIN_STAGE_DRIFT_FACTOR` and `StageDefinition.driftFactor` in
+     `src/data/Stages.ts`, the pure `resolveStageDriftFactor` beside
+     `resolveStageAmbientDarkness`, `driftFactor: 0.45` on `stage_ion_field`, and
+     `GameScene.activeStageDriftFactor` resolved in `applyStageVisuals` and multiplied into the
+     `inputSystem` call.
+  2. **The README's stated reason for deferring it was wrong, measured.** Section 6 said drift
+     "needs new navigation, collision or movement machinery rather than a knob that already
+     shipped". The machinery already shipped: `src/ecs/systems/InputSystem.ts` has run an
+     exponential velocity-approach model with `PLAYER_ACCEL_BASE = 30` (its own comment calls it
+     "the single knob for player movement feel") and already took a caller-supplied
+     `accelerationMultiplier` that `GameScene.ts:8074` passes from `playerStats`. Drift is a
+     multiplier on that product. Moving walls genuinely does need new machinery and stays deferred.
+  3. **The arithmetic, so nobody retunes it blind.** The approach is
+     `1 - exp(-30 * accelerationMultiplier * driftFactor * dt)`, so time to 95% of top speed is
+     `ln(20) / rate`: 0.100 s shipped, 0.222 s at 0.45. Coast distance after release is
+     `speed / rate`: 5.0 px to 11.1 px at the base `moveSpeed` 150, and 13.3 px to 29.6 px on a
+     400-speed build, against a 40 px tile. Top speed itself never moves.
+  4. **Ion Field and no other region.** `assignDangerAndBiomes` orders regions by
+     `enemyHealthMultiplier + enemyDamageMultiplier` with `stage_deep_void` pinned to the spine,
+     which puts Ion Field at region index 3, depths 6 to 7, present at the live seed. It is not
+     the spine, so no world's home region changes handling; Crystal Caves already carries the
+     darkness boost, and two mechanics on one region while five stay plain is the wrong shape.
+  5. **It applies wherever the stage is active, arena included, on purpose.** That is the rule
+     `FEAT-BIOME-REGION-DARK` shipped (Crystal Caves is dark in the arena too), and a mode gate
+     would be the second code path for one outcome that CLAUDE.md's parallel-path rule exists to
+     refuse. Ion Field is behind `worldLevel:3`, so no new player meets it by accident.
+  6. **The tell is the stage description, not the banner.** The banner's second line is at its
+     measured budget and every further clause is parked on question (e) of
+     `POLISH-REGION-SIGNATURE-BANNER`, so this took the surface with room instead: the Ion Field
+     description now reads "Crackling ion plains where thrusters lose their grip." The replacement
+     is the same 81 characters as the string it replaced, so the funnel cards wrap identically,
+     and the clause it dropped ("Energy storms spark everywhere") is the one fact the region
+     signature banner already states as `BLOOMS ENERGY`.
+  7. **The clamp is the whole safety argument** and is what the three new cases in
+     `src/data/Stages.test.ts` pin: an authored 0 is a ship that never moves and an authored
+     `NaN` poisons `Velocity` for the rest of the run, so the resolver floors at
+     `MIN_STAGE_DRIFT_FACTOR = 0.2` and falls back to 1 on anything non-finite.
+  8. **Nothing persists and no version moved**: no storage key, no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION`
+     change and no save shape. The scene field is recomputed by `applyStageVisuals` on the fresh
+     start, the save restore and every region crossing, so a save written before this loads
+     identically. `src/ecs/systems/InputSystem.ts` was not edited at all.
+  9. **Filed with it**: `POLISH-REGION-DRIFT` under `## Human gates`, plus
+     `FEAT-REGION-DRIFT-SIGNATURE-CLAUSE` and `CHORE-DASH-VELOCITY-OVERWRITE` under
+     `## Proposed (auto)`.
+
+- [ ] **FEAT-REGION-DRIFT-SIGNATURE-CLAUSE** (new 2026-08-03, from FEAT-BIOME-REGION-DRIFT): the
+  sector banner names what a region sends and what its ground grows, and says nothing about a
+  region that has taken the grip out from under the ship, which is the most immediately felt of
+  the three. A `RUNS SLICK` clause would slot into `describeRegionSignature`'s clause list and
+  `driftFactor` is already pure data, so the wiring is trivial and the line budget is not: this is
+  the same second line `FEAT-REGION-DARK-SIGNATURE-CLAUSE` and `FEAT-REGION-SIGNATURE-HAZARD-DEPTH`
+  are queued behind. Value: the region states the rule the player is about to be surprised by.
+  Deps: question (e) of `POLISH-REGION-SIGNATURE-BANNER`, the same gate those two wait on.
+
+- [ ] **CHORE-DASH-VELOCITY-OVERWRITE** (new 2026-08-03, found by FEAT-BIOME-REGION-DRIFT while
+  reading the player velocity path): `GameScene.ts:7842` writes
+  `Velocity.x[this.playerId] = dashState.velocityX * dashSpeed` inside the `dashState.isDashing`
+  branch, and `:8074` calls `inputSystem(...)` later in the same `update()`, which ends by
+  assigning `Velocity.x[playerId] = smoothedVelX` unconditionally for every player entity. Read as
+  written, a dash's velocity is overwritten in the frame it is set, so a dash would carry the ship
+  no faster than holding the stick and only the afterimages and i-frames would be real.
+  **Not verified in a browser and not touched by FEAT-BIOME-REGION-DRIFT**, which only scales the
+  approach rate feeding that same smoothed velocity, so the relationship between the two writes is
+  exactly what it was. Confirm the symptom in a run before changing anything: if it reproduces the
+  fix is to let the dash own the frame (skip the smoothing while dashing, or seed `smoothedVel`
+  from the dash), and if it does not, the dead write should go. Value: the dash actually dashes.
+  Deps: none, wants one browser check first.
+
 - [x] **FEAT-MAPUI-MENU-SURVEY** (done, 4d4d618) (new 2026-08-02, proposed by the planner): the
   world chart opens from the main menu, between runs. Value: George can open his expedition
   world's real chart before he launches, read what he has charted, what is still locked out and
@@ -12718,6 +12793,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-REGION-DRIFT** (new 2026-08-03, from FEAT-BIOME-REGION-DRIFT). The drift was
+  derived as arithmetic off the shipped approach model and never flown. Questions, all feel:
+  (a) does `driftFactor: 0.45` (0.222 s to 95% of top speed against the shipped 0.100 s, and up to
+  29.6 px of coast on a 400-speed build against a 40 px tile) read as a slippery region or as input
+  lag; (b) at depths 6 to 7 the Ion Field also carries +20% enemy damage and an energy-hazard lean,
+  so is a handling penalty on top of that the right region to have picked, or should the drift move
+  to a gentler one; (c) an arena run whose funnel pick is Ion Field drifts for its whole length,
+  which is the rule the dark region already set: right, or does the arena want the stage's palette
+  without its mechanic; (d) the Quick Start acceleration upgrade multiplies into the same product,
+  so a maxed build barely drifts at all: is that the counter-play you want or does it erase the
+  region; (e) the only tell is the funnel card's description, since the banner's second line is
+  parked on `POLISH-REGION-SIGNATURE-BANNER` (e): is that enough, or does a first crossing need a
+  word. Do not retune any of it blind.
 
 - [ ] **POLISH-MAP-SURVEY** (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY). Value: the chart now
   opens from the GAME MODES submenu as SURVEY, and none of it has been seen outside a run.
