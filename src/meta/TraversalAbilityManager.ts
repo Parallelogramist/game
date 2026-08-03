@@ -1,4 +1,5 @@
 import { SecureStorage } from '../storage';
+import { isPracticeSession } from '../utils/practiceSession';
 import {
   TRAVERSAL_ABILITIES,
   TraversalAbilityDefinition,
@@ -33,7 +34,28 @@ export function sanitizeOwnedAbilityIds(value: unknown): TraversalAbilityId[] {
   return [...owned].sort((a, b) => traversalAbilityIndex(a) - traversalAbilityIndex(b));
 }
 
+/**
+ * What a practice run holds instead of the profile's own vault claims: `owned` is the
+ * shipped behaviour, `full` every ability, `none` an empty kit whatever the profile has
+ * claimed.
+ */
+export type PracticeAbilityKit = 'owned' | 'full' | 'none';
+
+let practiceAbilityKit: PracticeAbilityKit = 'owned';
+
+export function setPracticeAbilityKit(kit: PracticeAbilityKit): void {
+  practiceAbilityKit = kit;
+}
+
 function load(): TraversalAbilityId[] {
+  // Gated on the practice flag as well as the kit: the flag is set by every practice launch
+  // and cleared by the page reload that leaves one, so a stale override can never hand a real
+  // profile keys it did not earn, which would open every ability door in its world.
+  if (isPracticeSession() && practiceAbilityKit !== 'owned') {
+    return practiceAbilityKit === 'full'
+      ? TRAVERSAL_ABILITIES.map((ability) => ability.id)
+      : [];
+  }
   try {
     const stored = SecureStorage.getItem(STORAGE_KEY_TRAVERSAL_ABILITIES);
     if (!stored) return [];

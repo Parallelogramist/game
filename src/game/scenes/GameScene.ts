@@ -263,7 +263,7 @@ import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
 import { getTraversalAbility, scanPulseGraphRadius } from '../../data/TraversalAbilities';
-import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
+import { getOwnedTraversalAbilityIds, setPracticeAbilityKit } from '../../meta/TraversalAbilityManager';
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
@@ -9307,6 +9307,7 @@ export class GameScene extends Phaser.Scene {
    * next real run's first write. A reload drops it and re-reads clean state.
    */
   private exitPracticeSession(): void {
+    setPracticeAbilityKit('owned');
     setPracticeSession(false);
     window.location.reload();
   }

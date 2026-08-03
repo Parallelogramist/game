@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, afterEach, beforeEach, vi } from 'vitest';
 
 // In-memory stand-in for encrypted storage so ownership round-trips without crypto or
 // localStorage. Same specifier as the production import, so Vitest swaps the module.
@@ -15,12 +15,15 @@ vi.mock('../storage', () => {
 });
 
 import { SecureStorage } from '../storage';
+import { TRAVERSAL_ABILITIES } from '../data/TraversalAbilities';
+import { setPracticeSession } from '../utils/practiceSession';
 import {
   claimTraversalAbility,
   getOwnedTraversalAbilities,
   getOwnedTraversalAbilityIds,
   hasTraversalAbility,
   sanitizeOwnedAbilityIds,
+  setPracticeAbilityKit,
 } from './TraversalAbilityManager';
 
 const STORAGE_KEY = 'survivor-traversal-abilities';
@@ -104,5 +107,40 @@ describe('load-time sanitization', () => {
       'ability_blink_drive',
       'ability_phase_cloak',
     ]);
+  });
+});
+
+describe('the practice ability kit', () => {
+  afterEach(() => {
+    setPracticeAbilityKit('owned');
+    setPracticeSession(false);
+  });
+
+  test('an override outside a practice session is inert', () => {
+    claimTraversalAbility('ability_blink_drive');
+    setPracticeAbilityKit('full');
+
+    expect(getOwnedTraversalAbilityIds()).toEqual(['ability_blink_drive']);
+  });
+
+  test('FULL hands a practice run every ability and banks none of them', () => {
+    setPracticeSession(true);
+    setPracticeAbilityKit('full');
+
+    expect(getOwnedTraversalAbilityIds()).toEqual(
+      TRAVERSAL_ABILITIES.map((ability) => ability.id),
+    );
+    expect(SecureStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  test('NONE hides an ability the profile really owns, and gives it back on exit', () => {
+    claimTraversalAbility('ability_magno_tether');
+    setPracticeSession(true);
+    setPracticeAbilityKit('none');
+
+    expect(getOwnedTraversalAbilityIds()).toEqual([]);
+
+    setPracticeSession(false);
+    expect(getOwnedTraversalAbilityIds()).toEqual(['ability_magno_tether']);
   });
 });

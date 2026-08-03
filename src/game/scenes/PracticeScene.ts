@@ -3,6 +3,8 @@ import { UNLOCKABLE_WEAPONS } from '../../data/Upgrades';
 import { createWeapon } from '../../weapons';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
+import { setPracticeAbilityKit } from '../../meta/TraversalAbilityManager';
+import type { PracticeAbilityKit } from '../../meta/TraversalAbilityManager';
 import { SHIP_CHARACTERS, getDefaultShip } from '../../data/ShipCharacters';
 import { getUltimateForShip } from '../../data/ShipUltimates';
 import { createIcon } from '../../utils/IconRenderer';
@@ -32,6 +34,8 @@ import type { WorldRegion } from '../../world/worldRegions';
 
 /** All 21 weapons — the default projectile plus every unlockable. */
 const PRACTICE_WEAPON_IDS: string[] = ['projectile', ...UNLOCKABLE_WEAPONS.map((w) => w.id)];
+
+const PRACTICE_ABILITY_KIT_CYCLE: readonly PracticeAbilityKit[] = ['owned', 'full', 'none'];
 
 interface PracticeWeaponEntry {
   id: string;
@@ -79,6 +83,10 @@ export class PracticeScene extends Phaser.Scene {
    *  discovery/quest singletons it mutates never reach the next real run. */
   private selectedRunMode: RunModeKind = 'arena';
   private selectedRegionIndex: number = 0;
+  /** Traversal abilities were the one axis the sandbox still inherited from the real profile,
+   *  so a barrier the profile holds no key for could not be reached from the dock at all and
+   *  one it already holds could never be seen shut. */
+  private selectedAbilityKit: PracticeAbilityKit = 'owned';
   /** The live world's regions, or null until the first MODE press builds them. Keyed on the
    *  seed because CHART A NEW WORLD can move it between two visits and a Phaser scene
    *  instance outlives scene.start(). */
@@ -128,6 +136,7 @@ export class PracticeScene extends Phaser.Scene {
       this.selectedLevel = this.entries[0]?.maxLevel ?? 1;
       this.evolvedEnabled = false;
       this.selectedShipIndex = 0;
+      this.selectedAbilityKit = 'owned';
     }
 
     this.renderHeader();
@@ -461,6 +470,28 @@ export class PracticeScene extends Phaser.Scene {
     addButtonInteraction(this, incButton.container);
     this.controlButtons.push(incButton);
 
+    // KIT cycle — the dock already ignores unlock gating on weapons, levels, evolve and
+    // ships; abilities were the one thing a practice run still inherited from the profile,
+    // which is what put every ability-gated barrier out of the sandbox's reach.
+    const kitButton = createMenuButton({
+      scene: this,
+      x: centerX + 152,
+      y: stepperY,
+      width: 140,
+      height: 36,
+      label: `KIT: ${this.selectedAbilityKit.toUpperCase()}`,
+      variant: this.selectedAbilityKit === 'owned' ? 'neutral' : 'magenta',
+      fontSize: scaledInt(fontScale, 13),
+      onActivate: () => {
+        const index = PRACTICE_ABILITY_KIT_CYCLE.indexOf(this.selectedAbilityKit);
+        this.selectedAbilityKit =
+          PRACTICE_ABILITY_KIT_CYCLE[(index + 1) % PRACTICE_ABILITY_KIT_CYCLE.length];
+        this.renderControls();
+      },
+    });
+    addButtonInteraction(this, kitButton.container);
+    this.controlButtons.push(kitButton);
+
     // Evolve toggle.
     const evolveAvailable = this.isEvolveAvailable();
     const evolveButton = createMenuButton({
@@ -596,6 +627,7 @@ export class PracticeScene extends Phaser.Scene {
     this.input.removeAllListeners();
 
     setPracticeSession(true);
+    setPracticeAbilityKit(this.selectedAbilityKit);
     fadeOut(this, 200, () => {
       this.scene.start('GameScene', {
         startingWeapon: this.selectedWeaponId,
