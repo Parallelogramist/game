@@ -2911,6 +2911,59 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-PRACTICE-EXPEDITION** (done, 8f19bed) (new 2026-08-03, proposed by the planner):
+  the sandbox covers the mode the game actually ships. Value: George can pick any weapon at
+  any level on any ship and fly a real expedition of his own world with the practice dock,
+  its chart, its regions, its quests and its secrets, instead of a sandbox that could only
+  ever build the arena that stopped being the default run mode.
+  1. **What shipped**: a `selectedRunMode` field on `PracticeScene`, a MODE toggle sharing
+     the evolve row (`SKIRMISH` / `EXPEDITION`, defaulting to today's `arena`), and one
+     `runMode` field on the `scene.start('GameScene', ...)` payload. No `GameScene` change:
+     its init data already declared `runMode?: 'arena' | 'expedition'` and `resolveRunMode`
+     already read it before `practiceMode`.
+  2. **The gap it closed, symptom first.** `resolveRunMode` reads
+     `if (data?.runMode) return data.runMode;` and only then
+     `if (data?.dailyMode || data?.gauntletMode || data?.practiceMode) return 'arena';`, and
+     `startPractice` passed `practiceMode: true` with no `runMode` at all, so every practice
+     run since `FEAT-EXPEDITION-PROMOTE` (02c4b74) was an arena run. Expedition had been the
+     live default and the sandbox could not reach it by any route: `BootScene` launches a
+     real, persisting expedition and there is no other entry point.
+  3. **Why the sandbox may fly the player's REAL world, verified rather than assumed.**
+     `SecureStorage.setItem` and `removeItem` both early-return on `isPracticeSession()`
+     before touching the encryption cache, so discovery, world profile, quest progress,
+     gold, the completion record, achievements and the mid-run save are all no-ops; the only
+     raw `localStorage` write left in `src/` is `SettingsScene.ts:1342`'s
+     `localStorage.clear()`, unreachable from inside a run; and the leak a write block does
+     NOT cover, in-memory singletons like `DiscoveryManager`, is closed by
+     `exitPracticeSession` being `setPracticeSession(false)` plus `window.location.reload()`,
+     which every practice exit routes through (the pause menu's `onRestart`, `onQuitToMenu`
+     and `onQuitToShop`, and therefore the death screen's buttons).
+     `advanceExpeditionCount` load-increment-saves, the save no-ops and `GameScene` ignores
+     its return, so a practice expedition reads the same `expeditionCount` as the last real
+     one and rolls the same ambient stir.
+  4. **Geometry, so it is not retuned blind.** The evolve row went from one 220-wide button
+     at `centerX` to two 168-wide buttons at `centerX ± 88`, spanning 344 units inside the
+     720-wide portrait design box with an 8-unit gutter.
+     `computePracticeControlLayout` was NOT touched, so the row's `y`, the weapon grid band
+     above and the START button below are all unmoved. No `MODE` display-text label was
+     added: SHIP and LEVEL label at `centerX - 160`, which now falls inside the evolve
+     button.
+  5. **Unchanged on purpose:** SKIRMISH is the default, so PRACTICE opens exactly as before
+     and passes `runMode: 'arena'` explicitly rather than omitting it;
+     `startRematchPractice` passes no `runMode` at all, so a boss rematch keeps the arena
+     substrate it is tuned for; and `stageId` stays `'stage_deep_void'`, the deliberately
+     unbiased stage, which in expedition becomes the spine region.
+  6. **Cut deliberately:** a destination picker, filed as
+     `FEAT-PRACTICE-EXPEDITION-DESTINATION`. The playtest half is
+     `POLISH-PRACTICE-EXPEDITION`.
+- [ ] **FEAT-PRACTICE-EXPEDITION-DESTINATION** (new 2026-08-03, from FEAT-PRACTICE-EXPEDITION):
+  a practice expedition starts at the hangar, so reaching the deep region a `POLISH-*` item
+  asks about still costs the flight out. Cut deliberately, not forgotten: starting the run
+  inside a chosen region wants either a start-sector override on `ExpeditionModeAdapter` or a
+  `setPlannedSortie` call, and `seedSortieAnchorFromChart` re-validates a planned sortie
+  against the ability-gate ordering because solvability is an invariant
+  (`references/map/README.md` sections 1.5 and 3.6), so this is a design question rather than
+  a widget. Value: the region a playtest asks about is one press away.
 - [x] **FEAT-HUD-CONTROLS-LINE** (done, 740cd1b) (new 2026-08-03, proposed by the planner):
   the HUD names every verb the run has, for the device in the player's hands. Value: George
   and every visitor to game.parallelogramist.com can read dash, the ultimate, the world chart
@@ -13502,6 +13555,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-PRACTICE-EXPEDITION** (filed by FEAT-PRACTICE-EXPEDITION, 8f19bed). PRACTICE can
+  now start an expedition and none of it has been seen in a browser. Questions: (a) does the
+  two-button evolve row (`EVOLVED: OFF` at `centerX - 88`, `SKIRMISH` at `centerX + 88`, 168
+  wide each) read as one row of two controls, or does the unlabelled right-hand button read as
+  a second evolve state? (b) does `SKIRMISH` / `EXPEDITION` name the choice, given the main
+  menu's own tile for the arena is SKIRMISH but PRACTICE has never used the word? (c) does the
+  practice dock overlap the expedition HUD the arena does not carry (the bounty/LEAD ticker
+  line, the map button, the sector banner and the region signature line), and if so which
+  should move? (d) does a practice expedition of the REAL world feel safe to fly, or does it
+  want a visible "nothing is saved" tell on the HUD rather than only PRACTICE's existing one?
+  (e) is starting at the hangar with a max-level weapon enough to reach a deep region in
+  reasonable time, or is `FEAT-PRACTICE-EXPEDITION-DESTINATION` needed before this actually
+  drains the playtest queue? Retuning any of the five before a browser verdict is exactly the
+  blind retune the convention forbids.
 - [ ] **POLISH-HUD-CONTROLS-LINE** (filed by FEAT-HUD-CONTROLS-LINE, 740cd1b). The bottom-left
   controls line now names five verbs and swaps to gamepad labels, and none of it has been
   seen in a browser. Questions: (a) at 1280 wide, does
