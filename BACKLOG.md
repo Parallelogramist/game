@@ -3053,6 +3053,56 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   by play. The playtest half is questions (f) and (g) appended to `POLISH-POI-RETIRE-RESTOCK`
   rather than a new gate row.
 
+- [x] **FEAT-QUEST-REGION-CAPSTONE** (done, db89415) (new 2026-08-03, proposed by the planner from
+  the operator's standing direction for this repo, "quests and many hidden rewards for exploring
+  the Metroid-style map"): the `capstone` secret tier gets objectives. Value: George's rarest find,
+  the region vault he earns by clearing every cache in a region, finally counts toward the
+  objectives he is already holding, and a new chain asks him to empty regions and pays a relic.
+  1. **The gap, symptom first.** `SecretCacheManager.ts:464` has emitted
+     `{ kind: 'findSecret', secretKind: 'capstone' }` since `FEAT-SECRET-REGION-VAULT` (46ad28d),
+     and `grep -rn capstone src/` found it consumed nowhere: no authored quest and no season
+     contract asked for the tier, and `triggerMatches` let a `'cache'` step match `'puzzle'` but
+     not `'capstone'`, so opening a region vault advanced `q_secret_01.s1` ("Uncover two concealed
+     caches") by zero while any wall-bump advanced it by one.
+  2. **The fold rule now matches the sigil precedent exactly.** `buildRegionVaults` picks the vault
+     out of the region's own `PoiKind.Secret` slots and picks a RING-FREE one, so a capstone seals
+     a cache slot by the same construction a ring does and the two tiers can never be the same
+     find. A `'cache'` step is satisfied by `'puzzle'` or `'capstone'`; never the reverse.
+  3. **The chain.** `quest_region_01` "Empty Quarters" (take one vault this run, then two across
+     expeditions) hands off to `quest_region_02` "The Hollowed Map" (four across expeditions, then
+     a `cargo_survey_core` delivery into the Crystal Caves) which pays the relic roll. Appended
+     LAST in the catalog on purpose: `seedQuestStates` fills accept slots from unheld heads in
+     catalog order, so it seeds only after the shipped chains and no existing profile is disturbed.
+  4. **Neither quest grants a key**, the sigil pair's rule: `EXPEDITION_QUEST_KEY_ORDER` is derived
+     from catalog order and fed to the generator, so a fifth key would move KeyDoor placement in
+     every world and cost a `WORLDGEN_VERSION` bump that discards every profile's discovery state.
+     No storage key, no save field and no version constant moved.
+  5. **Supply is measured, do not re-derive it**: over 101 generated worlds through the real
+     `generateExpeditionWorld` plus `buildRegionVaults`, region vaults per world are min 1, p10 2,
+     median 3, max 6, mean 3.50; 101/101 worlds hold at least one and 100/101 at least two. That is
+     why the run-scope step asks for 1 and every larger count is `persistent` scope, which
+     accumulates across expeditions and across worlds.
+  6. **One test was added and no more**: the fold rule is a deliberate one-way match, so it is
+     pinned beside the shipped ring test. The chain itself is data the referential-integrity suite
+     already covers. The playtest half is `POLISH-QUEST-REGION-CHAIN` under `## Human gates`.
+- [ ] **FEAT-QUEST-REGION-SEASON-CONTRACT** (new 2026-08-03, from FEAT-QUEST-REGION-CAPSTONE): the
+  procedural side. `src/expedition/seasonQuests.ts` templates ask for `cache` and `hiddenSector`
+  finds and never a `capstone`, so a season contract still cannot name the region chase. Cut
+  deliberately rather than smuggled in: a contract template is generated per world and its target
+  would have to be clamped against that world's vault count (1 to 6, measured), and no clamp for
+  `findSecret` exists (`effectiveStepTarget` clamps `reachSector` only). Value: the per-world
+  contract can ask for the region chase too. Deps: a `findSecret` supply clamp, which is a new
+  input to the fold.
+- [ ] **FEAT-QUEST-REGION-CHART-TELL** (new 2026-08-03, from FEAT-QUEST-REGION-CAPSTONE): a
+  capstone step names no place, so it produces no `QuestMarker`, no chart pin and no radar bearing
+  (`buildQuestMarkers` handles the place-naming kinds only). That is correct as shipped, because a
+  pin on the vault's own room would answer the question exploring exists to ask. What could be
+  told without leaking is the REGION and its remaining prerequisite count, which
+  `buildRegionVaults` already returns. Held back: it lands on the same contested surfaces
+  `FEAT-VAULT-BADGE-OPENABLE` and `CHORE-VAULT-LOCKOUT-ROW` are already parked on. Value: the
+  objective says which region you are one cache away from finishing. Deps:
+  `POLISH-MAP-VAULT-BADGE` (d) and `BALANCE-LOCKOUT-PANEL-ROWS`.
+
 - [ ] **FEAT-WORLDGEN-STREAM-ELITE-RETIRE** (new 2026-08-03, from
   FEAT-WORLDGEN-STREAM-WAVE-RETIRE): the other leash-exempt class, enemies with
   `EnemyType.xpValue >= LEASH_EXEMPT_XP_FLOOR` (30), which is minibosses at 60 to 300 and bosses at
@@ -13916,6 +13966,21 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-QUEST-REGION-CHAIN** (filed by FEAT-QUEST-REGION-CAPSTONE, db89415). A seventh chain
+  now exists and none of it has been seen in a browser. (a) does "Empty Quarters" then "The
+  Hollowed Map" read as one chase about finishing regions, or does "region" collide with the
+  region-signature banner's use of the same word for a biome band? (b) the head seeds only after
+  the six shipped chains are held, so on the live profile it may not appear for several
+  expeditions: is that the right place for it, or should it seed earlier? (c) `q_region_01.s2`
+  asks for two capstones across expeditions and `q_region_02.s1` for four MORE (persistent
+  counters start from step activation, so the chain costs seven vaults end to end, about two
+  fully cleared worlds at the measured mean of 3.50 per world): is that a chase or a grind?
+  (d) a capstone now also advances every shipped `'cache'` step, so `q_secret_01.s1` can complete
+  on a region vault: does that read as the find finally counting, or as a step completing from
+  something it did not name? (e) `cargo_survey_core` renders as `SURVEY CORE` on the board through
+  `cargoLabelOf`: does that name read as a thing worth carrying? Retuning any of the five before a
+  browser verdict is exactly the blind retune the convention forbids.
 
 - [ ] **POLISH-MAP-CURSOR-KEYS** (filed by FEAT-MAPUI-CURSOR-KEYBOARD, b4b24a3). The
   chart's arrows now move the sector cursor instead of panning, and none of it has been seen in a
