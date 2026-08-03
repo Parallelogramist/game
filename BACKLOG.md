@@ -2911,6 +2911,78 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-BIOME-REGION-SHIFT** (done, 3bae4c7) (new 2026-08-03, proposed by the planner, from
+  `references/map/README.md` section 6, "Biome mechanics, not just tints"): the seventh slice, and
+  the last of the three sector-scale mechanics that bullet names by hand. An Inferno room
+  rearranges itself while the ship is standing in it: every 15 s a seam of rock opens into floor
+  and a run of rubble drops across floor. Value: a persistent world stops being a room you have
+  already memorised.
+  1. **What shipped**: `MIN_STAGE_WALL_SHIFT_SECONDS` and `StageDefinition.wallShiftSeconds` in
+     `src/data/Stages.ts`, the pure `resolveStageWallShiftSeconds` beside `resolveStageDriftFactor`,
+     `wallShiftSeconds: 15` on `stage_inferno`, the exported `applyLiveWallShift` in
+     `src/world/ambientStir.ts`, and `GameScene.updateRegionWallShift` ticked from `update()`.
+  2. **The README's stated reason for deferring it was wrong, and so was
+     `FEAT-BIOME-REGION-DRIFT` point 2 which repeated it.** Both said moving walls "needs
+     navigation and collision machinery that does not exist". All three pieces already shipped:
+     collision reads tiles live through `tileKindAt` (`ExpeditionModeAdapter.sealSector`'s own
+     comment says so), `notifyGeometryChanged` rebuilds the geometry layer and the flow field on
+     the spot and **four** mid-run tile writers already route through it paired with
+     `minimapFeed.invalidateUnderlay()` (a broken wall `GameScene.ts:1120`, an ability door
+     `:6874`, a quest door `:6904`, a breached grid `:7079`), and `FEAT-STIR-COLLAPSE` put the
+     safety proof in place. This slice wrote no new machinery at all.
+  3. **The proof is the whole safety argument, and it is not new.** `applyLiveWallShift` runs the
+     ambient shift's own `stampRuns` (seam first, then rubble, so a pinch that was the room's only
+     route can legally take rubble once an alternate exists) under the same `shiftHoldsUp`: the
+     room's reachable area must move by EXACTLY the tiles the run wrote, every doorway must still
+     be reached, and no POI slot that was reachable may have stopped being. A run that fails is
+     reverted and the attempt is spent, so a live shift can never reach a shape the ambient pass
+     would have refused.
+  4. **The hull clearance is the one thing the ambient pass did not need.** A 5x5 tile box
+     (`LIVE_WALL_SHIFT_HULL_CLEARANCE_TILES = 2`, 200 px) centred on the ship's tile is unioned
+     into the painter's blocked set for BOTH passes, so rock never materialises on the hull.
+     **Enemies and loose pickups are deliberately unprotected:** `resolveCircleMove`'s
+     already-past guards let an embedded mover leave, the flow field reroutes it on the same
+     `notifyGeometryChanged`, and `sectorRetire` already sweeps a departed room's floor loot.
+  5. **Four shifts per room per run** (`LIVE_WALL_SHIFT_MAX_EVENTS_PER_SECTOR`) and a clock that
+     resets on every sector entry. The cap is not the proof's job: the proof keeps every route
+     open, nothing else keeps a camped room legible. The reset means a room the ship crosses in
+     under 15 s never moves, so only a room it fights in rearranges.
+  6. **Inferno and no other region.** `assignDangerAndBiomes` orders regions by
+     `enemyHealthMultiplier + enemyDamageMultiplier` with `stage_deep_void` pinned to the spine,
+     putting Inferno at region index 1, depths 2 to 3, and 16 of 48 sectors at the measured seed:
+     the largest early region and the only large one carrying no mechanic. Crystal Caves already
+     carries the darkness and Ion Field the drift. Inferno is not the spine, so no world's home
+     region changes.
+  7. **The tell is the moment and the description, never the banner.** One `playDeathBurst` per
+     written run, `shake(160, 0.005)` and `playComboThreshold()` — the exact trio
+     `onBarrierBroken` uses. The banner's second line is at its measured budget and three clause
+     items are already queued on question (e) of `POLISH-REGION-SIGNATURE-BANNER`, so this took
+     the surface with room: the Inferno description now reads "Burning red cosmos where the rock
+     keeps moving." at 76 characters against Crystal Caves' shipped 96.
+  8. **`Math.random`, not a seeded stream, and that is deliberate.** Every generator in
+     `ambientStir` is `mulberry32`-seeded because a world's ambient pass must be identical across
+     a page refresh. A live shift is persisted nowhere and replayed by nothing, so no save has to
+     agree with it; `GameScene.barrierEventSink` already calls `Math.random()` for this class of
+     thing. `applyLiveWallShift` still takes `rng: () => number`, so the module stays pure.
+  9. **Arena is inert by construction, not by a mode gate**: `worldMode.worldMap()` is null there,
+     which is the absence of a world rather than a second code path.
+  10. **Nothing persists and no version moved**: no storage key, and no `SAVE_VERSION`,
+      `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION`
+      change. The writes land on the run's live `WorldMap` exactly as a boss seal's aperture writes
+      do, and are regenerated fresh next expedition. `stampRuns` changed its return type only:
+      it consumes the rng in the same order the same number of times, so `applyAmbientShift`
+      produces byte-identical worlds.
+  11. **Filed with it**: `POLISH-BIOME-REGION-SHIFT-LIVE` under `## Human gates` and
+      `FEAT-REGION-SHIFT-SIGNATURE-CLAUSE` under `## Proposed (auto)`.
+- [ ] **FEAT-REGION-SHIFT-SIGNATURE-CLAUSE** (new 2026-08-03, from FEAT-BIOME-REGION-SHIFT): the
+  sector banner names what a region sends and what its ground grows, and says nothing about a
+  region whose walls move while you are in it. The vocabulary already exists — `showSectorBanner`
+  prints `THE WALLS HAVE SHIFTED` for a room the once-per-expedition ambient pass touched — so a
+  `WALLS MOVE` clause would slot into `describeRegionSignature`'s clause list and read as the
+  same fact. Value: the region states the rule before the first rock drops rather than after.
+  Deps: question (e) of `POLISH-REGION-SIGNATURE-BANNER`, the same line-budget gate
+  `FEAT-REGION-DRIFT-SIGNATURE-CLAUSE`, `FEAT-REGION-DARK-SIGNATURE-CLAUSE` and
+  `FEAT-REGION-SIGNATURE-HAZARD-DEPTH` are already queued behind. Do not jump them.
 - [x] **FEAT-BIOME-REGION-DRIFT** (done, fe560f0) (new 2026-08-03, proposed by the planner, from
   `references/map/README.md` section 6, "Biome mechanics, not just tints"): the sixth slice, and
   the second of the three sector-scale mechanics that bullet names by hand. The Ion Field region
@@ -12816,6 +12888,21 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-BIOME-REGION-SHIFT-LIVE** (new 2026-08-03, from FEAT-BIOME-REGION-SHIFT). An
+  Inferno room now rearranges itself under the ship and none of it has been flown. Questions, all
+  feel: (a) does 15 s between shifts read as a restless region or as noise, given a room is one
+  screen (1280x720, 32x18 tiles) so every shift is on camera; (b) is one seam plus one 2-tile
+  rubble run per shift enough to notice, or does it read as a graphical glitch; (c) four shifts
+  per room per run was picked to keep a camped room legible, not measured — is a camped room
+  still legible at four, and does a room ever want more; (d) two tiles of hull clearance keeps
+  rock off the ship, but does rubble landing that close still feel unfair mid-fight; (e) the
+  effects trio is `onBarrierBroken`'s (burst, `shake(160, 0.005)`, `playComboThreshold`) — does a
+  wall moving want its own sound, or is sharing the broken-wall one right; (f) enemies are
+  deliberately unprotected and can be caught in falling rock: does that read as the mechanic
+  working or as a stuck enemy; (g) Inferno is region index 1 at depths 2-3, so this is the first
+  mechanic region a new expedition meets — is that too early, and should it sit deeper. Do not
+  retune any of it blind.
 
 - [ ] **POLISH-DASH-RESTORED** (new 2026-08-03, from CHORE-DASH-VELOCITY-OVERWRITE). The dash
   displaced nothing until now, so its authored tuning has never actually been felt by anyone.

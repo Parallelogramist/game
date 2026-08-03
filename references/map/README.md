@@ -402,9 +402,27 @@ first.
   machinery, because `src/ecs/systems/InputSystem.ts` has run an exponential velocity-approach model
   (`PLAYER_ACCEL_BASE`, "the single knob for player movement feel") since before this plan existed,
   and already took the caller's `accelerationMultiplier`. Six of the seven stages author no factor
-  and are byte-identical. **Moving walls stays deferred and its reason still holds**: it needs
-  navigation and collision machinery that does not exist. The stage multipliers are filed as
+  and are byte-identical. **Moving walls shipped as the seventh slice, below.** The stage
+  multipliers are filed as
   `FEAT-BIOME-REGION-MULTIPLIERS`, and the banner clause as `FEAT-REGION-DRIFT-SIGNATURE-CLAUSE`.
+
+  **Seventh slice shipped as `FEAT-BIOME-REGION-SHIFT` (`3bae4c7`, 2026-08-03):**
+  moving walls, the last of the three named sector-scale mechanics. `StageDefinition.wallShiftSeconds`
+  feeds the pure `resolveStageWallShiftSeconds`, which `applyStageVisuals` holds on the scene at the
+  same site the hazard bias, the pack bias, the darkness and the drift use, and `GameScene.updateRegionWallShift`
+  spends it as a per-room clock: every 15 s the ship stands in an Inferno room, `applyLiveWallShift`
+  opens one 2-tile seam of rock and drops one 2-tile run of rubble, capped at four shifts per room
+  per run and reset on every arrival so a room the ship only crosses never moves. **The deferral
+  above was wrong on its stated reason and is corrected here rather than left standing:** it needed
+  no new navigation or collision machinery, because collision reads tiles live through `tileKindAt`
+  (`sealSector`'s own comment says so), `notifyGeometryChanged` already rebuilds the geometry layer
+  and the flow field on the spot for four shipped mid-run tile writers, and `FEAT-STIR-COLLAPSE`
+  already put the exactness proof in place. The write IS the ambient shift's pair of runs under the
+  ambient shift's own `shiftHoldsUp`, so a live shift can never seal a route, close a doorway or
+  strand a POI, and a 5x5 tile hull clearance around the ship keeps rock off the hull. Six of the
+  seven stages author no interval and are byte-identical; nothing persists and no version constant
+  moved. The banner clause is filed as `FEAT-REGION-SHIFT-SIGNATURE-CLAUSE`, behind the same
+  line-budget gate the drift and dark clauses wait on.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
   world with a new seed, banks the previous completion percentage as a record, and keeps
   traversal abilities. Turns the persistent world into a repeatable chase. **Shipped as
