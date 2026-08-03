@@ -2911,14 +2911,54 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
-- [ ] **FEAT-PRACTICE-BOSS-ARENA-START** (new 2026-08-03, from
-  FEAT-PRACTICE-EXPEDITION-DESTINATION): `listWorldRegions` refuses the boss arena as an entry
-  point, which is right for a real run (arriving spawns the Warden and the seal then blocks
-  recall) and is arguably wrong for the sandbox, where a sealed room is what a Warden playtest
-  wants and exiting is a page reload rather than a stranding. `POLISH-WARDEN-IDENTITY` is open
-  and still costs the whole flight out. Cut deliberately: it needs its own refusal-rule clause
-  rather than a shared one, so the real-run guarantee cannot be loosened by accident. Value:
-  the boss fight a playtest asks about is one press away.
+- [x] **FEAT-PRACTICE-BOSS-ARENA-START** (done, af9f791) (new 2026-08-03, from
+  FEAT-PRACTICE-EXPEDITION-DESTINATION): the boss fight a playtest asks about is one press
+  away. Value: George can reach the Warden from the PRACTICE dock instead of flying an entire
+  expedition to the deepest room, which is the flight that kept `POLISH-WARDEN-IDENTITY`,
+  `POLISH-WARDEN-SEAL`, `POLISH-WARDEN-CHAIN` and `POLISH-VICTORY-CONQUEST-KICKER` unanswered.
+  1. **What shipped**: `bossArenaDropPoint` in `src/world/worldRegions.ts`, one extra MODE
+     stop past the last region labelled `WARDEN`, and a boss-arena branch in
+     `GameScene.resolvePracticeStartPoint`.
+  2. **`listWorldRegions` was NOT loosened**, which is the clause separation this item asked
+     for. It still refuses the boss arena, because it also feeds real-run destinations where
+     arriving spawns the Warden and the seal then blocks recall. The sandbox got its own
+     export instead, so the real-run guarantee cannot be relaxed by editing a shared rule.
+  3. **The drop is the arena's doorway, one tile inward, not its centre.** The dormant throne
+     stands at the centre with a 150 px trip radius (`WARDEN_THRONE_TRIGGER_RADIUS`), so a
+     centre drop would spawn the Warden before the player had taken a frame of control and
+     would cost the entrance, the seal notice and the dormant-throne readout that are exactly
+     what the four gates above are asking about. The inward pull keeps the ship inside the
+     room rather than straddling the aperture into the neighbour.
+  4. **Two tests, both pinning the silent failure**: the drop is inside the arena rect and at
+     least the trip radius from its centre, over five seeds, and it is a pure function of the
+     world. The scene halves are verified by play, this repo's rule for Phaser-coupled code.
+  5. **Nothing persists and no version moved**: a practice session's writes are already
+     blocked at `SecureStorage` and the payload reuses the shipped `practiceStartSectorKey`
+     field, so no storage key, no `SAVE_VERSION`, `WORLDGEN_VERSION`, `DISCOVERY_VERSION`,
+     `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION` moved.
+  6. **A world with no reachable arena is unchanged by construction**: `bossArenaDropPoint`
+     returns null, the cache stores a null key, and the cycle's last index falls back to the
+     shipped `regions.length - 1`.
+  7. **No new `POLISH-*` item was filed**: this is a dev-dock affordance rather than a
+     game-facing feel change, so the convention that would demand a playtest gate does not
+     fire, and the open human-gate count is unchanged.
+- [ ] **CHORE-PRACTICE-WARDEN-DOOR-ARRIVAL** (new 2026-08-03, from
+  FEAT-PRACTICE-BOSS-ARENA-START): the sandbox drops INSIDE the arena, so the crossing itself
+  is not playtested: a real arrival walks through the door from the neighbouring room, which
+  fires `expedition:sector-entered`, the sector banner and the seal notice in that order.
+  Dropping in the neighbour instead would exercise all three at the cost of one short flight.
+  Cut deliberately: which of the two a Warden playtest wants is question (b) of
+  `POLISH-WARDEN-SEAL` (does the sealed-door notice read as an objective or as a wall), so
+  answering it in code first would be the blind retune the convention forbids. Value: the
+  sandbox rehearses the arrival, not just the fight. Deps: `POLISH-WARDEN-SEAL` (b).
+- [ ] **FEAT-PRACTICE-MODE-REVERSE-CYCLE** (new 2026-08-03, from
+  FEAT-PRACTICE-BOSS-ARENA-START): the MODE button now has up to eight stops on the live seed
+  (SKIRMISH, the hangar, five regions, WARDEN), so the last one costs seven presses and an
+  overshoot costs eight more. A right-click or a second small button stepping backwards is the
+  cheap half; a list is the expensive one. Cut because the picker has never been in front of
+  the operator, and question (e) of `POLISH-PRACTICE-EXPEDITION` is already asking whether a
+  cycle is the right control at all. Value: the deep destination is reachable without
+  counting presses. Deps: question (e) of `POLISH-PRACTICE-EXPEDITION`.
 - [ ] **CHORE-PRACTICE-REGION-ENTRY-DEPTH** (new 2026-08-03, from
   FEAT-PRACTICE-EXPEDITION-DESTINATION): a region is entered at its SHALLOWEST room, so a
   mechanic that only fires deep inside it (a death bloom on an elite, a wall shift clock that
@@ -13974,6 +14014,9 @@ Never agent work. The fleet must not do any of these.
   on the skirmish side: does that read as correct or as a bug? (d) the chart readout now says
   `Warden throne · The Legion · dormant`: is naming the boss before the fight anticipation or
   spoiler? Do not retune any of this blind.
+  **How to reach it (since af9f791):** PRACTICE dock, press MODE until it reads
+  `WARDEN`, then START. The ship drops at the arena door with the throne dormant, so the
+  entrance, the seal and the readout are all judgeable without flying the expedition.
 
 - [ ] **POLISH-WARDEN-SEAL** (new 2026-08-02, from FEAT-WORLDGEN-WARDEN-SEAL). Conquering a world
   now seals and later opens a region of it, and none of it has been seen in a browser. Questions
@@ -13987,6 +14030,9 @@ Never agent work. The fleet must not do any of these.
   profile's discovery state: worth it, or is one earned room enough? (d) the LOCKED OUT panel now
   carries a `The Warden` row alongside the ability and quest rows, competing for the same limited
   rows `BALANCE-LOCKOUT-PANEL-ROWS` is already asking about. Do not retune any of this blind.
+  **How to reach it (since af9f791):** PRACTICE dock, press MODE until it reads
+  `WARDEN`, then START. The ship drops at the arena door with the throne dormant, so the
+  entrance, the seal and the readout are all judgeable without flying the expedition.
 
 - [ ] **POLISH-SWEEP-CASCADE** (new 2026-08-02, from FEAT-DISCOVERY-SCAN-CASCADE). The map-open
   cascade now has a second trigger and none of it has been seen. Questions for the operator:
@@ -14206,6 +14252,9 @@ Never agent work. The fleet must not do any of these.
   read there or get lost under the earnings block? (c) **the chase**: three Wardens then two
   different worlds: too long, about right, or too short? (d) **the copy**: does "Take the Warden
   and conquer the world" read as an objective or as flavour text?
+  **How to reach it (since af9f791):** PRACTICE dock, press MODE until it reads
+  `WARDEN`, then START. The ship drops at the arena door with the throne dormant, so the
+  entrance, the seal and the readout are all judgeable without flying the expedition.
 
 - [ ] **POLISH-VICTORY-CONQUEST-KICKER** (new 2026-08-02, from
   FEAT-WARDEN-VICTORY-OVERLAY-LINE). Value: the expedition's biggest moment should land as a
@@ -14217,6 +14266,9 @@ Never agent work. The fleet must not do any of these.
   fanfare already say it; (c) is 900 px the right width to drop the third clause, or does the
   two-clause line look bare on a landscape phone that clears it; (d) does `CONQUERED AGAIN` read
   as an acknowledgement or as a scold. Deps: play.
+  **How to reach it (since af9f791):** PRACTICE dock, press MODE until it reads
+  `WARDEN`, then START. The ship drops at the arena door with the throne dormant, so the
+  entrance, the seal and the readout are all judgeable without flying the expedition.
 
 - [ ] **BALANCE-GRID-BAND-SHARE** (new 2026-08-02, from FEAT-GRID-FENCE-CORRIDOR). Value: a fence
   across a corridor should read as a shortcut worth earning, not as a toll booth. The share is a
