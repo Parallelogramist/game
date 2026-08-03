@@ -24,6 +24,11 @@ import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, BODY_COLORS, ACCENT_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 import type { RunModeKind } from '../world/WorldModeAdapter';
+import { getStageById } from '../../data/Stages';
+import { generateExpeditionWorld } from '../../expedition/expeditionWorld';
+import { getCurrentExpeditionSeed } from '../../expedition/ExpeditionSeasonStore';
+import { listWorldRegions } from '../../world/worldRegions';
+import type { WorldRegion } from '../../world/worldRegions';
 
 /** All 21 weapons — the default projectile plus every unlockable. */
 const PRACTICE_WEAPON_IDS: string[] = ['projectile', ...UNLOCKABLE_WEAPONS.map((w) => w.id)];
@@ -73,6 +78,11 @@ export class PracticeScene extends Phaser.Scene {
    *  (SecureStorage blocks it) and exitPracticeSession reloads the page, so the in-memory
    *  discovery/quest singletons it mutates never reach the next real run. */
   private selectedRunMode: RunModeKind = 'arena';
+  private selectedRegionIndex: number = 0;
+  /** The live world's regions, or null until the first MODE press builds them. Keyed on the
+   *  seed because CHART A NEW WORLD can move it between two visits and a Phaser scene
+   *  instance outlives scene.start(). */
+  private cachedRegions: { seed: number; regions: readonly WorldRegion[] } | null = null;
   private relayoutOnly: boolean = false;
 
   constructor() {
@@ -468,17 +478,26 @@ export class PracticeScene extends Phaser.Scene {
     addButtonInteraction(this, evolveButton.container);
     this.controlButtons.push(evolveButton);
 
+    const pickedRegion = this.selectedRunMode === 'expedition' && this.selectedRegionIndex > 0
+      ? this.currentRegions()[this.selectedRegionIndex]
+      : undefined;
+    const modeLabel = this.selectedRunMode === 'arena'
+      ? 'SKIRMISH'
+      : pickedRegion === undefined
+        ? 'EXPEDITION'
+        : (getStageById(pickedRegion.biomeId)?.name ?? 'EXPEDITION').toUpperCase();
+
     const modeButton = createMenuButton({
       scene: this,
       x: centerX + 88,
       y: evolveY,
       width: 168,
       height: 36,
-      label: this.selectedRunMode === 'expedition' ? 'EXPEDITION' : 'SKIRMISH',
+      label: modeLabel,
       variant: this.selectedRunMode === 'expedition' ? 'magenta' : 'neutral',
       fontSize: scaledInt(fontScale, 13),
       onActivate: () => {
-        this.selectedRunMode = this.selectedRunMode === 'expedition' ? 'arena' : 'expedition';
+        this.cycleRunTarget();
         this.renderControls();
       },
     });
@@ -501,6 +520,50 @@ export class PracticeScene extends Phaser.Scene {
     this.controlButtons.push(startButton);
   }
 
+  /** Cache-only: renderControls runs from create(), and one generateWorld is 33 ms, which
+   *  expeditionWorld.ts forbids there. Empty until a MODE press has loaded the list, and
+   *  empty again the moment the profile is on a different world. */
+  private currentRegions(): readonly WorldRegion[] {
+    const cached = this.cachedRegions;
+    if (cached === null || cached.seed !== getCurrentExpeditionSeed()) return [];
+    return cached.regions;
+  }
+
+  /** Called only from the MODE button, which is the button press expeditionWorld.ts sanctions
+   *  for a generateWorld. */
+  private loadRegions(): readonly WorldRegion[] {
+    const seed = getCurrentExpeditionSeed();
+    if (this.cachedRegions === null || this.cachedRegions.seed !== seed) {
+      this.cachedRegions = { seed, regions: listWorldRegions(generateExpeditionWorld(seed)) };
+      this.selectedRegionIndex = 0;
+    }
+    return this.cachedRegions.regions;
+  }
+
+  private cycleRunTarget(): void {
+    if (this.selectedRunMode === 'arena') {
+      this.selectedRunMode = 'expedition';
+      this.loadRegions();
+      this.selectedRegionIndex = 0;
+      return;
+    }
+    const regions = this.loadRegions();
+    const next = this.selectedRegionIndex + 1;
+    if (next >= regions.length) {
+      this.selectedRunMode = 'arena';
+      this.selectedRegionIndex = 0;
+      return;
+    }
+    this.selectedRegionIndex = next;
+  }
+
+  /** Undefined for SKIRMISH and for the hangar, so both keep the exact payload that ships
+   *  today. Read through currentRegions so the launch can never disagree with the label. */
+  private practiceStartSectorKey(): string | undefined {
+    if (this.selectedRunMode !== 'expedition' || this.selectedRegionIndex === 0) return undefined;
+    return this.currentRegions()[this.selectedRegionIndex]?.entrySectorKey;
+  }
+
   private startPractice(): void {
     this.soundManager.playUIClick();
     this.destroyMenuNavigator();
@@ -515,6 +578,7 @@ export class PracticeScene extends Phaser.Scene {
         // reads practiceMode, and omitting it is what silently forced every practice run
         // onto the arena after expedition became the default.
         runMode: this.selectedRunMode,
+        practiceStartSectorKey: this.practiceStartSectorKey(),
         practiceMode: true,
         practiceWeaponLevel: this.selectedLevel,
         practiceEvolved: this.evolvedEnabled,

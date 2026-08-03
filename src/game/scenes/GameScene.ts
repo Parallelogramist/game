@@ -939,6 +939,36 @@ export class GameScene extends Phaser.Scene {
   private practiceFightSpawning = false;
   private rematchTarget: RematchTarget | null = null;
   private practiceRematchSeed: PracticeRematchSeed | null = null;
+
+  private practiceStartSectorKey: string | null = null;
+
+  /**
+   * Where the sandbox was told to drop the ship, so a playtest of a deep region does not cost
+   * the flight out. Null everywhere else, and null for a key this world does not have, so a
+   * stale pick falls back to the hangar rather than nowhere.
+   *
+   * Deliberately NOT an override of worldMode.playerStartPoint(): that is also RECALL's
+   * destination (beginExpeditionJump), and a recall that returns to the Inferno inverts the
+   * hangar guarantee the whole no-stranding argument rests on.
+   *
+   * The sector CENTRE snapped through freeSpotNear, for the reason seedSortieAnchorFromChart
+   * gives: a room's key cannot move, and freeSpotNear is this repo's one answer to "where
+   * does the ship fit".
+   */
+  private resolvePracticeStartPoint(): { x: number; y: number } | null {
+    if (!this.practiceModeActive || this.shouldRestore) return null;
+    const key = this.practiceStartSectorKey;
+    if (key === null) return null;
+    const map = this.worldMode.worldMap();
+    if (map === null || !map.sectors.has(key)) return null;
+    const coord = parseSectorKey(key);
+    if (coord === null) return null;
+    const centre = sectorCenterWorld(coord);
+    const spot: WorldPoint = { x: centre.x, y: centre.y };
+    this.worldMode.freeSpotNear(centre.x, centre.y, spot);
+    return spot;
+  }
+
   private pendingRematchSpawn: PracticeDockState | null = null;
   private pendingRematchLaunch: PracticeRematchSeed | null = null;
   private readonly endlessDirector = new EndlessDirector({
@@ -1256,6 +1286,8 @@ export class GameScene extends Phaser.Scene {
     practiceWeaponLevel?: number;
     practiceEvolved?: boolean;
     practiceRematch?: PracticeRematchSeed;
+    /** PracticeScene's region pick: the sector a practice expedition drops into. */
+    practiceStartSectorKey?: string;
   }): void {
     this.shouldRestore = data?.restore === true;
     const runMode = this.resolveRunMode(data);
@@ -1277,6 +1309,7 @@ export class GameScene extends Phaser.Scene {
     this.practiceWeaponLevel = data?.practiceWeaponLevel ?? 1;
     this.practiceEvolved = data?.practiceEvolved === true;
     this.practiceRematchSeed = data?.practiceRematch ?? null;
+    this.practiceStartSectorKey = data?.practiceStartSectorKey ?? null;
     this.dailyDateString = data?.dailyDate ?? '';
     this.dailyChallengeType = data?.dailyChallengeType ?? 'daily';
     // Restore modifiers by ID, or select new random ones for fresh runs
@@ -2511,7 +2544,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Create the player at the mode's start point (arena: screen centre).
-    const playerStart = this.worldMode.playerStartPoint();
+    const playerStart = this.resolvePracticeStartPoint() ?? this.worldMode.playerStartPoint();
     this.playerId = this.createPlayer(playerStart.x, playerStart.y);
     this.worldMode.setupCamera(
       this.playerSpaceship.getContainer(),
