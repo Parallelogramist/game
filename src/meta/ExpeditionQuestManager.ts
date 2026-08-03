@@ -25,6 +25,7 @@ import {
   buildQuestCargoStatus,
   worldBoundStepProgress,
   dropStaleWorldBoundProgress,
+  secretTiersMatched,
   type QuestBoardEntry,
   type QuestCargoDrop,
   type QuestCargoDropObjective,
@@ -43,6 +44,8 @@ import {
   type WorldBoundStepProgress,
 } from '../systems/QuestProgress';
 import type { SectorSupplySnapshot } from '../world/sectorTags';
+import type { SecretTier } from '../world/secretRewards';
+import { SECRET_TIERS } from '../expedition/secretTierCensus';
 import { buildSeasonQuests } from '../expedition/seasonQuests';
 import { getCurrentExpeditionSeed } from '../expedition/ExpeditionSeasonStore';
 import { isWorldConquered } from '../expedition/WorldProfileStore';
@@ -323,6 +326,17 @@ export function getActiveQuestHazardObjectives(): QuestHazardObjective[] {
   return buildQuestHazardObjectives(load(defs).states, defs);
 }
 
+/** What a contract may be credited with at activation. Null outside an expedition (arena, daily,
+ *  gauntlet, practice have no world), which is what keeps those runs on the shipped behaviour. */
+export interface ContractSeedInput {
+  spentByTier: Readonly<Record<SecretTier, number>>;
+  contractQuestIds: ReadonlySet<string>;
+}
+
+/** A synthesized find cannot outnumber a world's secret slots by any route; this only stops a
+ *  corrupt census from spinning. */
+const MAX_SEEDED_FINDS = 64;
+
 /**
  * Called once at the start of a fresh expedition (never on a refresh-restore, which is the
  * same run continuing). Clears in-progress run-scope counters and starts any chain the
@@ -332,19 +346,79 @@ export function getActiveQuestHazardObjectives(): QuestHazardObjective[] {
  * end through death, victory, the END RUN dialog or a closed tab, and a reset that only
  * some of those paths reach would leak one run's counter into the next.
  */
-export function beginExpeditionQuestRun(): ExpeditionQuestDefinition[] {
+export function beginExpeditionQuestRun(
+  seedInput?: ContractSeedInput | null,
+): ExpeditionQuestDefinition[] {
   const defs = questCatalog();
   const state = load(defs);
   const settled = settleRunScopeProgress(state.states, defs);
   const seeded = seedQuestStates(settled, defs, ACTIVE_EXPEDITION_QUEST_LIMIT);
+  const credited = creditActivatedContracts(
+    seeded.states, defs, seeded.activatedQuestIds, seedInput ?? null);
   save({
-    states: seeded.states,
-    pendingGold: state.pendingGold,
-    pendingRelicRolls: state.pendingRelicRolls,
+    states: credited.states,
+    pendingGold: state.pendingGold + credited.gold,
+    pendingRelicRolls: state.pendingRelicRolls + credited.relicRolls,
   });
   return seeded.activatedQuestIds
     .map((questId) => defs.find((entry) => entry.id === questId))
     .filter((definition): definition is ExpeditionQuestDefinition => definition !== undefined);
+}
+
+/**
+ * Credits a contract that just activated with the finds this profile already banked in the world
+ * the contract belongs to (CHORE-CONTRACT-SCARCE-SUPPLY-PREACCEPT).
+ *
+ * The credit is delivered as synthesized events through `recordQuestEvent` rather than written
+ * onto `stepProgress`, so a credit that closes a step pays its gold, advances the index and
+ * completes the quest through the one path a live find already uses. Each quest is folded in
+ * ISOLATION so a synthesized event cannot leak into an authored chain that happens to be active.
+ */
+function creditActivatedContracts(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  activatedQuestIds: readonly string[],
+  seedInput: ContractSeedInput | null,
+): { states: QuestInstanceState[]; gold: number; relicRolls: number } {
+  let working: QuestInstanceState[] = states.map((entry) => ({ ...entry }));
+  if (!seedInput || activatedQuestIds.length === 0) {
+    return { states: working, gold: 0, relicRolls: 0 };
+  }
+
+  const remainingByTier = { ...seedInput.spentByTier };
+  let gold = 0;
+  let relicRolls = 0;
+
+  for (const questId of activatedQuestIds) {
+    if (!seedInput.contractQuestIds.has(questId)) continue;
+    const definition = defs.find((entry) => entry.id === questId);
+    if (!definition) continue;
+
+    for (let spent = 0; spent < MAX_SEEDED_FINDS; spent += 1) {
+      const current = working.find((entry) => entry.questId === questId);
+      if (!current || current.status !== 'active' || current.stepProgress !== 0) break;
+      const step = definition.steps[current.stepIndex];
+      if (!step || step.scope !== 'persistent' || step.trigger.kind !== 'findSecret') break;
+
+      const tiers = secretTiersMatched(step.trigger);
+      const tier = SECRET_TIERS.find((entry) => tiers.has(entry) && remainingByTier[entry] > 0);
+      if (tier === undefined) break;
+
+      // One event at a time so the fold decides when the step closes, exactly as a live find does.
+      const isolated = working.filter((entry) => entry.questId === questId);
+      const result = recordQuestEvent(
+        isolated, defs, { kind: 'findSecret', secretKind: tier }, null);
+      remainingByTier[tier] -= 1;
+      gold += result.stepCompletions.reduce((total, entry) => total + entry.goldReward, 0)
+        + result.questCompletions.reduce((total, entry) => total + entry.goldReward, 0);
+      relicRolls += result.questCompletions.filter((entry) => entry.relicRoll === true).length;
+
+      const byId = new Map(result.states.map((entry) => [entry.questId, entry]));
+      working = working.map((entry) => byId.get(entry.questId) ?? entry);
+    }
+  }
+
+  return { states: working, gold, relicRolls };
 }
 
 /**

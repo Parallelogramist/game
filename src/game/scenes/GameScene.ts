@@ -170,7 +170,11 @@ import {
   dropExpeditionQuestCargo,
   getExpeditionQuestFromCatalog,
   dropStaleExpeditionQuestWorldProgress,
+  type ContractSeedInput,
 } from '../../meta/ExpeditionQuestManager';
+import { buildSecretTierCensus, countSpentSecretsByTier } from '../../expedition/secretTierCensus';
+import { buildSeasonQuests } from '../../expedition/seasonQuests';
+import { SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import { WARDEN_SEAL_KEY_ID, cargoLabelOf, droneLabelOf, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import type { ExpeditionQuestStep } from '../../data/ExpeditionQuests';
 import { effectiveStepTarget, questWorldStamp, renderStepDescription } from '../../systems/QuestProgress';
@@ -10397,7 +10401,7 @@ export class GameScene extends Phaser.Scene {
         duration: 3600,
       });
     }
-    for (const quest of beginExpeditionQuestRun()) {
+    for (const quest of beginExpeditionQuestRun(this.contractSeedInput())) {
       getDiscoveryManager().noteObjectiveUpdated(quest.id);
       this.toastManager?.showToast({
         tier: 'notable',
@@ -10408,6 +10412,23 @@ export class GameScene extends Phaser.Scene {
         duration: 3600,
       });
     }
+  }
+
+  /** Null outside an expedition, the same rule questSectorSupply follows: an arena, daily,
+   *  gauntlet or practice run has no world and therefore nothing already spent in it. */
+  private contractSeedInput(): ContractSeedInput | null {
+    const map = this.worldMode.worldMap();
+    if (!map) return null;
+    const discovery = getDiscoveryManager();
+    const census = buildSecretTierCensus(map);
+    return {
+      spentByTier: countSpentSecretsByTier(
+        census,
+        (secretId) => (discovery.getSecretFlags(secretId) & SecretFlags.FOUND) !== 0,
+        (sectorKey) => (discovery.getSectorFlags(sectorKey) & SectorFlags.VISITED) !== 0,
+      ),
+      contractQuestIds: new Set(buildSeasonQuests(map.seed).map((quest) => quest.id)),
+    };
   }
 
   /** Null outside an expedition, which is what makes the arena, daily, gauntlet and practice

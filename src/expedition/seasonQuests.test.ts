@@ -1,27 +1,12 @@
 import { describe, test, expect } from 'vitest';
 
 import { EXPEDITION_QUESTS } from '../data/ExpeditionQuests';
-import type { QuestTrigger } from '../data/ExpeditionQuests';
-import type { SecretTier } from '../world/secretRewards';
 import { STAGES } from '../data/Stages';
+import { secretTiersMatched } from '../systems/QuestProgress';
 import { ICON_MAP } from '../utils/IconMap';
 import { buildSeasonQuests, CONTRACTS_PER_WORLD } from './seasonQuests';
 
 const SEEDS = [20260727, 1, 999_999_999, 1_733_221_004];
-
-/** The tiers a findSecret trigger accepts, mirroring QuestProgress.triggerMatches: a bare trigger
- *  takes any find, and 'cache' also takes the ring and the capstone that seal a cache slot. A
- *  trigger of any other kind consumes no secret and returns empty. */
-function secretTiersMatched(trigger: QuestTrigger): ReadonlySet<SecretTier> {
-  if (trigger.kind !== 'findSecret') return new Set<SecretTier>();
-  if (trigger.secretKind === undefined) {
-    return new Set<SecretTier>(['cache', 'hiddenSector', 'puzzle', 'capstone']);
-  }
-  if (trigger.secretKind === 'cache') {
-    return new Set<SecretTier>(['cache', 'puzzle', 'capstone']);
-  }
-  return new Set<SecretTier>([trigger.secretKind]);
-}
 
 describe('seasonQuests', () => {
   test('a seed issues the same contracts every time and different seeds differ', () => {

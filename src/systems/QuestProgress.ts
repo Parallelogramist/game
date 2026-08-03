@@ -125,6 +125,27 @@ export interface QuestProgressResult {
   activatedQuestIds: string[];
 }
 
+/**
+ * The tiers a `findSecret` trigger accepts. Exported because the census, the contract-ordering
+ * invariant in seasonQuests.test.ts and `triggerMatches` must all agree, and a private copy in a
+ * test file already drifted once.
+ *
+ * A sigil ring and a region capstone both seal a CACHE slot (buildRegionVaults picks the vault
+ * out of the region's own Secret slots, and picks a ring-free one, so the two can never be the
+ * same find), so a step that asks for a cache is satisfied by either. Never the reverse: a ring
+ * or capstone step must not be met by walking into an open one.
+ */
+export function secretTiersMatched(trigger: QuestTrigger): ReadonlySet<SecretTier> {
+  if (trigger.kind !== 'findSecret') return new Set<SecretTier>();
+  if (trigger.secretKind === undefined) {
+    return new Set<SecretTier>(['cache', 'hiddenSector', 'puzzle', 'capstone']);
+  }
+  if (trigger.secretKind === 'cache') {
+    return new Set<SecretTier>(['cache', 'puzzle', 'capstone']);
+  }
+  return new Set<SecretTier>([trigger.secretKind]);
+}
+
 function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
   switch (event.kind) {
     case 'kill': return trigger.kind === 'kill';
@@ -135,15 +156,7 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
         && (trigger.abilityId === undefined || trigger.abilityId === event.abilityId);
     case 'findSecret':
       return trigger.kind === 'findSecret'
-        && (trigger.secretKind === undefined
-          || trigger.secretKind === event.secretKind
-          // A sigil ring and a region capstone both seal a CACHE slot (buildRegionVaults picks
-          // the vault out of the region's own Secret slots, and picks a ring-free one, so the
-          // two can never be the same find), so a step that asks for a cache is satisfied by
-          // either. Never the reverse: a ring or capstone step must not be met by walking into
-          // an open one.
-          || (trigger.secretKind === 'cache'
-            && (event.secretKind === 'puzzle' || event.secretKind === 'capstone')));
+        && secretTiersMatched(trigger).has(event.secretKind);
     case 'reachSector':
       return trigger.kind === 'reachSector'
         && (trigger.sectorTag === undefined || event.sectorTags.includes(trigger.sectorTag));
