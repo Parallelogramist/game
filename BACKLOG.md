@@ -10230,11 +10230,44 @@ exploring pays is the end of Phase 5.
   can accept right now has a bearing too. Deps: wants `BALANCE-LOCKOUT-PANEL-ROWS`' play data on
   how crowded the disc actually gets.
 
-- [ ] **CHORE-LOCKOUT-VAULT-GUARD-TELL** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): the
+- [x] **CHORE-LOCKOUT-VAULT-GUARD-TELL** (done, 13d9466) (new 2026-08-01, from
+  FEAT-MAPUI-LOCKOUT-PANEL): the
   panel says `VAULT 3 SECTORS OUT` without saying the vault is still guarded, and a vault you saw
   but did not take is usually one whose pack killed you. `PoiFlags.GUARD_CLEARED` already records
   the answer per world, so this is a clause, not a system. Value: the panel does not send you back
   into a fight you already lost, unwarned. Deps: none.
+  **What shipped.** The label word, and the sort that agrees with it.
+  1. **The gap it closed, symptom first.** `describeLockoutRow` rendered every ability row's
+     source as `travelClause('VAULT', source.travel)`, so `1 DOOR  ·  VAULT 3 HOPS` read the same
+     whether the core was sealed or standing open, while two other surfaces already acted on the
+     same bit: `SectorMapRenderer.ts:607` rings a guarded vault glyph in hazard orange and
+     `sectorDetail.ts:196` names it in the readout. The panel that says where to go and how far
+     was the one surface that did not.
+  2. **Both words carry information, because the flag is not the claim.**
+     `AbilityVaultManager.unsealVault` writes `PoiFlags.GUARD_CLEARED` when the last guard dies,
+     and `claimVault` writes `PoiFlags.COLLECTED` separately, so a player who wins the fight and
+     dies on the way to the core leaves an unclaimed vault standing open. `GUARDED VAULT` and
+     `UNSEALED VAULT` are therefore two states a real profile reaches, not one state and a
+     placeholder. Do not re-derive this.
+  3. **A label word, not a fourth clause.** `POLISH-LOCKOUT-COURSE` (b) is already open about
+     this row wrapping on a 12 px line in a 340 px panel, so a `· GUARDED` clause would worsen an
+     unanswered question. Widening the existing label costs at most 9 characters and no
+     separator. Both words are the field's own vocabulary: a sealed core prints a `GUARDED`
+     damage number and a falling pack raises a `VAULT UNSEALED` toast.
+  4. **The order agrees with the word.** A new `guardRank` term sits between `actionRank` and
+     `nearestDistance`, so at an equal opening count and an equal action rank a guarded vault
+     sinks below a source that carries no known fight. Without it the panel could list
+     `GUARDED VAULT 2 HOPS` above `UNSEALED VAULT 2 HOPS` and contradict its own advice.
+     Actionability already outranks proximity in that chain, which is why the term went there
+     rather than after the distance.
+  5. **Deliberately not built.** No per-vault selection change: `placeAbilityGates` pushes each
+     ability onto exactly one host sector, so `vaultByAbilityId` never holds a contest and a
+     guard-aware `isBetterPlace` would be dead code. No radar change either: `MinimapFeed` maps
+     the same scan to `site.sectorKey` and compiles untouched, and the radar contact kind belongs
+     to `FEAT-DISCOVERY-FEEDBACK-07` per `CHORE-VAULT-GUARD-MAP-MARK`.
+  6. **No storage key, no version constant, no save shape**, and no new operator decision: the
+     one feel question is `POLISH-LOCKOUT-COURSE` (f) rather than a new item. Arena, daily,
+     weekly, practice and gauntlet are untouched by construction.
 
 - [ ] **BALANCE-LOCKOUT-SOURCE-CLAUSE** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): dropping
   `NEAREST N SECTORS OUT` for the source distance is a designed call, measured but never played.
@@ -12635,8 +12668,11 @@ Never agent work. The fleet must not do any of these.
   should the two surfaces agree? (d) this is the second surface naming the same shut door, which
   is exactly what question (d) of `POLISH-MAP-COURSE` asks about redundancy: with both shipped,
   is the pair redundant or reinforcing? (e) does a source that sank to the bottom for having no
-  charted route want a word saying so, rather than only its position? Do not retune any of it
-  blind.
+  charted route want a word saying so, rather than only its position? (f) the vault clause is now
+  `GUARDED VAULT 3 HOPS` or `UNSEALED VAULT 3 HOPS` (13d9466), up to 9 characters longer on the
+  line question (b) already asks about: does it still fit, and at an equal opening count is
+  sinking a guarded vault below a fightless source the order you want, or should the payoff win
+  regardless of the fight? Do not retune any of it blind.
 - [ ] **POLISH-MAP-COURSE** (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT). The course was
   validated as graph math and as panel geometry, never seen on a screen. Questions, all feel:
   (a) does a white polyline read as a route, or does it fight the white focus cursor and the

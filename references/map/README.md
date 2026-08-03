@@ -247,6 +247,14 @@ the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph b
   `BootLaunchData` field because Phaser retains a scene's last `settings.data` and
   `flyExpeditionWorld` ends in `scene.restart()`, so a retained field would auto-start a run on a
   later world change. The browser verdict is `POLISH-MAP-SURVEY` question (g).
+- **And the panel names the fight, not just the flight (`CHORE-LOCKOUT-VAULT-GUARD-TELL`,
+  `13d9466`).** A LOCKED OUT row's vault clause reads `GUARDED VAULT 3 HOPS` or
+  `UNSEALED VAULT 3 HOPS`, and a guarded vault sinks below a fightless source at an equal opening
+  count. The settled fact behind both, which is easy to get backwards: `PoiFlags.GUARD_CLEARED`
+  is written by `AbilityVaultManager.unsealVault` when the last guard dies, NOT at the claim,
+  which is a separate `PoiFlags.COLLECTED` write. An unclaimed vault whose guard is cleared is
+  therefore a real state (the player won the fight and died before touching the core), which is
+  what makes the word worth printing at all.
 
 The in-run half (a next-hop bearing on the radar disc) is deliberately not built and is
 `FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdicts are
