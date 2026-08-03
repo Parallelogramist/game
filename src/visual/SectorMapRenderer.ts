@@ -35,6 +35,14 @@ export const OBJECTIVE_PIN = 0xff5fa2;
  *  focus cursor deliberately: the cursor is four corner brackets on the cell's edge and a mark
  *  is a glyph inside it, and both are the player's own hand rather than the world's. */
 const PLAYER_MARK = 0xffffff;
+/** The plotted course, white with the focus cursor and the sector mark on this file's own rule:
+ *  everything the world put on this chart has a hue of its own, everything the player decided is
+ *  white. Picking a route is a decision. */
+const COURSE_STROKE = PLAYER_MARK;
+const COURSE_ALPHA = 0.55;
+/** A course through a door that is still shut draws fainter and dashed: the chart says "this is
+ *  the way" without saying "go". */
+const COURSE_BLOCKED_ALPHA = 0.32;
 const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;
@@ -397,6 +405,13 @@ export interface SectorMapDrawInput {
   updatedObjectiveSectorKeys: ReadonlySet<string>;
   /** Doors opened by a gain this run and not yet looked at. Empty on every ordinary open. */
   newlyPassableEdgeIds: ReadonlySet<string>;
+  /** The plotted course, ship room first and focused room last. Empty when nothing is focused,
+   *  when the focus IS the ship's room, and when the chart knows no route. Required rather than
+   *  optional, on the updatedObjectiveSectorKeys precedent: a call site that forgets it is a
+   *  compile error rather than a chart that silently stops plotting. */
+  courseSectorKeys: readonly string[];
+  /** True when the course crosses a door this profile cannot open. */
+  courseBlocked: boolean;
   /** Doc 03 section 7 moments 3 and 4: the one-time replay running on THIS map open. Required
    *  rather than optional, on the updatedObjectiveSectorKeys precedent: a call site that forgets
    *  it is a compile error rather than a chart that silently never replays anything. Null on
@@ -504,11 +519,41 @@ export class SectorMapRenderer {
       this.drawDoors(sector.sx, sector.sy, input);
     }
 
+    this.drawCourse(input);
     if (input.focusedCell) {
       const cell = sectorCellRect(input.focusedCell.gridX, input.focusedCell.gridY, input.view);
       drawSectorCursor(graphics, cell.x, cell.y, cell.width, cell.height);
     }
     this.drawPlayerMarker(input);
+  }
+
+  /**
+   * Drawn after every cell and door so the line reads over the fills, and before the focus
+   * cursor so the brackets still bracket. Suppressed entirely while the map-open cascade runs,
+   * on the same rule a cell still fading in draws only its outline.
+   */
+  private drawCourse(input: SectorMapDrawInput): void {
+    if (input.mapOpenReveal !== null) return;
+    if (input.courseSectorKeys.length < 2) return;
+    const { graphics } = this;
+    const points: Array<{ x: number; y: number }> = [];
+    for (const key of input.courseSectorKeys) {
+      const sector = input.map.sectors.get(key);
+      if (sector === undefined) return;
+      const cell = sectorCellRect(sector.sx, sector.sy, input.view);
+      points.push({ x: cell.x + cell.width / 2, y: cell.y + cell.height / 2 });
+    }
+    const alpha = input.courseBlocked ? COURSE_BLOCKED_ALPHA : COURSE_ALPHA;
+    graphics.lineStyle(2, COURSE_STROKE, alpha);
+    for (let step = 0; step + 1 < points.length; step++) {
+      const from = points[step];
+      const to = points[step + 1];
+      if (input.courseBlocked) strokeDashedLine(graphics, from.x, from.y, to.x, to.y);
+      else graphics.lineBetween(from.x, from.y, to.x, to.y);
+    }
+    const dotRadius = Math.max(1.5, 2 * input.view.scale);
+    graphics.fillStyle(COURSE_STROKE, alpha);
+    for (const point of points) graphics.fillCircle(point.x, point.y, dotRadius);
   }
 
   private drawDoors(sx: number, sy: number, input: SectorMapDrawInput): void {

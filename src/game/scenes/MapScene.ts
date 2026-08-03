@@ -25,6 +25,8 @@ import type { SectorMarkKind } from '../../expedition/sectorMarks';
 import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
+import { describeSectorCourse, plotSectorCourse } from '../../expedition/sectorRoute';
+import type { SectorCourse } from '../../expedition/sectorRoute';
 import { wardenBossNameForWorld } from '../../expedition/wardenIdentity';
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
@@ -189,6 +191,7 @@ export class MapScene extends Phaser.Scene {
   private revealElapsedMs = 0;
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
+  private course: SectorCourse = { kind: 'none' };
   private markedSectorKinds: Map<string, SectorMarkKind> = new Map();
   private sectorNotes: Map<string, string> = new Map();
   private noteOverlayTeardown: (() => void) | null = null;
@@ -805,6 +808,17 @@ export class MapScene extends Phaser.Scene {
       wardenName: wardenBossNameForWorld(this.mapData.seed, this.mapData.worldGenVersion),
     }) : null;
 
+    const shipSectorKey = sectorKey(sectorOfWorldPoint(this.playerWorldX, this.playerWorldY));
+    this.course = this.focusedCell ? plotSectorCourse({
+      map: this.mapData,
+      fromSectorKey: shipSectorKey,
+      toSectorKey: `${this.focusedCell.gridX},${this.focusedCell.gridY}`,
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
+      holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+    }) : { kind: 'none' };
+
     if (!detail) {
       this.detailHeadlineText.setText('NO SECTOR SELECTED');
       this.detailDoorsText.setText(
@@ -818,9 +832,10 @@ export class MapScene extends Phaser.Scene {
       ? `   ·   MARKED ${SECTOR_MARKS[markKind].label.toUpperCase()}`
         + (note ? `   ·   "${note}"` : '')
       : '';
+    const courseClause = `   ·   ${describeSectorCourse(this.course).toUpperCase()}`;
     this.detailHeadlineText.setText(
       `${detail.headline.toUpperCase()}   ·   ${detail.place.toUpperCase()}`
-      + `   ·   SECTOR ${detail.sectorKey}${markClause}`);
+      + `   ·   SECTOR ${detail.sectorKey}${courseClause}${markClause}`);
     this.detailDoorsText.setText(detail.doors.length > 0
       ? `DOORS   ${detail.doors.join('     ').toUpperCase()}`
       : 'DOORS   NONE CHARTED HERE YET');
@@ -1039,6 +1054,7 @@ export class MapScene extends Phaser.Scene {
 
   private redraw(): void {
     const discovery = getDiscoveryManager();
+    const course = this.course;
     this.mapRenderer.draw({
       map: this.mapData,
       view: this.view,
@@ -1053,6 +1069,9 @@ export class MapScene extends Phaser.Scene {
       hintedSectorKeys: this.hintedSectorKeys,
       sealedLeadSectorKeys: this.sealedLeadSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
+      courseSectorKeys: course.kind === 'plotted' || course.kind === 'blocked'
+        ? course.sectorKeys : [],
+      courseBlocked: course.kind === 'blocked',
       mapOpenReveal: this.revealPlan
         ? sampleMapOpenReveal(this.revealPlan, this.revealElapsedMs)
         : null,
