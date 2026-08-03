@@ -2911,6 +2911,39 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-TUTORIAL-EXPEDITION-HINTS** (done, 85e888e) (new 2026-08-03, proposed by the
+  planner): the default run mode teaches its own two rules. Value: George is told the world
+  chart exists and that what he charts survives his death, at the moment each first matters,
+  instead of the expedition shipping its central surface undiscoverable.
+  1. **What shipped**: two defs plus the `expedition-chart` / `expedition-persists` ids in
+     `src/tutorial/TutorialHints.ts`, the pure `expeditionCrossingHintId` and
+     `EXPEDITION_RETURNING_CHART_COUNT` beside them, and one
+     `GameScene.maybeShowExpeditionCrossingHint` called from the end of `sectorEnteredHandler`.
+  2. **The gap it closed, measured.** `TUTORIAL_HINT_DEFS` held seven hints, six of them arena
+     verbs and one (`secret-lead`) an expedition surface, and `grep -rn "expedition" src/tutorial/`
+     returned nothing. Expedition has been the live default since `02c4b74`, and the chart was
+     reachable only from an unannounced `M` / gamepad `LB` binding (`GameScene.ts:3088-3091`)
+     or the pause menu's `◈  World Map` row, which is the sole touch path.
+  3. **The chart teach is the keystone.** RECALL, SORTIE, LEADS, OBJECTIVES, marks, notes, the
+     pinned course and the LOCKED OUT panel all live behind that one keystroke, so a player who
+     never presses `M` sees none of them.
+  4. **The second hint states doc 04 section 7's own rule** (*"knowledge and keys persist,
+     power resets"*), which the game had defended in design and never said to the player.
+  5. **The trigger is a real border crossing**, `payload.viaEdgeId !== null`: the adapter emits
+     a null edge for a run start, a restore, a recall and a sortie jump, so the hint lands on
+     the first moment the world is provably bigger than one room.
+  6. **The chart teach always wins while unseen**, so a long-lived profile that never opened
+     the chart still gets it first; `expedition-persists` waits until the chart hint is seen
+     AND the run started with at least `EXPEDITION_RETURNING_CHART_COUNT` (2) rooms already
+     charted, which is the first count that makes the sentence checkable against the player's
+     own map. A restore teaches neither: `chartedSectorsAtRunStart` is null there.
+  7. **Nothing persists and no version moved**: `survivor-tutorial-hints` already existed and
+     already filters unknown ids, so an existing profile gains the two hints and fires each
+     once. No `SAVE_VERSION`, `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION`
+     or `WORLD_ARCHIVE_VERSION` change and no new storage key.
+  8. **Arena is untouched by construction**: `expedition:sector-entered` is never emitted by
+     `ArenaModeAdapter`, so daily, weekly, practice, gauntlet and skirmish runs cannot reach
+     the call. The playtest half is `POLISH-TUTORIAL-EXPEDITION-HINTS`.
 - [x] **FEAT-MAPUI-PINCH-ZOOM** (done, d149b50) (new 2026-08-03, proposed by the planner as the
   unblocked touch half of `FEAT-MAPUI-TOUCH-A11Y-08`, `references/map/README.md` section 5
   Phase 6): the chart zooms to a pinch. Value: George can zoom the expedition chart on a phone,
@@ -13436,6 +13469,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-TUTORIAL-EXPEDITION-HINTS** (filed by FEAT-TUTORIAL-EXPEDITION-HINTS, 85e888e).
+  Two one-time toasts now fire on expedition border crossings and neither has been seen in a
+  browser. Questions: (a) does `THE WORLD CHART` land at the first crossing, or is it buried
+  under the sector banner and the region signature line that can fire on the same arrival?
+  (b) is `Press M for the world chart.` the right wording on desktop, given gamepad `LB` opens
+  it too and is not named? (c) does the touch line `Pause, then World Map, ...` match what a
+  phone player actually sees, or should it name the pause button's position? (d) do the two
+  hints landing on consecutive crossings read as one lesson or as nagging, for a profile that
+  already had rooms charted? (e) are 4200 ms and 4600 ms long enough for sentences this long
+  while the ship is under fire? Retuning any of the five before a browser verdict is exactly
+  the blind retune the convention forbids.
 - [ ] **POLISH-MAP-PINCH-ZOOM** (filed by FEAT-MAPUI-PINCH-ZOOM, d149b50). The chart now zooms
   to a two-finger pinch and none of it has been felt on a real touchscreen. Open the chart on a
   phone or on the Deck's touchscreen, mid-expedition and from the BootScene survey. (a) is
