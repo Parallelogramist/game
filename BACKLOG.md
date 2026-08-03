@@ -2911,6 +2911,66 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-PRACTICE-ABILITY-KIT** (done, 07618dc) (new 2026-08-03, proposed by the
+  planner): the sandbox flies with the keys, or without them. Value: George can fly a practice
+  expedition holding every traversal ability, or holding none of them, so both sides of every
+  ability-gated surface (flicker screens, cracked walls, void gaps, security grids, hazard
+  fields, ciphered doors, ability vaults, gate glyphs, the LOCKED OUT panel and the decryptor
+  ping) are reachable from the dock instead of being fixed by whatever the live profile has
+  claimed.
+  1. **What shipped**: a `PracticeAbilityKit` override (`owned` / `full` / `none`) in
+     `src/meta/TraversalAbilityManager.ts`, a `KIT` cycle button on the PRACTICE dock's LEVEL
+     row, and the `setPracticeAbilityKit` call on launch and on exit.
+  2. **The gap it closed.** `PracticeScene` already ignores unlock gating on all 21 weapons,
+     every level, evolve and all 11 ships, on the stated ground that gating would strand the
+     sandbox at the shipped defaults. Traversal abilities were the axis that rule had not
+     reached: `GameScene.ts` read `getOwnedTraversalAbilityIds()` with no practice branch and
+     `ExpeditionModeAdapter` opened the world's ability doors from that same read, so the dock
+     could not reach a single barrier the live profile had no key for, nor see one shut that it
+     already held.
+  3. **One seam, not three.** All three ownership readers in the app go through
+     `getOwnedTraversalAbilityIds()`, which goes through `load()`, so the override sits in
+     `load()` and no reader can miss it. That is the parallel-code-path rule applied rather
+     than three branches kept in sync.
+  4. **The override is gated on `isPracticeSession()` as well as on the kit**, which is the
+     invariant the three new tests pin: a stale `full` could otherwise hand a real profile
+     every key it never earned and open every ability door in its world, a failure that is
+     invisible in the code and would surface only as "my world has no locked doors any more".
+  5. **Nothing persists, by three independent mechanisms**: the override is in-memory module
+     state that is never written; `claimTraversalAbility` already rides `SecureStorage`'s
+     practice-session block, so a vault claimed in the sandbox still banks nothing; and
+     `exitPracticeSession` reloads the page. No storage key and no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or
+     `WORLD_ARCHIVE_VERSION` moved.
+  6. **The button went on the LEVEL row, not the EVOLVED/MODE row and not a new row.** The
+     EVOLVED/MODE row is full at two 168-unit buttons and a third would cut all three to ~112,
+     which the longest MODE label (a region's stage name) will not fit; a new row would need
+     `PRACTICE_CONTROL_BOTTOM_RESERVE` raised past 140, and vertical growth is the failure mode
+     `HudScale.ts` names and `HudScale.test.ts` pins for this scene. The LEVEL row's right half
+     was free and cost neither.
+  7. **A `none` kit can strand the ship** in a region whose exits are all ability doors. That
+     is a sandbox and quitting is one press, so no guard was added; adding one would mean
+     deciding which barrier a practice run may ignore, which is the opposite of what this item
+     is for.
+  8. **No new `POLISH-*` item was filed**: this is a dev-dock affordance rather than a
+     game-facing feel change, so the convention that would demand a playtest gate does not
+     fire, and the open human-gate count is unchanged at 67.
+- [ ] **FEAT-PRACTICE-KIT-PER-ABILITY** (new 2026-08-03, from FEAT-PRACTICE-ABILITY-KIT): the
+  KIT cycle is all-or-nothing, so a playtest that wants exactly one key (the Magno-Tether alone,
+  to read a void gap without the cloak trivialising the grid on the way) cannot be set up. Cut
+  deliberately: six independent toggles want either a sub-menu or a six-stop-per-ability picker,
+  and the dock's control stack has no vertical budget left (`PRACTICE_CONTROL_BOTTOM_RESERVE` is
+  140 and `HudScale.test.ts` pins it), so the shape of the control is the question. Value: the
+  sandbox can isolate one barrier at a time. Deps: question (e) of `POLISH-PRACTICE-EXPEDITION`,
+  which is already asking whether a cycle is the right control for this dock at all.
+- [ ] **CHORE-PRACTICE-KIT-HUD-TELL** (new 2026-08-03, from FEAT-PRACTICE-ABILITY-KIT): nothing
+  in the run says which kit it is flying, so on a profile that already owns everything an
+  `OWNED` run and a `FULL` run are indistinguishable until a door refuses, and a `NONE` run
+  reads as a save bug rather than as a setting. The dock's own button is the only surface.
+  Cut because the honest fix is an in-run HUD or pause-panel line, which is a game-facing
+  surface and would therefore have to file a `POLISH-*` gate, and this session's whole point
+  was to shorten the operator queue rather than lengthen it. Value: the sandbox says what it
+  is rehearsing. Deps: none technical; it is the operator-gate cost that parks it.
 - [x] **FEAT-PRACTICE-BOSS-ARENA-START** (done, af9f791) (new 2026-08-03, from
   FEAT-PRACTICE-EXPEDITION-DESTINATION): the boss fight a playtest asks about is one press
   away. Value: George can reach the Warden from the PRACTICE dock instead of flying an entire
