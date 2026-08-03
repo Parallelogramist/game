@@ -75,6 +75,7 @@ import {
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
 import type { BankedWorldRow, ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
+import { describeCompletionRecordClause, loadCompletionRecord } from '../../expedition/completionRecord';
 import { questWorldStamp } from '../../systems/QuestProgress';
 import {
   getActiveQuestStepViews,
@@ -417,11 +418,13 @@ export class BootScene extends Phaser.Scene {
     ): void => {
       const allRows = describeBankedWorlds(getBankedSeasons());
       const { rows: returnable, page, pageCount } = returnWorldPage(allRows, sort, requestedPage);
+      const completionRecord = loadCompletionRecord();
       const lines = [
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
-          + `   ·   ${describeSecretsFound(summary.secretsFound, summary.knowableSecrets)}`,
+          + `   ·   ${describeSecretsFound(summary.secretsFound, summary.knowableSecrets)}`
+          + describeCompletionRecordClause(completionRecord, summary.completionPercent),
         '',
         'The world you leave is banked with its chart.',
         'A world you return to is exactly as you left it: the same',
@@ -605,6 +608,7 @@ export class BootScene extends Phaser.Scene {
       const choices = getNextExpeditionSeedChoices();
       const previews = previewExpeditionWorlds(choices);
       const felledMask = getAchievementManager().getLifetimeStats().wardensFelledMask;
+      const completionRecord = loadCompletionRecord();
       const wardenClause = (bossTypeId: string, name: string) => (
         isWardenFelled(felledMask, bossTypeId) ? name : `${name} (NEW)`
       );
@@ -612,7 +616,8 @@ export class BootScene extends Phaser.Scene {
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
-          + `   ·   ${describeSecretsFound(summary.secretsFound, summary.knowableSecrets)}`,
+          + `   ·   ${describeSecretsFound(summary.secretsFound, summary.knowableSecrets)}`
+          + describeCompletionRecordClause(completionRecord, summary.completionPercent),
         `Warden: ${wardenClause(summary.wardenBossId, summary.wardenName)}`,
         '',
         'A new world resets the chart, the leads and every broken wall.',

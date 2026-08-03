@@ -107,6 +107,7 @@ import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import {
   getCurrentExpeditionSeasonIndex, getCurrentExpeditionSeed,
 } from '../../expedition/ExpeditionSeasonStore';
+import { recordExpeditionCompletion } from '../../expedition/completionRecord';
 import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { buildRunTickerRows } from '../../expedition/runTicker';
@@ -1305,14 +1306,20 @@ export class GameScene extends Phaser.Scene {
     if (this.worldMode.kind !== 'expedition') return undefined;
     const discovery = getDiscoveryManager();
     const sectorsCharted = discovery.getVisitedSectorCount();
+    const completionPercent = discovery.getCompletionPercent();
+    const seasonIndex = getCurrentExpeditionSeasonIndex();
+    const { record, isNewBest } = recordExpeditionCompletion(completionPercent, seasonIndex);
     return {
-      seasonIndex: getCurrentExpeditionSeasonIndex(),
-      completionPercent: discovery.getCompletionPercent(),
+      seasonIndex,
+      completionPercent,
       sectorsCharted,
       knowableSectors: discovery.getKnowableSectorCount(),
       chartedThisRun: this.chartedSectorsAtRunStart === null
         ? null
         : sectorsCharted - this.chartedSectorsAtRunStart,
+      bestPercent: record.bestPercent,
+      bestSeasonIndex: record.bestSeasonIndex,
+      isNewBest,
     };
   }
 
@@ -9418,6 +9425,14 @@ export class GameScene extends Phaser.Scene {
 
   private showVictory(firstConquest: boolean | null): void {
     const runNoticeRows = this.collectRunNotices();
+    // A conquest is a run end too, and it is the one most likely to set the record. The victory
+    // overlay carries no expedition block, so this writes without displaying: the number shows up
+    // on the next death screen and on the CHART dialog.
+    if (this.worldMode.kind === 'expedition') {
+      recordExpeditionCompletion(
+        getDiscoveryManager().getCompletionPercent(), getCurrentExpeditionSeasonIndex(),
+      );
+    }
     recordThreatCleared(this.threatLevel);
     this.hasWon = true;
     this.isPaused = true;

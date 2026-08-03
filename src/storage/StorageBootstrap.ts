@@ -130,6 +130,9 @@ export const ALL_STORAGE_KEYS = [
   // record of the worlds it has finished with)
   'survivor-expedition-seasons',
 
+  // CompletionRecord (lifetime best completion of any one expedition world, and which set it)
+  'survivor-expedition-completion-best',
+
   // ShipPaintManager (player-chosen hull paint; auto-transfers with the profile)
   'survivor-ship-paint',
 

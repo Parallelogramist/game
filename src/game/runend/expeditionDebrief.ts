@@ -18,6 +18,13 @@ export interface ExpeditionDebrief {
    * run-start baseline with the page, same rule as the pace curve and the run timeline.
    */
   chartedThisRun: number | null;
+  /** The profile's lifetime best completion, AFTER this run was folded in. 0 before any run
+   *  has ever been recorded. */
+  bestPercent: number;
+  /** The season ordinal of the world holding that record. 0 when there is no record. */
+  bestSeasonIndex: number;
+  /** Whether THIS run's completion is what set it. */
+  isNewBest: boolean;
 }
 
 export interface ExpeditionDebriefRow {
@@ -25,18 +32,28 @@ export interface ExpeditionDebriefRow {
   worldLabel: string;
   /** Right cell value: `18 / 43 (+4)`. */
   chartedLabel: string;
+  /** The chase row's value: `NEW BEST`, or `61% · W2`. Null when the profile has no record,
+   *  which is what tells the overlay not to draw the row at all. */
+  recordLabel: string | null;
 }
 
 export function buildExpeditionDebriefRow(debrief: ExpeditionDebrief): ExpeditionDebriefRow {
-  const { seasonIndex, completionPercent, sectorsCharted, knowableSectors, chartedThisRun } = debrief;
+  const {
+    seasonIndex, completionPercent, sectorsCharted, knowableSectors, chartedThisRun,
+    bestPercent, bestSeasonIndex, isNewBest,
+  } = debrief;
   // A zero denominator means the world never bound; printing `18 / 0` would be a lie
   // rather than a number, so the count stands alone.
   const charted = knowableSectors > 0
     ? `${sectorsCharted} / ${knowableSectors}`
     : `${sectorsCharted}`;
   const delta = chartedThisRun !== null && chartedThisRun > 0 ? ` (+${chartedThisRun})` : '';
+  const recordWorld = bestSeasonIndex > 0 ? ` · W${bestSeasonIndex}` : '';
   return {
     worldLabel: `W${seasonIndex} · ${completionPercent}%`,
     chartedLabel: `${charted}${delta}`,
+    recordLabel: isNewBest
+      ? 'NEW BEST'
+      : bestPercent > 0 ? `${bestPercent}%${recordWorld}` : null,
   };
 }

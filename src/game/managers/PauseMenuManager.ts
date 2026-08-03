@@ -2439,8 +2439,10 @@ export class PauseMenuManager {
     const hasQuestRow = questGold > 0;
     const hasEconomy = hasLedgerRow || hasQuestRow;
     const hasExpeditionRow = data.expedition !== undefined;
+    const hasCompletionRecordRow = data.expedition !== undefined
+      && buildExpeditionDebriefRow(data.expedition).recordLabel !== null;
     const statRowCount = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0)
-      + (hasQuestRow ? 1 : 0) + (hasExpeditionRow ? 1 : 0);
+      + (hasQuestRow ? 1 : 0) + (hasExpeditionRow ? 1 : 0) + (hasCompletionRecordRow ? 1 : 0);
     const statRowHeight = 34;
     const statsPanelWidth = 480;
     const statsPanelHeight = statRowCount * statRowHeight + 22;
@@ -2544,9 +2546,17 @@ export class PauseMenuManager {
     // identically — and the win screen has named its world since FEAT-EXPEDITION-SEASONS.
     if (data.expedition) {
       const expeditionRow = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0) + (hasQuestRow ? 1 : 0);
-      const { worldLabel, chartedLabel } = buildExpeditionDebriefRow(data.expedition);
+      const { worldLabel, chartedLabel, recordLabel } = buildExpeditionDebriefRow(data.expedition);
       addStatCell(leftCellLeftX, leftCellRightX, statRowY(expeditionRow), 'World', worldLabel, { fontSize: '16px', color: '#66ccff' });
       addStatCell(rightCellLeftX, rightCellRightX, statRowY(expeditionRow), 'Charted', chartedLabel, { fontSize: '16px', color: '#66ccff' });
+      // Its own row rather than a clause on the World cell: that cell is right-aligned into
+      // roughly 194 px it shares with its label, and `W12 · 100% · BEST 100%` overruns it. One
+      // filled cell and an empty one is the shape the Quest Gold row above already uses.
+      if (recordLabel !== null) {
+        addStatCell(leftCellLeftX, leftCellRightX, statRowY(expeditionRow + 1), 'Best Chart', recordLabel, {
+          fontSize: '16px', color: data.expedition.isNewBest ? '#ffdd44' : '#66ccff',
+        });
+      }
     }
 
     // ── Gold pill ──────────────────────────────────────────────────────────
