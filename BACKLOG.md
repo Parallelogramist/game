@@ -2982,13 +2982,51 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
      `statsPanelTop`, so the sixth row pushes the gold pill and everything below it down by one
      `statRowHeight` (34 units) — filed as `POLISH-EXPEDITION-DEBRIEF`.
   8. **Filed with it**: `POLISH-EXPEDITION-DEBRIEF` under `## Human gates`.
-- [ ] **FEAT-QUEST-BRIEFING-REWARDS** (new 2026-08-02, from FEAT-QUEST-BRIEFING): the briefing
-  names no payout, because `QuestStepView` carries `progress`/`target` and no gold, and the
-  ticker and the OBJECTIVES panel do not show gold either. Adding `stepGoldReward` to the shared
-  read model would light all three surfaces at once, which is the reason to do it there rather
-  than with a per-call definition lookup. Value: the briefing says what an objective pays before
-  you fly for it. Deps: none, but the ticker and panel copy would change with it, so it wants
-  `POLISH-QUEST-BRIEFING`'s answer on line length first.
+- [x] **FEAT-QUEST-BRIEFING-REWARDS** (done, b9e891a) (new 2026-08-02, from
+  FEAT-QUEST-BRIEFING): the briefing names what an objective pays. Value: George can read, from
+  the main menu before he launches, what each active objective pays him (`PAYS 150 G`) and what
+  the rest of its chain still pays (`CHAIN PAYS 350 G`), instead of learning an objective's worth
+  only when the coins land mid-run.
+  1. **What shipped**: `QuestStepView` gained `stepGoldReward` and `chainGoldRemaining`, both
+     required, and `buildQuestBriefingLines` appends one clause to each of the two lines it
+     already prints per objective: `· CHAIN PAYS 350 G` on the `STEP n OF m` heading and
+     `· PAYS 150 G` on the progress line.
+  2. **The gap it closed, symptom first.** Every quest surface outside a board rendered
+     `progress`/`target` and no money at all, because the shared read model carried none, so the
+     one screen where the payout is actionable — the menu, before a world is committed to — was
+     the one screen that could not name it. The board has shown `goldRemaining` since
+     `FEAT-QUEST-BOARD` (`QuestBoardScene.ts:335`), so the `N G` vocabulary was already in the
+     game; only the read model was missing.
+  3. **One source of truth for the arithmetic**: the board's `goldRemaining` and the briefing's
+     chain clause are the same number, so both now go through `remainingChainGold(definition,
+     stepIndex)` (steps from here on, plus the completion bonus) instead of restating it.
+     `buildQuestBoardEntries` is behaviour-identical by construction — its old expression summed
+     an empty array and added 0 on the `complete` branch — and a `goldRemaining: 39` assertion on
+     a non-complete board entry now pins the extraction.
+  4. **Why two numbers and not one**: a step's own payout answers "is this worth finishing now"
+     and the chain remainder answers "is this chain worth staying on". On a final step the step
+     number alone would understate the payout, because the completion bonus lands with it.
+  5. **The line count did not change**, which is the whole reason no new operator question was
+     filed: both clauses are appended to lines that already existed, so the only question this
+     raises is `POLISH-QUEST-BRIEFING`'s (a), already open, which that item's text now names.
+  6. **Deliberately not built**: the HUD ticker (`runTicker.ts`) and the map's OBJECTIVES panel,
+     because this item's own dep line said their copy wants `POLISH-QUEST-BRIEFING`'s line-length
+     answer first — the ticker is under doc 04 section 4's "one line, never two" rule and the
+     panel's detail line wraps into a panel that sizes itself. The read model now carries the
+     numbers for both, so lighting them later is a render change only. Filed as
+     `FEAT-QUEST-REWARD-INRUN-SURFACES`.
+  7. **No persistence change**: no storage key, no `SAVE_VERSION` bump, no `GameSaveState` field,
+     no `WORLDGEN_VERSION` bump, so every existing profile gets it on the next build.
+- [ ] **FEAT-QUEST-REWARD-INRUN-SURFACES** (new 2026-08-03, from FEAT-QUEST-BRIEFING-REWARDS):
+  the two in-run surfaces still name no payout. `QuestStepView` now carries `stepGoldReward` and
+  `chainGoldRemaining`, so the HUD ticker line (`runTicker.ts:58`) and the map's OBJECTIVES panel
+  detail line (`MapScene.renderObjectivesPanel`) are a render change away from saying what an
+  objective pays while you are flying it. Held back deliberately, not forgotten: the ticker is one
+  rotating line under doc 04 section 4's "one line, never two" rule and already carries a prefix,
+  a description, progress, an optional note and an `· UPDATED` suffix, and the panel's detail line
+  wraps into a plate that sizes itself and pushes the LEADS panel down. Value: the payout is
+  readable at the moment the player is choosing what to fly toward. Deps: `POLISH-QUEST-BRIEFING`'s
+  answer on line length.
 - [x] **FEAT-QUEST-WORLD-BOUND-TELL** (done, dea5d49) (new 2026-08-02, from
   FEAT-QUEST-SWEEP-WORLD-RESET-TELL): a cross-run room sweep says which world it belongs to,
   before you trade that world away and after you have. Value: George can see, at the moment the
@@ -12216,8 +12254,10 @@ Never agent work. The fleet must not do any of these.
 - [ ] **POLISH-QUEST-BRIEFING** (new 2026-08-02, from FEAT-QUEST-BRIEFING). The main menu now has
   an OBJECTIVES card and a briefing dialog behind it, and none of it has been read on a screen.
   Questions for the operator: (a) a three-objective body runs up to 14 centred lines in a dialog
-  card that is 660 scaled px wide: does that read at portrait width, or does it need two columns
-  or a shorter line per step? (b) `GAME MODES` is now an eighth card: does that crowd the submenu
+  card that is 660 scaled px wide, and since FEAT-QUEST-BRIEFING-REWARDS each objective's two
+  lines also carry a gold clause (`· CHAIN PAYS 350 G` on the heading, `· PAYS 150 G` on the
+  progress line — the line COUNT is unchanged): does that read at portrait width, or does it need
+  two columns or a shorter line per step? (b) `GAME MODES` is now an eighth card: does that crowd the submenu
   in portrait, where the grid is one column and `rowHeight` floors at 40 px? (c) does
   `N rooms were charted in another world and restart here.` read as a warning worth acting on, or
   as trivia? (d) should the badge count active objectives, as built, or remaining steps? Do not
