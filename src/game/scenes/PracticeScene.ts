@@ -27,7 +27,7 @@ import type { RunModeKind } from '../world/WorldModeAdapter';
 import { getStageById } from '../../data/Stages';
 import { generateExpeditionWorld } from '../../expedition/expeditionWorld';
 import { getCurrentExpeditionSeed } from '../../expedition/ExpeditionSeasonStore';
-import { listWorldRegions } from '../../world/worldRegions';
+import { bossArenaDropPoint, listWorldRegions } from '../../world/worldRegions';
 import type { WorldRegion } from '../../world/worldRegions';
 
 /** All 21 weapons — the default projectile plus every unlockable. */
@@ -82,7 +82,11 @@ export class PracticeScene extends Phaser.Scene {
   /** The live world's regions, or null until the first MODE press builds them. Keyed on the
    *  seed because CHART A NEW WORLD can move it between two visits and a Phaser scene
    *  instance outlives scene.start(). */
-  private cachedRegions: { seed: number; regions: readonly WorldRegion[] } | null = null;
+  private cachedRegions: {
+    seed: number;
+    regions: readonly WorldRegion[];
+    wardenSectorKey: string | null;
+  } | null = null;
   private relayoutOnly: boolean = false;
 
   constructor() {
@@ -478,14 +482,19 @@ export class PracticeScene extends Phaser.Scene {
     addButtonInteraction(this, evolveButton.container);
     this.controlButtons.push(evolveButton);
 
+    const wardenPicked = this.selectedRunMode === 'expedition'
+      && this.wardenSectorKey() !== null
+      && this.selectedRegionIndex === this.currentRegions().length;
     const pickedRegion = this.selectedRunMode === 'expedition' && this.selectedRegionIndex > 0
       ? this.currentRegions()[this.selectedRegionIndex]
       : undefined;
     const modeLabel = this.selectedRunMode === 'arena'
       ? 'SKIRMISH'
-      : pickedRegion === undefined
-        ? 'EXPEDITION'
-        : (getStageById(pickedRegion.biomeId)?.name ?? 'EXPEDITION').toUpperCase();
+      : wardenPicked
+        ? 'WARDEN'
+        : pickedRegion === undefined
+          ? 'EXPEDITION'
+          : (getStageById(pickedRegion.biomeId)?.name ?? 'EXPEDITION').toUpperCase();
 
     const modeButton = createMenuButton({
       scene: this,
@@ -529,12 +538,25 @@ export class PracticeScene extends Phaser.Scene {
     return cached.regions;
   }
 
+  /** The one boss-arena stop, or null for a world whose arena has no doorway to drop beside.
+   *  Guarded on the same stale-seed rule as currentRegions, so the two can never disagree. */
+  private wardenSectorKey(): string | null {
+    const cached = this.cachedRegions;
+    if (cached === null || cached.seed !== getCurrentExpeditionSeed()) return null;
+    return cached.wardenSectorKey;
+  }
+
   /** Called only from the MODE button, which is the button press expeditionWorld.ts sanctions
    *  for a generateWorld. */
   private loadRegions(): readonly WorldRegion[] {
     const seed = getCurrentExpeditionSeed();
     if (this.cachedRegions === null || this.cachedRegions.seed !== seed) {
-      this.cachedRegions = { seed, regions: listWorldRegions(generateExpeditionWorld(seed)) };
+      const map = generateExpeditionWorld(seed);
+      this.cachedRegions = {
+        seed,
+        regions: listWorldRegions(map),
+        wardenSectorKey: bossArenaDropPoint(map) === null ? null : map.bossArenaKey,
+      };
       this.selectedRegionIndex = 0;
     }
     return this.cachedRegions.regions;
@@ -548,8 +570,9 @@ export class PracticeScene extends Phaser.Scene {
       return;
     }
     const regions = this.loadRegions();
+    const lastIndex = this.wardenSectorKey() === null ? regions.length - 1 : regions.length;
     const next = this.selectedRegionIndex + 1;
-    if (next >= regions.length) {
+    if (next > lastIndex) {
       this.selectedRunMode = 'arena';
       this.selectedRegionIndex = 0;
       return;
@@ -561,6 +584,8 @@ export class PracticeScene extends Phaser.Scene {
    *  today. Read through currentRegions so the launch can never disagree with the label. */
   private practiceStartSectorKey(): string | undefined {
     if (this.selectedRunMode !== 'expedition' || this.selectedRegionIndex === 0) return undefined;
+    const warden = this.wardenSectorKey();
+    if (warden !== null && this.selectedRegionIndex === this.currentRegions().length) return warden;
     return this.currentRegions()[this.selectedRegionIndex]?.entrySectorKey;
   }
 

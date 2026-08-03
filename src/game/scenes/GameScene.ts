@@ -65,6 +65,7 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, parseSectorKey, rectCenter, rectHeight, rectWidth, sectorCenterWorld, sectorKey, sectorOfWorldPoint, sectorOriginWorld } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
+import { bossArenaDropPoint } from '../../world/worldRegions';
 import { buildSectorSupply, sectorTagsOf } from '../../world/sectorTags';
 import { SPINE_BIOME_ID } from '../../world/generateWorld';
 import type { SectorSupplySnapshot } from '../../world/sectorTags';
@@ -954,6 +955,10 @@ export class GameScene extends Phaser.Scene {
    * The sector CENTRE snapped through freeSpotNear, for the reason seedSortieAnchorFromChart
    * gives: a room's key cannot move, and freeSpotNear is this repo's one answer to "where
    * does the ship fit".
+   *
+   * The boss arena is the one room that takes its doorway instead of its centre, because the
+   * dormant throne stands at the centre and a drop on it would trip the Warden before the
+   * player has taken a frame of control.
    */
   private resolvePracticeStartPoint(): { x: number; y: number } | null {
     if (!this.practiceModeActive || this.shouldRestore) return null;
@@ -961,11 +966,16 @@ export class GameScene extends Phaser.Scene {
     if (key === null) return null;
     const map = this.worldMode.worldMap();
     if (map === null || !map.sectors.has(key)) return null;
-    const coord = parseSectorKey(key);
-    if (coord === null) return null;
-    const centre = sectorCenterWorld(coord);
-    const spot: WorldPoint = { x: centre.x, y: centre.y };
-    this.worldMode.freeSpotNear(centre.x, centre.y, spot);
+    let anchor: WorldPoint | null = null;
+    if (key === map.bossArenaKey) {
+      anchor = bossArenaDropPoint(map);
+    } else {
+      const coord = parseSectorKey(key);
+      if (coord !== null) anchor = sectorCenterWorld(coord);
+    }
+    if (anchor === null) return null;
+    const spot: WorldPoint = { x: anchor.x, y: anchor.y };
+    this.worldMode.freeSpotNear(anchor.x, anchor.y, spot);
     return spot;
   }
 
