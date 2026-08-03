@@ -1,11 +1,27 @@
 import { describe, test, expect } from 'vitest';
 
 import { EXPEDITION_QUESTS } from '../data/ExpeditionQuests';
+import type { QuestTrigger } from '../data/ExpeditionQuests';
+import type { SecretTier } from '../world/secretRewards';
 import { STAGES } from '../data/Stages';
 import { ICON_MAP } from '../utils/IconMap';
 import { buildSeasonQuests, CONTRACTS_PER_WORLD } from './seasonQuests';
 
 const SEEDS = [20260727, 1, 999_999_999, 1_733_221_004];
+
+/** The tiers a findSecret trigger accepts, mirroring QuestProgress.triggerMatches: a bare trigger
+ *  takes any find, and 'cache' also takes the ring and the capstone that seal a cache slot. A
+ *  trigger of any other kind consumes no secret and returns empty. */
+function secretTiersMatched(trigger: QuestTrigger): ReadonlySet<SecretTier> {
+  if (trigger.kind !== 'findSecret') return new Set<SecretTier>();
+  if (trigger.secretKind === undefined) {
+    return new Set<SecretTier>(['cache', 'hiddenSector', 'puzzle', 'capstone']);
+  }
+  if (trigger.secretKind === 'cache') {
+    return new Set<SecretTier>(['cache', 'puzzle', 'capstone']);
+  }
+  return new Set<SecretTier>([trigger.secretKind]);
+}
 
 describe('seasonQuests', () => {
   test('a seed issues the same contracts every time and different seeds differ', () => {
@@ -74,6 +90,24 @@ describe('seasonQuests', () => {
     for (let seed = 1; seed <= 400; seed += 1) {
       for (const contract of buildSeasonQuests(seed)) {
         seenKeys.add(contract.id.split('_').slice(3).join('_'));
+        // Only the ACTIVE step records, and a secret is spent for good, so an earlier step whose
+        // trigger matches EVERY tier a later one needs eats that later step's whole supply. The
+        // 'ghost' template shipped that way, a bare findSecret ahead of a hiddenSector ask against
+        // the two or three a world holds, and was reordered. Necessary, not sufficient: this reads
+        // the triggers, never the world's counts, which is why the supply questions on 'purge' and
+        // 'warden' are filed rather than asserted here.
+        for (let later = 1; later < contract.steps.length; later += 1) {
+          const neededTiers = secretTiersMatched(contract.steps[later].trigger);
+          if (neededTiers.size === 0) continue;
+          for (let earlier = 0; earlier < later; earlier += 1) {
+            const eatenTiers = secretTiersMatched(contract.steps[earlier].trigger);
+            const eatsEveryNeededTier = [...neededTiers].every((tier) => eatenTiers.has(tier));
+            expect(
+              eatsEveryNeededTier,
+              `${contract.steps[earlier].id} matches every tier ${contract.steps[later].id} needs`,
+            ).toBe(false);
+          }
+        }
         for (const step of contract.steps) {
           const trigger = step.trigger;
           if (trigger.kind === 'surviveInSector') {

@@ -84,20 +84,25 @@ const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
     key: 'ghost',
     name: 'Contract · Ghost Sweep',
     icon: 'ghost',
+    // The scarce ask leads, and that order is load-bearing. Only the ACTIVE step records
+    // (QuestProgress reads definition.steps[stepIndex] alone), a bare findSecret trigger matches
+    // every tier including hiddenSector, and a world's two or three hidden sectors stay broken
+    // once entered: with the bare step first it ate the supply the second step needed and
+    // stranded the contract for that world for good.
     steps: [
-      {
-        description: 'Uncover three secrets on one expedition',
-        trigger: { kind: 'findSecret' },
-        target: 3,
-        scope: 'run',
-        goldReward: 140,
-      },
       {
         description: 'Break into two hidden sectors across your expeditions',
         trigger: { kind: 'findSecret', secretKind: 'hiddenSector' },
         target: 2,
         scope: 'persistent',
         goldReward: 200,
+      },
+      {
+        description: 'Uncover three secrets on one expedition',
+        trigger: { kind: 'findSecret' },
+        target: 3,
+        scope: 'run',
+        goldReward: 140,
       },
     ],
     completionGoldReward: 280,
