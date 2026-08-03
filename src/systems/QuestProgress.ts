@@ -461,6 +461,10 @@ export interface QuestStepView {
   /** 1-based position of the current step within its quest. */
   stepNumber: number;
   stepCount: number;
+  /** Gold this step pays the moment it completes. */
+  stepGoldReward: number;
+  /** Gold the rest of this chain still pays from this step on, its completion bonus included. */
+  chainGoldRemaining: number;
   /** A clause the ticker, the OBJECTIVES panel and nothing else render: what a delivery or escort
    *  step is waiting on. Absent for every kind that needs no second state to be legible. */
   note?: string;
@@ -477,6 +481,19 @@ function cargoNote(state: QuestInstanceState, worldStamp: string): string {
     return `${CARGO_ADRIFT_NOTE} · ${drop.sectorKey}`;
   }
   return state.cargoHeld === true ? CARGO_ABOARD_NOTE : BOARD_COLLECT_NOTE;
+}
+
+/**
+ * Gold a chain still pays from `stepIndex` onward, its completion bonus included. The board's
+ * `goldRemaining` and the briefing's per-objective payout are the same number, so they share the
+ * arithmetic rather than each restating it.
+ */
+export function remainingChainGold(
+  definition: ExpeditionQuestDefinition,
+  stepIndex: number,
+): number {
+  return definition.steps.slice(stepIndex).reduce((total, step) => total + step.goldReward, 0)
+    + definition.completionGoldReward;
 }
 
 export function buildQuestStepViews(
@@ -501,6 +518,8 @@ export function buildQuestStepViews(
       target,
       stepNumber: state.stepIndex + 1,
       stepCount: definition.steps.length,
+      stepGoldReward: step.goldReward,
+      chainGoldRemaining: remainingChainGold(definition, state.stepIndex),
       note: step.trigger.kind === 'deliverItem'
         ? cargoNote(state, worldStamp)
         : step.trigger.kind === 'escortDrone'
@@ -788,7 +807,6 @@ export function buildQuestBoardEntries(
     const status = held?.status ?? 'available';
     const stepIndex = Math.min(held?.stepIndex ?? 0, definition.steps.length - 1);
     const step = definition.steps[stepIndex];
-    const remainingSteps = status === 'complete' ? [] : definition.steps.slice(stepIndex);
     const target = effectiveStepTarget(step, supply);
     entries.push({
       questId: definition.id,
@@ -800,8 +818,7 @@ export function buildQuestBoardEntries(
       target,
       stepNumber: stepIndex + 1,
       stepCount: definition.steps.length,
-      goldRemaining: remainingSteps.reduce((total, entry) => total + entry.goldReward, 0)
-        + (status === 'complete' ? 0 : definition.completionGoldReward),
+      goldRemaining: status === 'complete' ? 0 : remainingChainGold(definition, stepIndex),
       relicOnCompletion: definition.completionRelicRoll === true,
       acceptable: status === 'available' && !capReached,
     });

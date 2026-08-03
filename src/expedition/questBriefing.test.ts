@@ -10,6 +10,8 @@ const view = (overrides: Partial<QuestStepView> = {}): QuestStepView => ({
   target: 20,
   stepNumber: 6,
   stepCount: 6,
+  stepGoldReward: 150,
+  chainGoldRemaining: 350,
   ...overrides,
 });
 
@@ -46,8 +48,8 @@ describe('buildQuestBriefingLines', () => {
       views: [view({ stepNumber: 2, stepCount: 3, note: 'CARGO ABOARD' })],
       worldBound: [],
     }).join('\n');
-    expect(lines).toContain('Deep Survey   ·   STEP 2 OF 3');
-    expect(lines).toContain('Chart 20 rooms   14 / 20');
+    expect(lines).toContain('Deep Survey   ·   STEP 2 OF 3   ·   CHAIN PAYS 350 G');
+    expect(lines).toContain('Chart 20 rooms   14 / 20   ·   PAYS 150 G');
     expect(lines).toContain('CARGO ABOARD');
   });
 });

@@ -220,8 +220,8 @@ describe('buildQuestStepViews', () => {
   test('projects each active quest onto its current step, clamping overshoot', () => {
     const views = buildQuestStepViews([active('quest_a', 0, 4), active('quest_b', 0, 99)], DEFS, 'w1');
     expect(views).toEqual([
-      { questId: 'quest_a', questName: 'A', stepDescription: 'kill 10', progress: 4, target: 10, stepNumber: 1, stepCount: 2 },
-      { questId: 'quest_b', questName: 'B', stepDescription: 'open 2', progress: 2, target: 2, stepNumber: 1, stepCount: 1 },
+      { questId: 'quest_a', questName: 'A', stepDescription: 'kill 10', progress: 4, target: 10, stepNumber: 1, stepCount: 2, stepGoldReward: 5, chainGoldRemaining: 32 },
+      { questId: 'quest_b', questName: 'B', stepDescription: 'open 2', progress: 2, target: 2, stepNumber: 1, stepCount: 1, stepGoldReward: 9, chainGoldRemaining: 39 },
     ]);
   });
 
@@ -677,7 +677,7 @@ describe('the quest board', () => {
     // quest_b is a successor, listed only because it is held; quest_a sinks for being complete.
     expect(entries.map((entry) => entry.questId))
       .toEqual(['quest_b', 'quest_c', 'quest_d', 'quest_e', 'quest_a']);
-    expect(entries[0]).toMatchObject({ status: 'available', acceptable: true, progress: 1 });
+    expect(entries[0]).toMatchObject({ status: 'available', acceptable: true, progress: 1, goldRemaining: 39 });
     expect(entries[entries.length - 1]).toMatchObject({ status: 'complete', acceptable: false, goldRemaining: 0 });
   });
 });

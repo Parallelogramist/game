@@ -12,6 +12,8 @@ const viewFor = (questId: string): QuestStepView => ({
   target: 3,
   stepNumber: 1,
   stepCount: 2,
+  stepGoldReward: 50,
+  chainGoldRemaining: 130,
 });
 
 const leadFor = (secretId: string): SecretLead => ({

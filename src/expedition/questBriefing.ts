@@ -43,8 +43,10 @@ export function buildQuestBriefingLines(inputs: QuestBriefingInputs): string[] {
   const lines = [header, ''];
   for (const [index, view] of inputs.views.entries()) {
     if (index > 0) lines.push('');
-    lines.push(`${view.questName}   ·   STEP ${view.stepNumber} OF ${view.stepCount}`);
-    lines.push(`${view.stepDescription}   ${view.progress} / ${view.target}`);
+    lines.push(`${view.questName}   ·   STEP ${view.stepNumber} OF ${view.stepCount}`
+      + `   ·   CHAIN PAYS ${view.chainGoldRemaining} G`);
+    lines.push(`${view.stepDescription}   ${view.progress} / ${view.target}`
+      + `   ·   PAYS ${view.stepGoldReward} G`);
     if (view.note !== undefined) lines.push(view.note);
     const stale = roomsCountedElsewhere.get(view.questId);
     if (stale !== undefined) {
