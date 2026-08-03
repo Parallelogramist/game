@@ -7,6 +7,7 @@ import {
   rollNextExpeditionSeed,
   rollNextExpeditionSeedChoices,
   sanitizeSeasonState,
+  withLiveWorldProgress,
 } from './ExpeditionSeasonStore';
 
 describe('expedition seasons', () => {
@@ -105,5 +106,70 @@ describe('expedition seasons', () => {
     // A fresh world after a return must not collide with W2 or W3.
     const onward = bankSeasonAndSwitch(back, record, 4242);
     expect(onward.currentIndex).toBe(4);
+  });
+
+  it('keeps the live-world snapshot only for the world actually being flown', () => {
+    // The one failure this cache can cause is the PREVIOUS world's percent under the CURRENT
+    // world's tile, which is a wrong number on the main menu with no crash and no type error.
+    const state = emptySeasonState();
+    const wrongWorld = withLiveWorldProgress(state, {
+      seed: FIRST_EXPEDITION_WORLD_SEED + 1,
+      worldGenVersion: 4,
+      completionPercent: 61,
+      sectorsCharted: 30,
+      secretsFound: 7,
+    });
+    expect(wrongWorld).toBe(state);
+    expect(wrongWorld.liveProgress).toBeNull();
+
+    const liveWorld = withLiveWorldProgress(state, {
+      seed: FIRST_EXPEDITION_WORLD_SEED,
+      worldGenVersion: 4,
+      completionPercent: 142.6,
+      sectorsCharted: 30.9,
+      secretsFound: -3,
+    });
+    expect(liveWorld.liveProgress).toEqual({
+      seed: FIRST_EXPEDITION_WORLD_SEED,
+      worldGenVersion: 4,
+      completionPercent: 100,
+      sectorsCharted: 30,
+      secretsFound: 0,
+    });
+  });
+
+  it('drops the snapshot when the profile trades the world it describes', () => {
+    const charted = withLiveWorldProgress(emptySeasonState(), {
+      seed: FIRST_EXPEDITION_WORLD_SEED,
+      worldGenVersion: 4,
+      completionPercent: 61,
+      sectorsCharted: 30,
+      secretsFound: 7,
+    });
+    expect(charted.liveProgress).not.toBeNull();
+    const traded = bankSeasonAndSwitch(charted, {
+      completionPercent: 61, sectorsCharted: 30, secretsFound: 7,
+    });
+    expect(traded.liveProgress).toBeNull();
+  });
+
+  it('reads a half-shaped stored snapshot as no snapshot', () => {
+    const base = { version: 1, currentSeed: 5, currentIndex: 1, banked: [] };
+    const payloads: unknown[] = [
+      { ...base },
+      { ...base, liveProgress: null },
+      { ...base, liveProgress: {} },
+      { ...base, liveProgress: { seed: 5, worldGenVersion: 4, completionPercent: 12 } },
+      { ...base, liveProgress: { seed: 0, worldGenVersion: 4, completionPercent: 12, sectorsCharted: 3, secretsFound: 1 } },
+    ];
+    for (const payload of payloads) {
+      expect(sanitizeSeasonState(payload).liveProgress).toBeNull();
+    }
+    expect(sanitizeSeasonState({
+      ...base,
+      liveProgress: { seed: 5, worldGenVersion: 4, completionPercent: 12, sectorsCharted: 3, secretsFound: 1 },
+    }).liveProgress).toEqual({
+      seed: 5, worldGenVersion: 4, completionPercent: 12, sectorsCharted: 3, secretsFound: 1,
+    });
   });
 });

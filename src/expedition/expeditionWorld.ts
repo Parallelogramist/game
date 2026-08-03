@@ -13,6 +13,7 @@ import type { WorldMap } from '../world/worldTypes';
 import {
   getCurrentExpeditionSeasonIndex,
   getCurrentExpeditionSeed,
+  recordLiveWorldProgress,
 } from './ExpeditionSeasonStore';
 import type { BankedSeason } from './ExpeditionSeasonStore';
 import { getDiscoveryManager } from './DiscoveryManager';
@@ -86,10 +87,22 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
  * summariseCurrentExpedition because a caller that wants the MAP rather than a summary must not
  * pay a second generateWorld (33 ms measured on the Deck) or write the generate-then-bind pair
  * out twice. Call it on a button press, never per frame and never from a scene's create().
+ *
+ * It is also the ONE menu-side producer of the live-world snapshot: every path that reaches a
+ * bound world outside a run reaches it through here, and the completion numbers are free once the
+ * world is bound. That is what lets BootScene's create() read the percent without generating.
  */
 export function bindCurrentExpeditionWorld(): WorldMap {
   const map = generateExpeditionWorld(getCurrentExpeditionSeed());
-  getDiscoveryManager().bindWorld(map);
+  const discovery = getDiscoveryManager();
+  discovery.bindWorld(map);
+  recordLiveWorldProgress({
+    seed: map.seed,
+    worldGenVersion: map.worldGenVersion,
+    completionPercent: discovery.getCompletionPercent(),
+    sectorsCharted: discovery.getVisitedSectorCount(),
+    secretsFound: discovery.getFoundSecretCount(),
+  });
   return map;
 }
 

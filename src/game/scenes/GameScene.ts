@@ -105,7 +105,7 @@ import {
 } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import {
-  getCurrentExpeditionSeasonIndex, getCurrentExpeditionSeed,
+  getCurrentExpeditionSeasonIndex, getCurrentExpeditionSeed, recordLiveWorldProgress,
 } from '../../expedition/ExpeditionSeasonStore';
 import { recordExpeditionCompletion } from '../../expedition/completionRecord';
 import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../expedition/secretHints';
@@ -1344,6 +1344,18 @@ export class GameScene extends Phaser.Scene {
     const sectorsCharted = discovery.getVisitedSectorCount();
     const completionPercent = discovery.getCompletionPercent();
     const seasonIndex = getCurrentExpeditionSeasonIndex();
+    // The menu cannot generate a world in create(), and a run is the only thing that moves these
+    // numbers, so the run end is where the between-runs surfaces get them from.
+    const map = this.worldMode.worldMap();
+    if (map) {
+      recordLiveWorldProgress({
+        seed: map.seed,
+        worldGenVersion: map.worldGenVersion,
+        completionPercent,
+        sectorsCharted,
+        secretsFound: discovery.getFoundSecretCount(),
+      });
+    }
     const { record, isNewBest } = recordExpeditionCompletion(completionPercent, seasonIndex);
     return {
       seasonIndex,

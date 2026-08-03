@@ -9,6 +9,7 @@
 
 import { SecureStorage } from '../storage';
 import { hashStringToSeed, mulberry32 } from '../utils/dailySeed';
+import { WORLDGEN_VERSION } from '../world/worldTypes';
 
 const STORAGE_KEY_SEASONS = 'survivor-expedition-seasons';
 const SEASON_STATE_VERSION = 1;
@@ -23,13 +24,34 @@ export const FIRST_EXPEDITION_WORLD_SEED = 20260727;
  *  two caps together so a row can never offer a world whose memory was already evicted. */
 export const MAX_BANKED_SEASONS = 20;
 
-export interface BankedSeason {
-  /** 1-based ordinal, the number the player saw while flying it. */
-  index: number;
-  seed: number;
+/** The three numbers a world's progress is recorded as. Named because the banked row and the
+ *  live-world snapshot below are written from the same producer values, and two copies of the
+ *  triple would drift. */
+export interface ExpeditionProgressRecord {
   completionPercent: number;
   sectorsCharted: number;
   secretsFound: number;
+}
+
+export interface BankedSeason extends ExpeditionProgressRecord {
+  /** 1-based ordinal, the number the player saw while flying it. */
+  index: number;
+  seed: number;
+}
+
+/**
+ * What the world being FLOWN had charted, cached the last time something already held that world
+ * open. The completion percent needs the generated world for its denominator (one 33 ms
+ * generateWorld), which a scene's create() may not pay, so the number is written by the paths
+ * that get it for free and read from storage by the ones that cannot.
+ *
+ * Stamped with the world it describes: a traded world, a returned-to world and a payload from
+ * before a WORLDGEN_VERSION bump all read as no snapshot rather than as some other world's
+ * percent.
+ */
+export interface LiveWorldProgress extends ExpeditionProgressRecord {
+  seed: number;
+  worldGenVersion: number;
 }
 
 export interface ExpeditionSeasonState {
@@ -37,6 +59,7 @@ export interface ExpeditionSeasonState {
   currentSeed: number;
   currentIndex: number;
   banked: BankedSeason[];
+  liveProgress: LiveWorldProgress | null;
 }
 
 export function emptySeasonState(): ExpeditionSeasonState {
@@ -45,6 +68,7 @@ export function emptySeasonState(): ExpeditionSeasonState {
     currentSeed: FIRST_EXPEDITION_WORLD_SEED,
     currentIndex: 1,
     banked: [],
+    liveProgress: null,
   };
 }
 
@@ -66,6 +90,27 @@ export function isFlyableExpeditionSeed(value: unknown): value is number {
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+/** A half-shaped snapshot is dropped whole rather than repaired: an unstamped or partly-numeric
+ *  payload cannot be told apart from the wrong world's, and the wrong world's percent under this
+ *  world's tile is the one failure this cache can cause. */
+function sanitizeLiveProgress(parsed: unknown): LiveWorldProgress | null {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const candidate = parsed as Partial<LiveWorldProgress>;
+  if (!isPositiveInteger(candidate.seed)) return null;
+  if (typeof candidate.worldGenVersion !== 'number'
+    || !Number.isInteger(candidate.worldGenVersion)) return null;
+  if (typeof candidate.completionPercent !== 'number') return null;
+  if (typeof candidate.sectorsCharted !== 'number') return null;
+  if (typeof candidate.secretsFound !== 'number') return null;
+  return {
+    seed: candidate.seed,
+    worldGenVersion: candidate.worldGenVersion,
+    completionPercent: clampPercent(candidate.completionPercent),
+    sectorsCharted: Math.max(0, Math.trunc(candidate.sectorsCharted)),
+    secretsFound: Math.max(0, Math.trunc(candidate.secretsFound)),
+  };
 }
 
 /**
@@ -102,6 +147,7 @@ export function sanitizeSeasonState(parsed: unknown): ExpeditionSeasonState {
         secretsFound: Math.max(0, Math.trunc(entry.secretsFound)),
       }))
       .slice(-MAX_BANKED_SEASONS),
+    liveProgress: sanitizeLiveProgress(candidate.liveProgress),
   };
 }
 
@@ -169,7 +215,7 @@ function nextSeasonIndex(state: ExpeditionSeasonState): number {
  */
 export function bankSeasonAndSwitch(
   state: ExpeditionSeasonState,
-  record: { completionPercent: number; sectorsCharted: number; secretsFound: number },
+  record: ExpeditionProgressRecord,
   chosenSeed?: number,
 ): ExpeditionSeasonState {
   const nextSeed = isPositiveInteger(chosenSeed) && chosenSeed !== state.currentSeed
@@ -188,11 +234,14 @@ export function bankSeasonAndSwitch(
       secretsFound: Math.max(0, Math.trunc(record.secretsFound)),
     },
   ].slice(-MAX_BANKED_SEASONS);
+  // The snapshot describes the world being LEFT, so it does not survive the switch. The reader's
+  // stamp would catch it anyway; dropping it here keeps the invariant in one place.
   return {
     version: SEASON_STATE_VERSION,
     currentSeed: nextSeed,
     currentIndex: returning ? returning.index : nextSeasonIndex(state),
     banked,
+    liveProgress: null,
   };
 }
 
@@ -227,7 +276,7 @@ export function getNextExpeditionSeedChoices(): number[] {
  *  must also clear the in-run save: a restored player transform names a point in the world
  *  that just stopped being the live one. */
 export function switchExpeditionWorld(
-  record: { completionPercent: number; sectorsCharted: number; secretsFound: number },
+  record: ExpeditionProgressRecord,
   chosenSeed?: number,
 ): ExpeditionSeasonState {
   const next = bankSeasonAndSwitch(loadExpeditionSeasons(), record, chosenSeed);
@@ -237,4 +286,51 @@ export function switchExpeditionWorld(
     console.warn('Could not save expedition seasons to storage');
   }
   return next;
+}
+
+/**
+ * Pure: the state carrying `progress` as the live world's snapshot. A snapshot for a world that
+ * is no longer the live one is DROPPED rather than stored: a write racing a world change would
+ * otherwise file the old percent under the new world's seed, where the stamp can no longer catch
+ * it. The identical `state` reference is returned on that path so the writer can skip the save.
+ */
+export function withLiveWorldProgress(
+  state: ExpeditionSeasonState, progress: LiveWorldProgress,
+): ExpeditionSeasonState {
+  if (progress.seed !== state.currentSeed) return state;
+  return {
+    ...state,
+    liveProgress: {
+      seed: progress.seed,
+      worldGenVersion: progress.worldGenVersion,
+      completionPercent: clampPercent(progress.completionPercent),
+      sectorsCharted: Math.max(0, Math.trunc(progress.sectorsCharted)),
+      secretsFound: Math.max(0, Math.trunc(progress.secretsFound)),
+    },
+  };
+}
+
+/** Called only from paths that already hold the generated world open, so the number costs nothing
+ *  where it is written and is free to read everywhere else. */
+export function recordLiveWorldProgress(progress: LiveWorldProgress): void {
+  const state = loadExpeditionSeasons();
+  const next = withLiveWorldProgress(state, progress);
+  if (next === state) return;
+  try {
+    SecureStorage.setItem(STORAGE_KEY_SEASONS, JSON.stringify(next));
+  } catch {
+    console.warn('Could not save expedition seasons to storage');
+  }
+}
+
+/** Null when nothing trustworthy has been recorded for the world being flown: a fresh profile, a
+ *  world just traded into, a world just returned to, and a payload from before a
+ *  WORLDGEN_VERSION bump all read the same, which is the honest answer in every one of them. */
+export function getLiveWorldProgress(): LiveWorldProgress | null {
+  const state = loadExpeditionSeasons();
+  const progress = state.liveProgress;
+  if (progress === null) return null;
+  if (progress.seed !== state.currentSeed) return null;
+  if (progress.worldGenVersion !== WORLDGEN_VERSION) return null;
+  return progress;
 }

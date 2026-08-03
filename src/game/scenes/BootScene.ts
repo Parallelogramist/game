@@ -59,6 +59,7 @@ import {
   getBankedSeasons,
   getCurrentExpeditionSeasonIndex,
   getCurrentExpeditionSeed,
+  getLiveWorldProgress,
   getNextExpeditionSeedChoices,
   switchExpeditionWorld,
 } from '../../expedition/ExpeditionSeasonStore';
@@ -964,6 +965,15 @@ export class BootScene extends Phaser.Scene {
       null,
     ).length;
 
+    // The percent the SURVEY tile wears, and the reason it is read rather than computed: the deck
+    // is built in create(), where summariseCurrentExpedition's 33 ms generateWorld is forbidden.
+    // Absent on a fresh profile and on a world just traded into, which is when there is nothing
+    // charted to report anyway.
+    const liveWorldProgress = getLiveWorldProgress();
+    const surveyCompletionBadge = liveWorldProgress === null
+      ? undefined
+      : `${liveWorldProgress.completionPercent}%`;
+
     this.createProgressionDeck({
       centerX,
       centerY: deckY,
@@ -988,6 +998,7 @@ export class BootScene extends Phaser.Scene {
       onObjectives: openObjectives,
       objectiveCount: activeObjectiveCount,
       onWorldSurvey: openWorldSurvey,
+      surveyBadge: surveyCompletionBadge,
       onSurprise: startSurpriseRunWithConfirmation,
       showLoadouts: Boolean(lastLoadout) || loadLoadoutPresets().length > 0,
       onLoadouts: () => transitionToScene(this, 'LoadoutScene'),
@@ -1810,6 +1821,7 @@ export class BootScene extends Phaser.Scene {
     onObjectives: () => void;
     objectiveCount: number;
     onWorldSurvey: () => void;
+    surveyBadge: string | undefined;
     onSkirmish: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
@@ -1821,7 +1833,7 @@ export class BootScene extends Phaser.Scene {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
       onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onExpeditionSeasons,
-      onObjectives, objectiveCount, onWorldSurvey,
+      onObjectives, objectiveCount, onWorldSurvey, surveyBadge,
       onSkirmish, onGauntlet, onRunner, onPractice, onSurprise, showLoadouts, onLoadouts,
     } = opts;
 
@@ -1868,6 +1880,7 @@ export class BootScene extends Phaser.Scene {
       },
       {
         label: 'SURVEY', iconKey: 'telescope', accentRole: 'primary',
+        badge: surveyBadge,
         iconTint: 0xaaccff, action: submenuAction(onWorldSurvey),
       },
       {
