@@ -2960,7 +2960,7 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   for its own sort. Value: the tile says whether the world is worth surveying before it is opened.
   Deps: pairs with `FEAT-RETURN-SECRETS-LEFT-SORT`; build them together or the store field is
   designed twice.
-- [ ] **FEAT-SURVEY-LAUNCH-FROM-CHART** (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY): the survey
+- [x] **FEAT-SURVEY-LAUNCH-FROM-CHART** (done, e53a7e0) (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY): the survey
   is a read-only screen, so a player who decides on it where to go still closes it, backs out of the
   submenu and presses SKIRMISH. A LAUNCH footer button would close the loop. Held back deliberately:
   the expedition launch path is `startSkirmishWithConfirmation`'s confirmation flow plus the
@@ -2969,6 +2969,39 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   which is a second start-a-run entry point rather than a button. Value: the plan you make on the
   chart is one press from being flown. Deps: none, but it wants `POLISH-MAP-SURVEY`'s answer on
   whether the survey should be able to start a run at all.
+  **What shipped.** A `LAUNCH` button in the survey's footer, on the `L` key and gamepad `X`, plus
+  `src/expedition/pendingLaunch.ts`, a two-function one-shot handoff.
+  1. **The gap it closed, symptom first.** Browse mode's only exits were `M` / `ESC` / pad `B` /
+     pad `Start`, all of which ran `close()`, whose whole body was
+     `transitionToScene(this, 'BootScene', { relayout: true, openSubmenu: 'GAME MODES' })`. Nothing
+     the player read on that screen (the plotted course, the LOCKED OUT hop counts, his own marks
+     and notes) could be acted on from it.
+  2. **The survey never starts a run itself.** It sets a pending flag and closes; `BootScene`
+     consumes it at the end of `create()` and calls the same `startGameWithConfirmation` the hero
+     card and the NEW RUN link call, so the save-loss confirmation, the `clearSave` and the sweep
+     into the funnel are the shipped ones. A second entry point into that flow is what this item
+     was held back on, and it is not what was built.
+  3. **The intent is a module-level one-shot, not a field on `BootLaunchData`.** Phaser retains a
+     scene's last `settings.data` when `start()` is passed none, and `flyExpeditionWorld` ends in
+     `scene.restart()`, which reuses it, so a retained flag would auto-start a run the next time
+     the player charted a new world. This is the trap `src/meta/LoadoutPresets.ts:10-13` already
+     documents for the loadout replay, and `pendingLaunch.ts` is the same shape with the same
+     consume-once discipline.
+  4. **`LAUNCH` takes the slot `RECALL` holds in a run**, same width, same position, so the footer
+     reads `<action> · NOTE` in both modes. That **removed** two `this.browsing` ternaries rather
+     than adding a third: `footerButtonsWidth` and the NOTE button's x are now unconditional.
+  5. **Launching lands on the deck row, not back in GAME MODES.** Every other browse close still
+     reopens the submenu; the launch path is the exception because `BootScene` raises the
+     confirmation on arrival and that dialog must not stack on a just-reopened submenu overlay.
+     Cancelling therefore leaves the player on the main menu beside the hero card. That is
+     question (g) of `POLISH-MAP-SURVEY`.
+  6. **Nothing persists and no version moved**: no storage key, no `SAVE_VERSION` /
+     `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `WORLD_PROFILE_VERSION` / `WORLD_ARCHIVE_VERSION`
+     change, no save shape. Arena, daily, weekly, practice and gauntlet are untouched by
+     construction: `MapScene` is expedition-only and the button exists only while `browsing`.
+  7. **No new operator item was filed.** The one open question folded into the existing
+     `POLISH-MAP-SURVEY` as question (g) rather than becoming a `POLISH-*` of its own.
+  8. Suite unmoved at 196 files / 2220 tests; no test file added or changed.
 - [x] **FEAT-LOCKOUT-COURSE** (done, fd55c37) (new 2026-08-03, proposed by the planner): the
   LOCKED OUT panel stops measuring in straight lines. Value: George can read, for every vault,
   board and arena the panel sends him to, how many rooms the flight there actually is and
@@ -12587,7 +12620,11 @@ Never agent work. The fleet must not do any of these.
   gone; (d) is closing back into the open GAME MODES submenu right, or should it land on the deck
   row; (e) on a fresh profile that has charted nothing, the survey shows one cell and three empty
   panels: is that honest, or is it a dead end that wants a line of copy; (f) is SURVEY the right
-  word, against CHART (which trades worlds) and OBJECTIVES (which lists quests) beside it.
+  word, against CHART (which trades worlds) and OBJECTIVES (which lists quests) beside it. (g) the survey now
+  carries a `LAUNCH` button (`FEAT-SURVEY-LAUNCH-FROM-CHART`, e53a7e0) that flies this
+  world through the hero card's own confirm-and-clear path: should a planning screen be able to
+  start a run at all, and if so does landing on the deck row (rather than back in GAME MODES)
+  after a cancelled confirmation read as losing your place?
 - [ ] **POLISH-LOCKOUT-COURSE** (new 2026-08-03, from FEAT-LOCKOUT-COURSE). The panel's new trip
   clause was validated as graph math against the test fixture, never read on a screen. Questions,
   all feel: (a) does `VAULT 13 HOPS` read as useful information or as a discouraging number,

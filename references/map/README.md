@@ -238,6 +238,15 @@ the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph b
   this expedition's blooms and shifts) empty because they exist only once a run has stocked them,
   and passes the warden whenever the world is unconquered because it does not. It adds no glyph, no
   legend row and no panel: it is the same screen, opened earlier.
+- **And the survey launches what it planned (`FEAT-SURVEY-LAUNCH-FROM-CHART`, `e53a7e0`).**
+  Browse mode's footer carries a `LAUNCH` button, on `L` and gamepad `X`, in the slot `RECALL`
+  holds during a run. It starts nothing itself: it sets the one-shot
+  `src/expedition/pendingLaunch.ts` flag and closes, and `BootScene` consumes it at the end of
+  `create()` and calls the same `startGameWithConfirmation` the hero card calls, so there is one
+  launch flow and one save-loss confirmation, not two. The flag is module-level rather than a
+  `BootLaunchData` field because Phaser retains a scene's last `settings.data` and
+  `flyExpeditionWorld` ends in `scene.restart()`, so a retained field would auto-start a run on a
+  later world change. The browser verdict is `POLISH-MAP-SURVEY` question (g).
 
 The in-run half (a next-hop bearing on the radar disc) is deliberately not built and is
 `FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdicts are
