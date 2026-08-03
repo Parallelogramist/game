@@ -3188,7 +3188,7 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   progression question rather than a template one, which is why it is filed rather than retuned.
   Value: a contract a mid-progression profile can actually finish. Deps: a measurement of how many
   of the eleven a profile at each ability count can open.
-- [ ] **CHORE-CONTRACT-SCARCE-SUPPLY-PREACCEPT** (new 2026-08-03, from
+- [x] **CHORE-CONTRACT-SCARCE-SUPPLY-PREACCEPT** (done, 688a312) (new 2026-08-03, from
   BUG-CONTRACT-GHOST-HIDDEN-FLOOR): the residual of the same species, left standing deliberately.
   `recordQuestEvent` skips any quest whose `status` is not `'active'`, and a contract
   auto-activates only once the chains stop filling the accept cap, so a player who breaks this
@@ -3200,6 +3200,33 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   whose chains are done, contracts auto-activate at world issue and this cannot fire. Value: a
   contract is feedable no matter what the player did before it activated. Deps:
   `FEAT-QUEST-CAPSTONE-SUPPLY-CLAMP`'s snapshot field.
+  **What shipped**: the second of the two honest fixes, not the clamp. `beginExpeditionQuestRun`
+  now takes an optional census of what this profile already spent in this world, and any contract
+  it just activated is credited for the `findSecret` finds already banked there. **Only
+  `scope: 'persistent'` steps are credited**: a `'run'` step's description says "on one
+  expedition" (`ghost.s2`, `vault.s1`, `cipher.s1`, `homefront.s1`), and paying it from lifetime
+  discovery state is exactly what the run scope exists to refuse, which is why
+  `settleRunScopeProgress` clears those counters at every run start. **The credit is delivered as
+  synthesized `findSecret` events through the shipped `recordQuestEvent`**, never written onto
+  `stepProgress` directly: writing the counter would leave a step displaying `2/2` forever,
+  because nothing closes a step except an event arriving, so routing through the fold pays the
+  step gold, advances `stepIndex`, completes the quest and banks the completion gold and relic
+  roll through the one path a live find already uses. **A step is credited at most one find
+  unless the credit completes it**, because the loop re-reads `stepProgress !== 0` on every pass
+  and an event that moves progress without closing the step ends it: the value at stake is the
+  impossible case (the world holds nothing left at all), which walks the step to completion one
+  event at a time, while a partial credit would point the player at a supply the world may not
+  have. A tier a step consumes is decremented from the pool, so a second step of the same
+  contract activating in the same pass is never handed the same finds twice.
+  **`secretTiersMatched` moved out of `seasonQuests.test.ts` into `QuestProgress.ts`** and is now
+  what `triggerMatches` itself reads, so the matcher, the new census and the contract-ordering
+  invariant cannot drift apart (the private test copy had already drifted once).
+  **No storage key, no `SAVE_VERSION`, no `DISCOVERY_VERSION` and no `WORLDGEN_VERSION` moved**,
+  and a profile mid-contract is untouched: the credit fires only on the ids
+  `beginExpeditionQuestRun` just activated (a quest that was not active a line earlier), only
+  while `stepProgress` is 0, and only for ids that came out of `buildSeasonQuests`, so it can
+  never lower a counter or reach an authored chain. Three residuals are filed at the end of this
+  section: the run-scope dead step, the unseeded board accept, and the missing credit tell.
 - [ ] **FEAT-QUEST-REGION-CHART-TELL** (new 2026-08-03, from FEAT-QUEST-REGION-CAPSTONE): a
   capstone step names no place, so it produces no `QuestMarker`, no chart pin and no radar bearing
   (`buildQuestMarkers` handles the place-naming kinds only). That is correct as shipped, because a
@@ -7175,6 +7202,30 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   kind of note that makes a future agent either chase a phantom bug or trust a claim it should
   check. Value: the next reader of the nemesis path is not misled about whether grudge
   multipliers compound across reloads. Deps: none.
+
+- [ ] **FEAT-CONTRACT-RUN-SCOPE-DEAD-STEP** (new 2026-08-03): the residual the scarce-supply
+  pre-accept credit deliberately did not fix.
+  `vault.s1` (`capstone`, target 1, `run`) and `cipher.s1` (`puzzle`, target 1, `run`) both say
+  "on one expedition", so they may not be credited from lifetime discovery state, and a world
+  whose only region vault or last sigil ring was already claimed still hands the player a step
+  nothing can feed. The two honest fixes are a supply-aware skip at the draw, which would delete
+  an accepted contract because `buildSeasonQuests` is re-derived on every read and the store
+  drops unknown ids, or a surface clause saying the step is spent, which lands on the line budget
+  `POLISH-QUEST-BRIEFING` owns. Value: no contract step is dead on arrival. Deps: an operator
+  call on which of the two.
+- [ ] **CHORE-CONTRACT-SEED-BOARD-ACCEPT** (new 2026-08-03): the board's ACCEPT (`acceptQuest`) is
+  the other activation path and is NOT seeded, so a contract the player sets aside and re-accepts
+  at a board gets no credit. Harmless today, because a set-aside contract keeps its persistent
+  counters and the credit it would have earned is already banked, and filed rather than built
+  because `acceptQuest` has no world in scope at its call site. Value: one rule for crediting a
+  contract however it activates. Deps: none.
+- [ ] **CHORE-CONTRACT-CREDIT-TELL** (new 2026-08-03): nothing announces the credit. The
+  `NEW OBJECTIVE` toast prints step 1's description, so a contract credited straight past step 1
+  shows step 2 with no explanation of why it skipped. Cut because the honest fix is a second
+  toast or a clause on the first, which is a game-facing surface that would file a `POLISH-*`
+  gate, and that session's point was to shorten the operator queue rather than lengthen it.
+  Value: the player is told what the world already paid for. Deps: none technical; it is the
+  operator-gate cost that parks it.
 
 ## Next
 
