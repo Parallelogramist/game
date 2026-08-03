@@ -2972,19 +2972,42 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   are queued behind. Value: the region states the rule the player is about to be surprised by.
   Deps: question (e) of `POLISH-REGION-SIGNATURE-BANNER`, the same gate those two wait on.
 
-- [ ] **CHORE-DASH-VELOCITY-OVERWRITE** (new 2026-08-03, found by FEAT-BIOME-REGION-DRIFT while
-  reading the player velocity path): `GameScene.ts:7842` writes
-  `Velocity.x[this.playerId] = dashState.velocityX * dashSpeed` inside the `dashState.isDashing`
-  branch, and `:8074` calls `inputSystem(...)` later in the same `update()`, which ends by
-  assigning `Velocity.x[playerId] = smoothedVelX` unconditionally for every player entity. Read as
-  written, a dash's velocity is overwritten in the frame it is set, so a dash would carry the ship
-  no faster than holding the stick and only the afterimages and i-frames would be real.
-  **Not verified in a browser and not touched by FEAT-BIOME-REGION-DRIFT**, which only scales the
-  approach rate feeding that same smoothed velocity, so the relationship between the two writes is
-  exactly what it was. Confirm the symptom in a run before changing anything: if it reproduces the
-  fix is to let the dash own the frame (skip the smoothing while dashing, or seed `smoothedVel`
-  from the dash), and if it does not, the dead write should go. Value: the dash actually dashes.
-  Deps: none, wants one browser check first.
+- [x] **CHORE-DASH-VELOCITY-OVERWRITE** (done, a27e645) (new 2026-08-03, found by
+  FEAT-BIOME-REGION-DRIFT while reading the player velocity path): the dash now moves the ship.
+  Value: the dash button carries the ship about two tiles out of a swarm instead of only flashing
+  ghosts while it moves at walking speed.
+  1. **The symptom was a dead store, proven from control flow rather than from a run.** The dash
+     wrote `Velocity.x/y[this.playerId]` at `GameScene.ts:7845`, `inputSystem` assigned every
+     player's velocity unconditionally at `:8078` later in the same `update()`, and the only
+     consumer, `movementSystem`, ran after both at `:8162`. There is no early return, no
+     `continue` and no closure between the two writes (every `update()` early return is above the
+     dash block), and nothing reads player velocity in that window, so the dash write could never
+     survive. The browser check this item asked for was therefore not needed.
+  2. **What it cost.** `dashDuration` 0.15 s at `dashSpeedMultiplier` 3.5 intends 78.75 px of
+     travel at the base `moveSpeed` 150, about two 40 px tiles. The dash delivered 0 px of extra
+     travel: only the i-frames and the afterimages were real.
+  3. **The fix makes `inputSystem` the single writer of player velocity.** A new optional
+     `dashVelocity: DashVelocity | null` parameter carries the dash's px/s for the frame; the
+     player loop assigns it into `smoothedVelX/Y` and into `Velocity`, then skips the approach
+     math. Assigning the smoothed state is deliberate: the frame the dash ends, the ship eases
+     down from 525 px/s toward stick speed over about 0.1 s instead of snapping to 150.
+  4. **Nothing was retuned.** `TUNING.player.dashDuration` and `dashSpeedMultiplier` are the
+     authored values and now take effect for the first time; whether they feel right is
+     `POLISH-DASH-RESTORED`. `InputController`, Blink Drive, the dash i-frames and the touch
+     button were not touched, and the dash block did not move, so the frame order in
+     `references/architecture-overview.md` still holds.
+  5. **Deliberately not carved out**: the Warden slow at `GameScene.ts:8096` now scales a dash
+     too (one code path for "the player is slowed"), and the Ion Field's `driftFactor` 0.45
+     stretches the post-dash settle about 4x so a dash in the slick region skates further. Both
+     are consistency, not bugs, and both go to the operator as POLISH questions.
+  6. **Two pinning tests** in the new `src/ecs/systems/InputSystem.test.ts`: a dash frame writes
+     dash speed (it would have read about 59 px/s under the old code), and the next frame eases
+     down from dash speed rather than up from stick speed.
+  7. **Nothing persists and no version moved**: no storage key, no save shape, no `SAVE_VERSION`
+     / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `WORLD_PROFILE_VERSION` /
+     `WORLD_ARCHIVE_VERSION` change. Dash cooldown save and restore run through
+     `InputController.setDashCooldownTimer` / `resetDashState`, both untouched.
+  8. **Filed with it**: `POLISH-DASH-RESTORED` under `## Human gates`.
 
 - [x] **FEAT-MAPUI-MENU-SURVEY** (done, 4d4d618) (new 2026-08-02, proposed by the planner): the
   world chart opens from the main menu, between runs. Value: George can open his expedition
@@ -12793,6 +12816,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-DASH-RESTORED** (new 2026-08-03, from CHORE-DASH-VELOCITY-OVERWRITE). The dash
+  displaced nothing until now, so its authored tuning has never actually been felt by anyone.
+  Questions, all feel: (a) does 0.15 s at 3.5x (78.75 px at the base `moveSpeed` 150, about two
+  40 px tiles, more on a fast build) read as an escape or as a twitch; (b) the ship now eases
+  down from dash speed over about 0.1 s instead of stopping dead: does that read as momentum or
+  as sliding past where you aimed; (c) inside the Ion Field the `driftFactor` 0.45 stretches that
+  settle about 4x, so a dash there skates much further: is that a good region signature or a loss
+  of control; (d) a Warden's slow aura now scales the dash too, so dashing out of a slow is
+  weaker than it looks: right, or should a dash punch through a slow; (e) the dash already
+  granted i-frames, so it was already the defensive button; now that it also displaces, is
+  `dashCooldown` still the right price; (f) with the dash now real, does Blink Drive still read
+  as a distinct upgrade, given an owner blinks instead of dashing. Do not retune any of it blind.
 
 - [ ] **POLISH-REGION-DRIFT** (new 2026-08-03, from FEAT-BIOME-REGION-DRIFT). The drift was
   derived as arithmetic off the shipped approach model and never flown. Questions, all feel:

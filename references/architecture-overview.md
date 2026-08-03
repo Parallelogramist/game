@@ -27,6 +27,12 @@ MagnetPickupSystem → StatusEffectSystem → Enemy Projectiles → Player-Enemy
 SpriteSystem → PlayerSpaceship → GridBackground → Trails → EffectsManager →
 DeathRippleManager → VisualQuality → UI
 ```
+
+`InputSystem` is the single writer of player velocity. The dash step above computes its velocity
+but hands it to `inputSystem` as an argument rather than writing `Velocity` itself: a direct
+write earlier in the frame is overwritten before `MovementSystem` reads it, which is exactly the
+bug `CHORE-DASH-VELOCITY-OVERWRITE` fixed.
+
 Knockback processed inline in GameScene. All weapon damage flows through `WeaponManager.damageEnemy()` — full combat pipeline: crits, execution bonus (<25% HP), shatter bonus (frozen enemies), elemental effects (burn/freeze/poison), life steal, knockback, overkill splash via SpatialHash, hit sparks, damage numbers. `CollisionSystem.ts` exports `CombatStats`/`setCombatStats()`/`resetCollisionSystem()` for combat stat management — no system loop function.
 
 ### Scene Flow
