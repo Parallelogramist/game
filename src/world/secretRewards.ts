@@ -23,8 +23,9 @@ export type SecretRewardId =
   | 'secret_map_fragment';
 
 /** A cache is walked into; a hidden sector is a whole room the chart never drew; a puzzle
- *  cache is a walk-in that made the player earn it. */
-export type SecretTier = 'cache' | 'hiddenSector' | 'puzzle';
+ *  cache is a walk-in that made the player earn it; a capstone is the one cache a region
+ *  holds back until every other cache in that region is found. */
+export type SecretTier = 'cache' | 'hiddenSector' | 'puzzle' | 'capstone';
 
 export interface SecretRewardDefinition {
   id: SecretRewardId;
@@ -143,6 +144,17 @@ export const SECRET_TIER_SCALES: Readonly<
     secret_boost_bundle: 1.2,
     secret_repair_bay: 0.6,
     secret_armory_cache: 1.25,
+  },
+  /** Earned by clearing a whole named region rather than one ring, so it out-leans the puzzle
+   *  tier and stops short of a room the chart never drew: jackpot share 26% / 33% / 38% for
+   *  puzzle / capstone / hiddenSector at depth 6. */
+  capstone: {
+    secret_twin_chests: 2.5,
+    secret_relic_chest: 0.8,
+    secret_armory_cache: 1.5,
+    secret_boost_bundle: 1.1,
+    secret_repair_bay: 0.5,
+    secret_map_fragment: 0.6,
   },
 };
 

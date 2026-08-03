@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { getAchievementManager } from '../../achievements';
 import type { ToastConfig } from '../../achievements/AchievementTypes';
+import { getStageById } from '../../data/Stages';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { SecretFlags } from '../../expedition/DiscoveryTypes';
 import { getSettingsManager } from '../../settings';
 import type { QuestEvent } from '../../systems/QuestProgress';
 import { WORLD_GEOMETRY_COLORS } from '../../visual/NeonColors';
+import { buildRegionVaults } from '../../world/secretCapstones';
+import type { RegionVault } from '../../world/secretCapstones';
 import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
 import { PUZZLE_RING_RADIUS, buildSecretPuzzle } from '../../world/secretPuzzles';
 import type { PuzzleGlyphId, SecretPuzzle } from '../../world/secretPuzzles';
@@ -58,6 +61,12 @@ interface ActiveSecretCache {
   x: number;
   y: number;
   puzzle: ActiveSecretPuzzle | null;
+  /** Set when this cache is its region's vault: it refuses the walk-in until every other
+   *  cache in the region is found. Never set together with `puzzle` — a vault is ring-free
+   *  by selection. */
+  vault: RegionVault | null;
+  /** The sealed-vault notice fires once per sector visit, the noticeSealedCache rule. */
+  vaultNoticed: boolean;
   /** Set only for a walled cache. `tiles` is the live sector array a break mutates, and the
    *  indices are precomputed so the per-frame read allocates nothing. */
   shell: { tiles: Uint8Array; ringIndices: number[] } | null;
@@ -104,6 +113,10 @@ export class SecretCacheManager implements FieldPoiManager {
    *  rebuilds a sector's rings from the generator, so without this a ring you half woke and then
    *  stepped out of comes back dark. */
   private puzzleProgress = new Map<string, number>();
+  /** Region vaults of the world currently being flown, keyed by the vault's own secret id.
+   *  Derived from the map alone, so it is rebuilt on a world swap and never persisted. */
+  private vaults = new Map<string, RegionVault>();
+  private vaultWorldKey: string | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -122,6 +135,11 @@ export class SecretCacheManager implements FieldPoiManager {
    * survive into the run save.
    */
   sync(map: WorldMap, playerX: number, playerY: number): void {
+    const worldKey = `${map.seed}:${map.worldGenVersion}`;
+    if (worldKey !== this.vaultWorldKey) {
+      this.vaultWorldKey = worldKey;
+      this.vaults = buildRegionVaults(map);
+    }
     const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
     if (key === this.sectorKey) return;
     this.sectorKey = key;
@@ -133,6 +151,7 @@ export class SecretCacheManager implements FieldPoiManager {
     for (const slot of sector.poiSlots) {
       if (slot.kind !== PoiKind.Secret) continue;
       if ((discovery.getSecretFlags(slot.id) & SecretFlags.FOUND) !== 0) continue;
+      const vault = this.vaults.get(slot.id) ?? null;
       const puzzle = buildSecretPuzzle({
         worldSeed: map.seed, secretId: slot.id, depth: sector.depth,
       });
@@ -146,13 +165,14 @@ export class SecretCacheManager implements FieldPoiManager {
         slot.id,
         rollSecretReward({
           worldSeed: map.seed, secretId: slot.id, depth: sector.depth,
-          tier: puzzle ? 'puzzle' : 'cache',
+          tier: vault ? 'capstone' : puzzle ? 'puzzle' : 'cache',
         }),
         sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
         sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
         puzzle,
         sector,
         shell,
+        vault,
       );
     }
   }
@@ -191,11 +211,15 @@ export class SecretCacheManager implements FieldPoiManager {
         continue;
       }
       const closeness = 1 - Math.sqrt(distanceSq) / senseRadius;
-      cache.graphics.setAlpha(
-        closeness * closeness * shimmer * (cache.puzzle ? SEALED_CACHE_ALPHA : 1));
+      // Re-read every frame, never cached at sync time: the last prerequisite can be a second
+      // cache in this very room, and sync only rebuilds on a sector change.
+      const vaultRemaining = cache.vault === null ? 0 : this.vaultRemaining(cache.vault);
+      cache.graphics.setAlpha(closeness * closeness * shimmer
+        * (cache.puzzle || vaultRemaining > 0 ? SEALED_CACHE_ALPHA : 1));
       cache.graphics.setScale(0.8 + closeness * 0.35);
       if (distanceSq < claimRadius * claimRadius) {
         if (cache.puzzle) this.noticeSealedCache(cache.puzzle);
+        else if (vaultRemaining > 0) this.noticeSealedVault(cache, vaultRemaining);
         else this.claimCache(i);
       }
     }
@@ -205,6 +229,8 @@ export class SecretCacheManager implements FieldPoiManager {
     this.destroyCaches();
     this.sectorKey = null;
     this.puzzleProgress.clear();
+    this.vaults.clear();
+    this.vaultWorldKey = null;
   }
 
   /** For `poiState.puzzles`. Only partly-woken rings are ever in the map, so this is usually
@@ -223,16 +249,19 @@ export class SecretCacheManager implements FieldPoiManager {
     secretId: string, reward: SecretRewardDefinition, x: number, y: number,
     puzzle: SecretPuzzle | null, sector: SectorDef,
     shell: { tiles: Uint8Array; ringIndices: number[] } | null,
+    vault: RegionVault | null,
   ): void {
     const graphics = this.scene.add.graphics();
     graphics.setPosition(x, y);
-    drawSecretCache(graphics);
+    drawSecretCache(graphics, vault !== null);
     graphics.setDepth(4);
     graphics.setAlpha(0);
     this.caches.push({
       secretId, reward, graphics, x, y,
       puzzle: puzzle ? this.buildActivePuzzle(puzzle, x, y, sector) : null,
       shell,
+      vault,
+      vaultNoticed: false,
     });
   }
 
@@ -370,6 +399,35 @@ export class SecretCacheManager implements FieldPoiManager {
     });
   }
 
+  private vaultRemaining(vault: RegionVault): number {
+    const discovery = getDiscoveryManager();
+    let remaining = 0;
+    for (const secretId of vault.prerequisiteSecretIds) {
+      if ((discovery.getSecretFlags(secretId) & SecretFlags.FOUND) === 0) remaining++;
+    }
+    return remaining;
+  }
+
+  /** A vault that silently refuses the walk-in reads as a bug, so it names its price and the
+   *  region it belongs to. Once per sector visit, the noticeSealedCache rule. */
+  private noticeSealedVault(cache: ActiveSecretCache, remaining: number): void {
+    if (cache.vaultNoticed) return;
+    cache.vaultNoticed = true;
+    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
+    this.deps.showDamageNumber(cache.x, cache.y - 26, 'SEALED VAULT', color);
+    const region = getStageById(cache.vault?.biomeId ?? '')?.name ?? 'this region';
+    this.deps.showToast({
+      tier: 'ambient',
+      title: 'SEALED VAULT',
+      description: remaining === 1
+        ? `1 cache is still hidden in the ${region}.`
+        : `${remaining} caches are still hidden in the ${region}.`,
+      icon: 'gear',
+      color,
+      duration: 3200,
+    });
+  }
+
   /**
    * Walk-in claim, the claimVault shape. Permanent at the moment of the touch, not at
    * run end, so a death seconds later keeps the find. What it pays comes from the secret
@@ -393,14 +451,16 @@ export class SecretCacheManager implements FieldPoiManager {
     const description = this.deps.payReward(cache.reward, cache.x, cache.y);
     this.deps.showToast({
       tier: 'notable',
-      title: cache.puzzle ? 'SEQUENCE UNSEALED' : 'HIDDEN CACHE FOUND',
+      title: cache.vault ? 'REGION VAULT OPEN'
+        : cache.puzzle ? 'SEQUENCE UNSEALED' : 'HIDDEN CACHE FOUND',
       description,
       icon: cache.reward.icon,
       color,
       duration: 3200,
     });
     this.deps.recordExpeditionQuest({
-      kind: 'findSecret', secretKind: cache.puzzle ? 'puzzle' : 'cache',
+      kind: 'findSecret',
+      secretKind: cache.vault ? 'capstone' : cache.puzzle ? 'puzzle' : 'cache',
     });
     this.deps.grantSecretLead(cache.secretId);
   }
@@ -415,11 +475,16 @@ export class SecretCacheManager implements FieldPoiManager {
 }
 
 /** The breakable amber rather than the vault's violet: a cache reads as terrain that is not
- *  terrain, which is the same lie a false wall tells, without inventing a third palette. */
-function drawSecretCache(graphics: Phaser.GameObjects.Graphics): void {
+ *  terrain, which is the same lie a false wall tells, without inventing a third palette. A
+ *  region vault carries one extra outer ring so it is distinguishable at a glance. */
+function drawSecretCache(graphics: Phaser.GameObjects.Graphics, vault = false): void {
   const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
   graphics.fillStyle(color, 0.14);
   graphics.fillCircle(0, 0, 26);
+  if (vault) {
+    graphics.lineStyle(2, color, 0.45);
+    graphics.strokeCircle(0, 0, 34);
+  }
   graphics.lineStyle(2, color, 0.9);
   const facets: Phaser.Geom.Point[] = [];
   for (let corner = 0; corner < 4; corner++) {

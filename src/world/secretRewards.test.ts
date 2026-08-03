@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SECRET_REWARDS, rollSecretReward } from './secretRewards';
 import type { SecretRewardId, SecretTier } from './secretRewards';
 
-const TIERS: readonly SecretTier[] = ['cache', 'hiddenSector', 'puzzle'];
+const TIERS: readonly SecretTier[] = ['cache', 'hiddenSector', 'puzzle', 'capstone'];
 const DEPTHS = [0, 1, 2, 3, 4, 5, 6, 8, 12];
 
 describe('secret rewards', () => {
