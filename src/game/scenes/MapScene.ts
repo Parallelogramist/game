@@ -784,6 +784,7 @@ export class MapScene extends Phaser.Scene {
     this.recallButton.card.hitZone.on('pointerout', () =>
       this.recallButton?.setHoverState(false));
     if (!live) this.recallButton.setEnabled(false);
+    this.refreshSortieLabel();
   }
 
   /** The between-runs action, in the slot RECALL holds during a run: same width, same position,
@@ -839,9 +840,10 @@ export class MapScene extends Phaser.Scene {
     if (this.browsing) return;
     if (this.recallState !== 'ready' && this.recallState !== 'sortie') return;
     const isSortie = this.recallState === 'sortie';
+    const destinationKey = this.sortieDestinationKey() ?? undefined;
     const gameScene = this.scene.get('GameScene') as GameScene | undefined;
     this.close();
-    if (isSortie) gameScene?.beginExpeditionSortie();
+    if (isSortie) gameScene?.beginExpeditionSortie(destinationKey);
     else gameScene?.beginExpeditionRecall();
   }
 
@@ -892,6 +894,7 @@ export class MapScene extends Phaser.Scene {
       this.detailDoorsText.setText(
         'HOVER OR TAP A CHARTED SECTOR, OR PUSH THE D-PAD, TO READ WHAT IT HOLDS');
       this.detailRewardsText.setText('');
+      this.refreshSortieLabel();
       return;
     }
     const markKind = this.markedSectorKinds.get(detail.sectorKey);
@@ -910,6 +913,28 @@ export class MapScene extends Phaser.Scene {
     this.detailRewardsText.setText(detail.rewards.length > 0
       ? `HOLDS   ${detail.rewards.join('     ').toUpperCase()}`
       : 'HOLDS   NOTHING THE CHART KNOWS OF');
+    this.refreshSortieLabel();
+  }
+
+  /**
+   * The focused room becomes the SORTIE's destination whenever the chart says the ship could fly
+   * there right now. `plotted` and nothing else: `blocked` is a door this profile cannot open and
+   * jumping past it would skip an ability gate, `here` is the hangar the ship is already in, and
+   * `none` is a room the chart cannot connect. The boss arena is refused for the reason the field
+   * anchor refuses to record it, so the ship is never one press from a sealed fight.
+   */
+  private sortieDestinationKey(): string | null {
+    if (this.recallState !== 'sortie') return null;
+    if (this.focusedCell === null) return null;
+    if (this.course.kind !== 'plotted') return null;
+    const key = `${this.focusedCell.gridX},${this.focusedCell.gridY}`;
+    return key === this.mapData.bossArenaKey ? null : key;
+  }
+
+  private refreshSortieLabel(): void {
+    if (this.recallButton === null || this.recallState !== 'sortie') return;
+    const destination = this.sortieDestinationKey();
+    this.recallButton.setLabel(destination === null ? 'SORTIE' : `SORTIE ${destination}`);
   }
 
   update(_time: number, delta: number): void {

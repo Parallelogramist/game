@@ -115,6 +115,7 @@ import type { RunTickerSiege } from '../../expedition/runTicker';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
 import { PoiFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
+import { plotSectorCourse } from '../../expedition/sectorRoute';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -1482,15 +1483,61 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Where a chart-chosen SORTIE lands. Null destination, an unknown room, an uncharted room, the
+   * boss arena, or a room this profile cannot currently fly to all fall back to the anchor, so the
+   * jump is never worse than the one that shipped.
+   *
+   * The course is re-plotted here rather than trusted from MapScene because this method is reached
+   * through a public one and the ability-gate ordering is a solvability invariant (README sections
+   * 1.5 and 3.6): a destination behind a door this profile cannot open would skip a gate the whole
+   * generator exists to guarantee. MapScene checking it too is what makes the button honest; this
+   * check is what makes the API safe.
+   *
+   * The sector CENTRE and not a point inside it, for the reason seedSortieAnchorFromChart records:
+   * a stored point can be inside rock an ambient stir or a live wall shift dropped on it, while a
+   * room's key cannot move.
+   */
+  private resolveSortieDestination(destinationSectorKey?: string): { x: number; y: number } | null {
+    if (destinationSectorKey === undefined) return this.sortieAnchor;
+    const map = this.worldMode.worldMap();
+    if (map === null) return this.sortieAnchor;
+    // The same room the field anchor refuses to record (:1186): arriving spawns the Warden and the
+    // seal then blocks recall, so a one-press path into it from the hangar is the trap that rule
+    // already prevents.
+    if (destinationSectorKey === map.bossArenaKey) return this.sortieAnchor;
+    const coord = parseSectorKey(destinationSectorKey);
+    if (coord === null || !map.sectors.has(destinationSectorKey)) return this.sortieAnchor;
+    const discovery = getDiscoveryManager();
+    const course = plotSectorCourse({
+      map,
+      fromSectorKey: sectorKey(sectorOfWorldPoint(
+        Transform.x[this.playerId], Transform.y[this.playerId])),
+      toSectorKey: destinationSectorKey,
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      holdsAbility: (abilityId) => this.ownedTraversalAbilityIds.has(abilityId),
+      holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+    });
+    if (course.kind !== 'plotted') return this.sortieAnchor;
+    const centre = sectorCenterWorld(coord);
+    return { x: centre.x, y: centre.y };
+  }
+
+  /**
    * The body both directions share. Recall and sortie are one verb with one cost, so a player
    * learns the rule once and neither direction can drift away from the other.
    *
    * The boss-lock refusal is a correctness constraint and not a balance taste (README section
    * 4.1): teleporting out of a sealed room strands the lock with the boss alive inside it.
    */
-  private beginExpeditionJump(kind: 'recall' | 'sortie'): boolean {
+  private beginExpeditionJump(kind: 'recall' | 'sortie', destinationSectorKey?: string): boolean {
     const isSortie = kind === 'sortie';
-    const target = isSortie ? this.sortieAnchor : this.worldMode.playerStartPoint();
+    // The anchor is the PERMIT and not only the address: it is read before any chosen destination
+    // is, so picking where to land can never buy a jump the run had not already earned.
+    if (isSortie && this.sortieAnchor === null) return false;
+    const target = isSortie
+      ? this.resolveSortieDestination(destinationSectorKey)
+      : this.worldMode.playerStartPoint();
     if (target === null) return false;
     if (this.worldMode.worldMap() === null) return false;
     if (this.isGameOver || this.playerId === -1) return false;
@@ -1531,10 +1578,11 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Called by MapScene when the player triggers SORTIE, the return leg of a recall. Returns false
-   * when the run refuses it, including when no recall has left an anchor this run.
+   * when the run refuses it, including when no recall has left an anchor this run. The optional
+   * destination is the chart's focused room; anything the resolver rejects falls back to the anchor.
    */
-  beginExpeditionSortie(): boolean {
-    return this.beginExpeditionJump('sortie');
+  beginExpeditionSortie(destinationSectorKey?: string): boolean {
+    return this.beginExpeditionJump('sortie', destinationSectorKey);
   }
 
   private cancelExpeditionRecall(reason: string): void {
@@ -1622,7 +1670,8 @@ export class GameScene extends Phaser.Scene {
       tier: 'ambient',
       title: isSortie ? 'BACK IN THE FIELD' : 'RECALLED',
       description: isSortie
-        ? 'The ship is where it left off. The push continues.'
+        ? `The ship is in SECTOR ${sectorKey(sectorOfWorldPoint(arrival.x, arrival.y))}.`
+          + ' The push continues.'
         : 'The hangar has the ship. The expedition continues.',
       icon: 'rocket',
       color: ACCENT_COLORS.primary,
