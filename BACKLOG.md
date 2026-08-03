@@ -2911,6 +2911,64 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-EXPEDITION-COMPLETION-RECORD** (done, 6e069a9) (new 2026-08-02, proposed by the
+  planner from `references/map/README.md` section 6): a charted world is a record you can beat.
+  Value: George gets a lifetime best-completion number (the most of any one world this profile
+  has ever charted, and which world set it), on the death screen as a `Best Chart` row and on the
+  CHART and RETURN dialogs as a `BEST 61% (W2)` clause at the moment he is deciding whether to
+  abandon the world he is on.
+  1. **What shipped**: the pure-plus-storage `src/expedition/completionRecord.ts`
+     (`parseCompletionRecord`, `serializeCompletionRecord`, `foldCompletionRecord`,
+     `describeCompletionRecordClause` plus `loadCompletionRecord` / `recordExpeditionCompletion`,
+     on the `ExpeditionSeasonStore` model); a new `survivor-expedition-completion-best` key;
+     `bestPercent` / `bestSeasonIndex` / `isNewBest` on `ExpeditionDebrief` with `recordLabel` on
+     its row; a conditional `Best Chart` row under the game-over expedition row; and the clause on
+     both world-change dialogs.
+  2. **The gap it closed.** `getCompletionPercent()` has been printed on four surfaces since the
+     discovery layer, and no `bestPercent` existed anywhere in `src/`. Charting a new world reset
+     the only figure the player had to beat, while score, endless cycle and gauntlet wave each
+     shipped a persisted best plus a `NEW BEST` tell.
+  3. **The metric's definition did NOT change.** README section 6 names three axes (sectors,
+     secrets, quests closed) and `getCompletionPercent` counts two. Adding quests would move a
+     number already printed in 20 banked rows, so it is filed as
+     `FEAT-COMPLETION-QUEST-AXIS` rather than smuggled in here.
+  4. **Strictly greater wins.** An equal percent does not overwrite, so a tie cannot re-attribute
+     the record and a won-then-died endless run, which reaches both run-end fold sites, cannot
+     report the same number as a new best twice.
+  5. **Three write sites, one function**: the death / END RUN debrief, the victory path (which
+     writes without displaying, because `showVictory` carries no expedition block), and nothing
+     else. A run always ends through one of the two, and the record is a max over a per-world
+     number that only grows, so a missed fold is recovered by the next one.
+  6. **The clause suppresses itself** once the live world has caught the record, because the line
+     it appends to already prints that number as `Charted 61%`.
+  7. **Its own row, not a clause on the World cell**: that cell is right-aligned into roughly
+     194 px it shares with its label, and `W12 · 100% · BEST 100%` overruns it.
+  8. **No `SAVE_VERSION`, `WORLDGEN_VERSION`, `DISCOVERY_VERSION` or `WORLD_PROFILE_VERSION`
+     move, and no save-shape change**: one new storage key, transferable by default (it is absent
+     from `NON_TRANSFERABLE_STORAGE_KEYS`, which is a subtraction), reading as no record on a
+     profile that has never set one. Arena, daily, weekly, practice and gauntlet are untouched by
+     construction: every fold is behind `worldMode.kind === 'expedition'`.
+  9. **Filed with it**: `POLISH-COMPLETION-RECORD` under `## Human gates`, plus
+     `FEAT-COMPLETION-QUEST-AXIS` and `FEAT-VICTORY-COMPLETION-ROW`.
+
+- [ ] **FEAT-COMPLETION-QUEST-AXIS** (new 2026-08-02, from FEAT-EXPEDITION-COMPLETION-RECORD):
+  `references/map/README.md` section 6 names three axes for completion (sectors visited, secrets
+  found, quests closed) and `DiscoveryManager.getCompletionPercent` counts two. Held back
+  deliberately: the percentage is already printed on the CHART dialog, the RETURN dialog, the
+  death screen and every one of the 20 banked rows, and those rows carry percentages banked under
+  the two-axis rule, so a third axis silently re-scores history the player has already been shown.
+  It also needs a call on what "closed" means for a chain the profile has not accepted. Value: the
+  completion number counts everything the world holds. Deps: an operator call on whether banked
+  rows are re-scored or grandfathered.
+
+- [ ] **FEAT-VICTORY-COMPLETION-ROW** (new 2026-08-02, from FEAT-EXPEDITION-COMPLETION-RECORD):
+  conquering a world writes the record but shows nothing, because `PauseMenuManager.showVictory`
+  carries no expedition block at all (the `World` / `Charted` cells live in `gameOver` only) and
+  the win screen names its world by another route. A victory is the run end most likely to set the
+  record, so it is the one that most deserves the `NEW BEST` tell. Value: the screen that
+  celebrates a conquest says what it was worth. Deps: none, but it is a second stats grid to lay
+  out, so it wants `POLISH-COMPLETION-RECORD`'s answer on (a) and (e) first.
+
 - [x] **FEAT-EXPEDITION-SECRET-DENOMINATOR** (done, 2309d5a) (new 2026-08-03): every per-world
   secret count says how many that world holds. Value: George can read, for the world he is flying
   and for every world he banked, how many of its secrets he has found out of how many exist
@@ -12293,6 +12351,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-COMPLETION-RECORD** (new 2026-08-02, from FEAT-EXPEDITION-COMPLETION-RECORD). The
+  record now has three surfaces and every width on them was reasoned from the panel geometry, not
+  seen. Questions: (a) does the `Best Chart` row read as a chase or as a sixth number nobody asked
+  for, given the World cell one row above already prints this run's percent; (b) does
+  `NEW BEST` in gold land, or does it want the fuller `NEW BEST!` the endless line uses;
+  (c) does the `   ·   BEST 61% (W2)` clause fit the CHART dialog's `Charted` line on a portrait
+  phone, where that line is already three clauses long; (d) is suppressing the clause once the
+  live world catches the record the right call, or should it read `BEST EVER` there instead of
+  disappearing; (e) `Best Chart` as a label, against `Record` or `Best World`.
 
 - [ ] **POLISH-EXPEDITION-DEBRIEF** (new 2026-08-03, from FEAT-EXPEDITION-DEBRIEF): the
   game-over stats grid grew a sixth row, so on a run with a damage row, a gold-ledger row

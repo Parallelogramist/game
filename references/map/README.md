@@ -366,6 +366,18 @@ first.
   quests closed. It is the natural companion to the existing best-score and
   deepest-endless-cycle chase metrics, and it is what a Metroid map trains players to
   care about.
+
+  **Built by `FEAT-EXPEDITION-COMPLETION-RECORD` (`6e069a9`, 2026-08-02):** the chase half.
+  `src/expedition/completionRecord.ts` holds the profile's lifetime best completion and the world
+  that set it under `survivor-expedition-completion-best`, folded at both run-end paths and shown
+  as a `Best Chart` row on the game-over grid plus a `BEST 61% (W2)` clause on the CHART and
+  RETURN dialogs, in the same `bestX` plus `isNewBest` shape score, endless cycle and gauntlet
+  wave already ship. Its deferral above was read as discharged because the stated precondition
+  (the v1 loop in front of a player) was met when expedition became the live default at
+  `02c4b74`, the same argument the seasons and biome bullets in this section record. **The
+  metric's own definition is unchanged**: it still counts sectors visited plus secrets found, not
+  quests closed, because the two-axis number is already printed in 20 banked rows and a third axis
+  re-scores history the player has been shown. That half is `FEAT-COMPLETION-QUEST-AXIS`.
 - **Boss rooms as gates, not just fights.** A sector lock that also holds a traversal
   ability behind it makes bosses structural rather than optional.
 
