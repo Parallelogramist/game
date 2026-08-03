@@ -116,6 +116,9 @@ void ACCENT_COLORS_STR;
 
 // Shared stat-cell typography for the two end screens (game over + victory).
 // One definition so the label/value treatment can't drift between them.
+/** The row pitch both end screens share, so the victory grid grows on the same rhythm the
+ *  game-over grid already uses. */
+const VICTORY_STAT_ROW_HEIGHT = 34;
 const END_STAT_LABEL_STYLE = {
   fontSize: '13px',
   color: '#8898b0',
@@ -271,6 +274,9 @@ export interface VictoryData {
   /** The expedition world this win conquered. Absent in every arena-substrate mode
    *  (skirmish, daily, weekly, practice, gauntlet), where there is no world to conquer. */
   expeditionConquest?: VictoryConquest;
+  /** The same expedition debrief the game-over overlay draws. Absent outside expedition, and
+   *  absent from the kicker's job: the kicker names the world, this names what was charted. */
+  expedition?: ExpeditionDebrief;
   /** S–F performance grade for this run (parity with the game-over overlay). */
   performanceGrade?: { grade: string; color: string };
   /** Card discovered from an in-run data cache — revealed on this screen. */
@@ -1878,8 +1884,13 @@ export class PauseMenuManager {
     // labels flush left, values flush right per cell.
     const victoryCX = this.scene.scale.width / 2;
     const victoryStatsTop = this.scene.scale.height / 2 - 12;
-    const victoryStatsWidth = 400;
-    const victoryStatsHeight = 56;
+    // One extra row is the whole budget: the button row is pinned at centerY + 175, so a
+    // second one would push the streak line inside it. The wider panel is what lets the
+    // charted pair render at the 200 px the death screen already proves it needs.
+    const hasVictoryExpeditionRow = data.expedition !== undefined;
+    const victoryStatRowCount = hasVictoryExpeditionRow ? 2 : 1;
+    const victoryStatsWidth = hasVictoryExpeditionRow ? 480 : 400;
+    const victoryStatsHeight = victoryStatRowCount * VICTORY_STAT_ROW_HEIGHT + 22;
     const statsPanelGfx = this.scene.add.graphics();
     paintPanelBackground(statsPanelGfx, victoryCX - victoryStatsWidth / 2, victoryStatsTop, victoryStatsWidth, victoryStatsHeight);
     statsPanelGfx.fillStyle(0x8898b0, 0.18);
@@ -1887,19 +1898,49 @@ export class PauseMenuManager {
     statsPanelGfx.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     statsPanelGfx.setName('victoryStatsPanel');
 
-    const victoryCellRow = victoryStatsTop + victoryStatsHeight / 2 + 3;
+    // Row 0 stays exactly where it has always been (top + 31): the panel grows downward, so
+    // a one-row victory screen is pixel-identical to the shipped one.
+    const victoryRowY = (row: number): number =>
+      victoryStatsTop + 31 + VICTORY_STAT_ROW_HEIGHT * row;
     // Cells register into a collector destroyed by handleVictoryContinue —
     // no per-cell name to hand-mirror into a teardown list, so adding a
     // stat cell can't silently leak into the endless run.
-    const addVictoryCell = (leftX: number, rightX: number, label: string, value: string): void => {
-      const l = this.scene.add.text(leftX, victoryCellRow, label, END_STAT_LABEL_STYLE)
+    const addVictoryCell = (
+      leftX: number,
+      rightX: number,
+      y: number,
+      label: string,
+      value: string,
+      valueStyleOverrides: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {},
+    ): void => {
+      const l = this.scene.add.text(leftX, y, label, END_STAT_LABEL_STYLE)
         .setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
-      const v = this.scene.add.text(rightX, victoryCellRow, value, END_STAT_VALUE_STYLE)
+      const v = this.scene.add.text(rightX, y, value, { ...END_STAT_VALUE_STYLE, ...valueStyleOverrides })
         .setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       this.victoryOwnedElements.push(l, v);
     };
-    addVictoryCell(victoryCX - victoryStatsWidth / 2 + 18, victoryCX - 22, 'Kills', String(data.killCount));
-    addVictoryCell(victoryCX + 22, victoryCX + victoryStatsWidth / 2 - 18, 'Level', String(data.playerLevel));
+    const victoryLeftCellLeftX = victoryCX - victoryStatsWidth / 2 + 18;
+    const victoryLeftCellRightX = victoryCX - 22;
+    const victoryRightCellLeftX = victoryCX + 22;
+    const victoryRightCellRightX = victoryCX + victoryStatsWidth / 2 - 18;
+    addVictoryCell(victoryLeftCellLeftX, victoryLeftCellRightX, victoryRowY(0), 'Kills', String(data.killCount));
+    addVictoryCell(victoryRightCellLeftX, victoryRightCellRightX, victoryRowY(0), 'Level', String(data.playerLevel));
+    // The conquest kicker above already prints `W3 CONQUERED · 100% CHARTED`, so this row does
+    // NOT repeat the death screen's `World` cell: what the win screen has never said is how
+    // many rooms that is, how many this run added, and whether it beat the profile's best.
+    if (data.expedition) {
+      const { chartedLabel, recordLabel } = buildExpeditionDebriefRow(data.expedition);
+      addVictoryCell(
+        victoryLeftCellLeftX, victoryLeftCellRightX, victoryRowY(1), 'Charted', chartedLabel,
+        { fontSize: '16px', color: '#66ccff' },
+      );
+      if (recordLabel !== null) {
+        addVictoryCell(
+          victoryRightCellLeftX, victoryRightCellRightX, victoryRowY(1), 'Best Chart', recordLabel,
+          { fontSize: '16px', color: data.expedition.isNewBest ? '#ffdd44' : '#66ccff' },
+        );
+      }
+    }
 
     // Next world line below the stats panel.
     const nextWorldText = this.scene.add.text(

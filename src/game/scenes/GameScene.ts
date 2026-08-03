@@ -9461,14 +9461,10 @@ export class GameScene extends Phaser.Scene {
 
   private showVictory(firstConquest: boolean | null): void {
     const runNoticeRows = this.collectRunNotices();
-    // A conquest is a run end too, and it is the one most likely to set the record. The victory
-    // overlay carries no expedition block, so this writes without displaying: the number shows up
-    // on the next death screen and on the CHART dialog.
-    if (this.worldMode.kind === 'expedition') {
-      recordExpeditionCompletion(
-        getDiscoveryManager().getCompletionPercent(), getCurrentExpeditionSeasonIndex(),
-      );
-    }
+    // A conquest is a run end too, and it is the one most likely to set the record. Built here
+    // rather than inline in the payload below because this is the run's ONE fold: the record is
+    // a strictly-greater max, so a second call would return isNewBest false and lose the tell.
+    const expeditionDebrief = this.buildExpeditionDebrief();
     recordThreatCleared(this.threatLevel);
     this.hasWon = true;
     this.isPaused = true;
@@ -9581,6 +9577,7 @@ export class GameScene extends Phaser.Scene {
       newStreak,
       streakBonusPercent: metaManager.getStreakBonusPercent(),
       trophyUnlockedName: this.trophyUnlockedThisRun ?? undefined,
+      expedition: expeditionDebrief,
       expeditionConquest: firstConquest === null ? undefined : {
         seasonIndex: getCurrentExpeditionSeasonIndex(),
         completionPercent: getDiscoveryManager().getCompletionPercent(),
