@@ -1501,6 +1501,45 @@ expedition world, and two conditions read it: `unlock_deep_survey` at 50 with
 
 ---
 
+### As built (`FEAT-SECRET-REGION-VAULT`, 46ad28d, 2026-08-03)
+
+Section 5's taxonomy gives a secret a KIND but never a relationship to the other secrets around
+it, so every cache was an independent find and a region was a tint the player swept rather than
+a thing the player finished. One cache per biome region is now that region's **vault**: it
+refuses the walk-in while any other cache in the region is unfound, and pays a new `capstone`
+tier when it opens.
+
+1. **A region is a `biomeId`.** `assignDangerAndBiomes` gives one stage per depth band, so a
+   biome region is contiguous by construction and already carries a player-facing name. This is
+   the derivation `FEAT-SECRET-MAP-FRAGMENT` recorded when it refused to add a `fragmentRegions`
+   table; do not re-derive it and do not add one now.
+2. **The vault is the region's deepest RING-FREE NON-HIDDEN Secret slot**, greater slot id on a
+   tie, chosen by the pure `src/world/secretCapstones.ts`. Ring-free is the load-bearing
+   filter: `secretHints.ts` already writes a lead sentence naming a sigil ring's order, so a
+   cache carrying both gates would need that surface taught about it, and selecting past the
+   ringed slots makes the interaction ZERO rather than handled. Non-hidden is the rule
+   `buildSectorSupply` already gives for quest destinations.
+3. **Measured over 101 seeds**: 1 to 5 vaults per world (median 3), zero worlds with none, 2 to
+   18 prerequisite caches per vault (median 4), vault depth 0 to 23 (median 9).
+   `MIN_REGION_SECRETS_FOR_VAULT` is 3, because at 2 the vault costs one find and at 1 a
+   region's only cache would be sealed behind itself.
+4. **The lock is a per-frame read, not a sync-time snapshot.** A region's last prerequisite can
+   be a second cache in the vault's own room, and `SecretCacheManager.sync` only rebuilds on a
+   sector change, so a snapshot would leave the vault shut until the player left and came back.
+5. **Econ rule 1 is untouched.** The `capstone` tier is a weight scale over the shipped reward
+   rows, none of which pays gold; jackpot share reads 26% / 33% / 38% for puzzle / capstone /
+   hiddenSector at depth 6. `FEAT-ECON-WARDS` stays parked and this does not unpark it.
+6. **`secretKind: 'capstone'` follows the puzzle precedent**: a sigil cache already emits
+   `'puzzle'` and so does not satisfy a `'cache'` step. No quest step is authored against the
+   new value, because a step is quest gold and quest gold is inside the parked budget.
+7. **No storage key and no version bump of any kind** (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+   `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION`, `WORLD_ARCHIVE_VERSION` all untouched) and
+   **no generator change**: a vault is derived from the generated world plus the shipped
+   `SecretFlags.FOUND`, so no world's layout moved and every existing profile picks it up as
+   soon as the build lands.
+
+---
+
 ## 6. Reward economy
 
 Anchors: `computeRunGold` (`MetaProgressionManager.ts:132`, kills x 2.5 + time/10 +

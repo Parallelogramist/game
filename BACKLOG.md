@@ -2911,6 +2911,75 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-SECRET-REGION-VAULT** (done, 46ad28d) (new 2026-08-03, proposed by the planner from
+  the operator's standing direction for this repo, "quests and many hidden rewards for
+  exploring the Metroid-style map"): a biome region gets a vault, and clearing that region's
+  caches is what opens it. Value: George can finish a named region of his world and be paid
+  for finishing it, instead of only watching a completion percentage tick.
+  1. **What shipped**: the pure `src/world/secretCapstones.ts` (`buildRegionVaults`,
+     `MIN_REGION_SECRETS_FOR_VAULT`, `RegionVault`), a fourth `capstone` tier on
+     `SecretTier` + `SECRET_TIER_SCALES`, and `SecretCacheManager` holding the world's vault
+     map, dimming a locked vault to `SEALED_CACHE_ALPHA`, refusing its walk-in with a
+     `SEALED VAULT` notice that names the price and the region, and paying it at the
+     `capstone` tier under a `REGION VAULT OPEN` toast.
+  2. **The gap it closed.** Every secret was an independent find, so a region was a tint plus
+     a spawn bias plus a hazard bias and sweeping one was only a slower way to raise a number.
+     Nothing in the world asked the player to FINISH anything.
+  3. **A region is a `biomeId`, and that derivation is settled** (the same one
+     `FEAT-SECRET-MAP-FRAGMENT` recorded when it refused a `fragmentRegions` table):
+     `assignDangerAndBiomes` assigns one stage per depth band, so a biome is contiguous by
+     construction and already carries a player-facing name.
+  4. **The vault is the region's DEEPEST RING-FREE NON-HIDDEN Secret slot, greater id on a
+     tie.** Ring-free is the load-bearing filter: `secretHints.ts` already writes a lead
+     sentence naming a ring's sigil order, so a cache carrying both gates would need that
+     surface taught about it, and selecting past the ringed slots makes the interaction zero
+     rather than handled. Non-hidden is `buildSectorSupply`'s shipped rule, so the count the
+     notice prints is a count of caches the chart can lead the player to.
+  5. **Measured over 101 seeds** (live `20260727` plus 100 spread seeds, shipped ability order,
+     five quest keys plus the warden seal, `hiddenSectorCount: 3`): 21/25/34 non-hidden secret
+     slots per world (min/median/max), **1/3/5 vaults per world and zero worlds with none**,
+     2/4/18 prerequisite caches per vault, vault sector depth 0/9/23. `MIN_REGION_SECRETS_FOR_VAULT`
+     is 3 because at 2 the vault costs one find and at 1 the region's only cache would be
+     sealed behind itself.
+  6. **The lock is re-read every frame, never snapshotted at sync time**: a region's last
+     prerequisite can be a second cache in the vault's own room, and `sync()` only rebuilds on
+     a sector change, so a snapshot would leave the vault shut until the player left and came
+     back. It costs a median of 4 flag lookups, and only for a cache already inside the 300 px
+     sense radius.
+  7. **`capstone` leans between `puzzle` and `hiddenSector`**: jackpot share 26% / 33% / 38%
+     at depth 6. A vault is earned by clearing a region, so it out-pays a ring solved on the
+     spot and stops short of a whole room the chart never drew. **Econ-neutral like every other
+     row**, so `FEAT-ECON-WARDS` stays parked and is not unparked by this.
+  8. **The claim emits `secretKind: 'capstone'`**, following the shipped precedent that a sigil
+     cache emits `'puzzle'` and therefore does not satisfy a `'cache'` step. **No quest step is
+     authored against it**: a new step is quest gold, which lands inside the parked
+     `FEAT-ECON-WARDS` budget.
+  9. **Nothing persists and no version moved**: no storage key, and no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or
+     `WORLD_ARCHIVE_VERSION` change. A vault is derived from the map plus the shipped
+     `SecretFlags.FOUND`, so every existing profile lights it up the moment the build lands.
+     No generator change either, so no world's layout moved.
+  10. **Arena is inert by absence, not by a mode gate**: `SecretCacheManager` is synced only
+      from the expedition branch, and `worldMode.worldMap()` is null in arena.
+  11. **Filed with it**: `POLISH-SECRET-REGION-VAULT` under `## Human gates`, plus
+      `FEAT-VAULT-CHART-TELL` and `CHORE-VAULT-LOCKOUT-ROW` below.
+- [ ] **FEAT-VAULT-CHART-TELL** (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a region vault
+  is a place the chart says nothing about, so a player who walked away from a locked one has to
+  remember where it was. Held back for exactly the reason `FEAT-SORTIE-CHART-TELL`,
+  `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL` are: the cell already carries a
+  cleared notch, a hint badge, an objective-updated badge, sector marks and POI icons, and a
+  fourth queued claim on it needs a legend row and a placement the chart has not budgeted.
+  A found vault is also the one thing the renderer's leak rule permits drawing, which is a
+  second question on the same surface. Value: the vault is a destination on the map, not a
+  toast that scrolled past. Deps: the same chart-crowding call those three wait on.
+- [ ] **CHORE-VAULT-LOCKOUT-ROW** (new 2026-08-03, from FEAT-SECRET-REGION-VAULT): a locked
+  vault is absent from the LOCKED OUT panel, which already answers "what do I need" for
+  abilities and quest keys and would answer it for a vault with one more `bump` call keyed
+  `vault:<biomeId>`. Left out because `BALANCE-LOCKOUT-PANEL-ROWS` is open and asks how tall
+  that column already gets on a real profile, and because the panel's rows name a THING you
+  lack while a vault names a chore you have not finished, which may not belong in the same
+  list. Value: the panel names the region you are one cache away from finishing. Deps:
+  `BALANCE-LOCKOUT-PANEL-ROWS`.
 - [x] **FEAT-SORTIE-CHOOSE-DESTINATION** (done, 2ff8352) (new 2026-08-03, proposed by the planner
   from the `FEAT-EXPEDITION-RECALL` / `FEAT-EXPEDITION-SORTIE` / `FEAT-EXPEDITION-FIELD-ANCHOR`
   trio): the return leg goes where you point it. Value: George can start an expedition at any
@@ -12980,6 +13049,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-SECRET-REGION-VAULT** (filed by FEAT-SECRET-REGION-VAULT, 46ad28d). A region vault
+  has never been seen in a browser. Fly a world with an unfound vault and walk into it.
+  (a) Does the extra outer ring read as "this cache is different", or does it just look like a
+  cache at the wrong zoom? (b) Does `SEALED VAULT` plus `4 caches are still hidden in the
+  Crystal Caves.` land as an instruction, or does the player need the region NAMED on the
+  chart before that sentence means anything? (c) is a median of 4 prerequisite caches the right
+  price, and is the max of 18 (the biggest region on a wide seed) a chase or a wall — the knob
+  is `MIN_REGION_SECRETS_FOR_VAULT` (3) or a cap on the prerequisite set, and neither should be
+  retuned blind. (d) does the half-alpha lock read as "come back later" or as a rendering bug,
+  given a sigil-ring cache uses the same alpha but has visible pylons explaining itself?
+  (e) `REGION VAULT OPEN` at the `notable` tier lands in the same toast lane as
+  `HIDDEN CACHE FOUND`: does the biggest find of a region deserve more than a title change?
+  Do not retune any of it blind.
 - [ ] **POLISH-SORTIE-BROWSE-DESTINATION** (filed by FEAT-SORTIE-BROWSE-DESTINATION, 5a45877). The
   between-runs survey can now aim the fresh run's sortie and none of it has been seen in a
   browser. Questions: (a) does `LAUNCH · 3,2` read as "the run starts in 3,2" rather than "the
