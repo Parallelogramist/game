@@ -2951,7 +2951,7 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
      verifies by play, and `plotSectorCourse` already ships its own tests unmodified.
   10. **Filed with it**: `POLISH-SORTIE-CHOOSE-DESTINATION` under `## Human gates` and
       `FEAT-SORTIE-BROWSE-DESTINATION` below.
-- [ ] **FEAT-SORTIE-BROWSE-DESTINATION** (new 2026-08-03, from FEAT-SORTIE-CHOOSE-DESTINATION): the
+- [x] **FEAT-SORTIE-BROWSE-DESTINATION** (done, 5a45877) (new 2026-08-03, from FEAT-SORTIE-CHOOSE-DESTINATION): the
   insertion point can only be chosen once the run is already underway, because the between-runs
   survey shows `LAUNCH` where a run shows `SORTIE` and `MapScene.recall()` returns early on
   `this.browsing`. So the player opens the chart from the menu, plans, launches, then opens the
@@ -2960,6 +2960,48 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   is a one-shot boolean that `BootScene` consumes, so carrying a destination through it means
   giving that flag a payload and teaching a fresh run to spend its seeded sortie on arrival. Value:
   the plan you make between runs is the run you get. Deps: none.
+  1. **What shipped**: the between-runs survey's focused room is now the fresh run's sortie
+     destination. `MapScene.sortieDestinationKey` answers in browse mode against
+     `sortieAvailable` instead of refusing every browse call, the footer button reads
+     `LAUNCH · 3,2`, `launch()` writes a world-stamped `PlannedSortie` into the new second
+     handoff in `src/expedition/pendingLaunch.ts`, `BootScene` fills `sortieAvailable` from
+     `getFieldAnchor`, and `GameScene.bindExpeditionDiscovery` drains the plan on every
+     expedition bind, seeding `sortieAnchor` from it when the run is fresh.
+  2. **It redirects the sortie, it does not auto-spend it.** The item's phrase "spend its seeded
+     sortie on arrival" was resolved as redirect: auto-firing at spawn would run the 3 s channel
+     under the intro overlay and land the ship in a hostile room before the player had read
+     anything, and it would take away the "spend it when you choose" property that makes the
+     jump a resource. Filed as `FEAT-SORTIE-AUTO-JUMP` below.
+  3. **The field anchor stays the PERMIT.** A plan only redirects a sortie the profile had
+     already earned by ending a previous run out in the field. With no anchor the survey button
+     stays plain `LAUNCH` and the run seeds nothing, exactly as `beginExpeditionJump` already
+     refuses a sortie on a null anchor before it reads any destination.
+  4. **The plan is stamped with its world and drained on every bind.** A player can chart a new
+     world between planning and launching and `3,2` exists there too, so the plan carries
+     `worldSeed` + `worldGenVersion` and is refused on mismatch. It is consumed on the restore
+     path as well as the fresh one, because pressing LAUNCH and then cancelling the save-loss
+     confirmation would otherwise leave a pick armed for a later run. An arena run never reaches
+     the consume, so a daily challenge taken in between does not eat the plan.
+  5. **Legality is checked in both scenes on purpose**, the rule the sibling feature recorded:
+     `MapScene` checks so the button is honest, `GameScene` re-plots so seeding is safe without
+     trusting a module-level global. `GameScene` plots from `map.startKey` rather than from the
+     player transform, because a fresh expedition starts at the hangar and that is exactly the
+     position `BootScene` hands the survey, so both ends measure the same trip.
+- [ ] **FEAT-SORTIE-AUTO-JUMP** (new 2026-08-02, from FEAT-SORTIE-BROWSE-DESTINATION): a plan made
+  in the survey still costs one map open and one press once the run starts, because the run seeds
+  the destination and waits. Auto-firing the channel on spawn was cut deliberately, not
+  forgotten: the 3 s channel would run underneath the run intro overlay, the ship would land in a
+  room it has not seen before the player has read anything, and a hit landing during it would
+  read as the run breaking rather than as a jump breaking. Value: the plan flies itself. Deps: an
+  operator call on whether the run may move the ship before the player has taken a frame of
+  control.
+- [ ] **FEAT-SORTIE-PLAN-DEFAULT-TELL** (new 2026-08-02, from FEAT-SORTIE-BROWSE-DESTINATION): the
+  survey's LAUNCH button names a destination only once a legal room is focused, so a player who
+  plans nothing cannot see from the chart that the run still holds a sortie back to the field
+  anchor. The fact exists (`sortieAvailable` is already passed to the survey) and the surface
+  does not: naming the default would want either a second clause on a button 176px wide or a cell
+  mark on the chart. Value: the jump you already own is visible before you launch. Deps: the same
+  chart-crowding call `FEAT-SORTIE-CHART-TELL` and `FEAT-STIR-CHART-CELL` wait on.
 - [x] **FEAT-BIOME-REGION-SHIFT** (done, 3bae4c7) (new 2026-08-03, proposed by the planner, from
   `references/map/README.md` section 6, "Biome mechanics, not just tints"): the seventh slice, and
   the last of the three sector-scale mechanics that bullet names by hand. An Inferno room
@@ -12938,6 +12980,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-SORTIE-BROWSE-DESTINATION** (filed by FEAT-SORTIE-BROWSE-DESTINATION, 5a45877). The
+  between-runs survey can now aim the fresh run's sortie and none of it has been seen in a
+  browser. Questions: (a) does `LAUNCH · 3,2` read as "the run starts in 3,2" rather than "the
+  run's first jump goes to 3,2", and is a different wording worth the 176px the footer button
+  has? (b) is the label legible at that width on a phone canvas with a two-digit negative key
+  like `-12,-7`? (c) does the `SORTIE PLOTTED` toast at run start land clearly enough that the
+  player knows to open the map, or does the plan need an in-run surface? (d) hover sets the focus
+  on desktop, so the plan is whatever the cursor last rested on: does that ever pick a room the
+  player did not mean? (e) with no field anchor the button stays plain `LAUNCH` and nothing says
+  why: does that read as broken? Do not retune any of it blind.
 - [ ] **POLISH-SORTIE-CHOOSE-DESTINATION** (new 2026-08-03, from FEAT-SORTIE-CHOOSE-DESTINATION):
   fly a fresh expedition, open the map at the hangar with a `SORTIE READY` toast behind you, and
   move the cursor. (a) Does the button relabelling itself from `SORTIE` to `SORTIE 3,2` read as an

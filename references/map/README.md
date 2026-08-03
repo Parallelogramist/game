@@ -211,6 +211,18 @@ again inside one life. Three consequences the implementing chunks must honor:
   collapse them. The boss arena is refused for the same reason the field anchor refuses to record
   it. The browse-mode half is `FEAT-SORTIE-BROWSE-DESTINATION` and the playtest verdict is
   `POLISH-SORTIE-CHOOSE-DESTINATION`.
+  **The choice moved to the menu at `5a45877`** as `FEAT-SORTIE-BROWSE-DESTINATION`: the
+  between-runs survey (`MapScene` with `returnTo: 'BootScene'`) aims the fresh run's seeded
+  sortie, its footer button reading `LAUNCH · 3,2` for whichever room the chart is focused on.
+  The pick rides to the run as a world-stamped `PlannedSortie` in `src/expedition/pendingLaunch.ts`
+  beside the launch flag itself, and `GameScene.bindExpeditionDiscovery` drains it on EVERY
+  expedition bind while using it only on a fresh one, so a cancelled save-loss confirmation
+  cannot leave a pick armed for a later run. The field anchor is still the PERMIT: no anchor, no
+  sortie, whatever was planned. `GameScene` re-plots the course from `map.startKey` rather than
+  from the player, because a fresh expedition starts at the hangar and that is the position the
+  survey measured its own course from, so the honest-button check and the safe-seeding check
+  judge the identical trip. It redirects the jump and does not auto-spend it
+  (`FEAT-SORTIE-AUTO-JUMP`); the playtest verdict is `POLISH-SORTIE-BROWSE-DESTINATION`.
 
 The stranding guarantee doc 04 relies on is unchanged: recall is always *available*
 outside a lock, so physical stranding is impossible and a soft-lock reduces to a
