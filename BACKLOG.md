@@ -2911,6 +2911,49 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-LOCKOUT-COURSE** (done, fd55c37) (new 2026-08-03, proposed by the planner): the
+  LOCKED OUT panel stops measuring in straight lines. Value: George can read, for every vault,
+  board and arena the panel sends him to, how many rooms the flight there actually is and
+  whether the way is itself shut and by what, instead of a straight-line count across a world
+  made of walls.
+  1. **What shipped**: `LockoutTravel` on `src/expedition/lockouts.ts`, replacing the
+     `distance: number` that the `vault`, `questBoard` and `wardenArena` sources carried; every
+     one of those places is now measured with `plotSectorCourse`, and `MapScene`'s new
+     `travelClause` prints `VAULT 6 HOPS` / `VAULT 13 HOPS · NEEDS BLINK DRIVE` /
+     `ARENA NO CHARTED COURSE` / `BOARD IN THIS SECTOR` in place of `N SECTORS OUT`.
+  2. **The gap it closed, symptom first.** `lockouts.ts`'s `sectorDistance` was
+     `Math.max(Math.abs(sector.sx - ship.col), Math.abs(sector.sy - ship.row))`, a Chebyshev
+     count that knows about no wall, no membrane and no shut door. Measured on the shipped test
+     fixture (seed `20260727`, ship at the hangar): the Blink Drive vault read `5 SECTORS OUT`
+     against a real 6-hop flight; the Magno-Tether vault read `6 SECTORS OUT` against a 13-hop
+     flight that is shut behind Blink Drive; the boss arena read `6 SECTORS OUT` against 17 hops
+     shut behind two abilities. Two of the three place-naming sources were off by more than 2x
+     and none of them said the way was locked.
+  3. **"Nearest" changed meaning, and that is the point.** The vault picked per ability and the
+     board picked per quest were both chosen by that same straight line, so the panel could name
+     the long way round. Both now rank flyable over gated over unroutable, then fewer hops, with
+     the sector key as the tiebreak so the place a profile is sent to never depends on Map
+     iteration order.
+  4. **A source with no charted route now sinks in the sort**, with the `unfound` rows rather
+     than above them; a GATED one does not, because going and earning that gate is the plan.
+  5. **The leak rules are the plotter's, inherited whole.** A course is planned over the CHART:
+     a sector is a node only when its flags are non-zero and an edge is crossable only when it
+     is `KNOWN`, so the panel cannot name a route through a border the chart refuses to draw.
+     Nothing about which vaults, boards or arenas are eligible changed: `PoiFlags.SEEN` for a
+     vault and a board, and a charted arena, exactly as before.
+  6. **Deliberately unchanged.** `LockoutRow.nearestDistance` stays Chebyshev, because it is not
+     rendered and is only a sort tiebreak, and converting it would need a course to every counted
+     sector rather than to the one place the row names. `findUnclaimedAbilityVaults` keeps its
+     exact signature, because `MinimapFeed` calls it for the radar's vault bearing.
+  7. **Cost.** One breadth-first walk per candidate place: at most ~26 boards plus the vaults
+     plus the arena, over 48 charted sectors, once per map open (`buildLockoutRows` is called
+     from `MapScene.create()`, never from `redraw()`). No cache and no multi-target walk was
+     added for it.
+  8. **Nothing persists and no version moved**: no storage key, no `SAVE_VERSION` /
+     `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `WORLD_PROFILE_VERSION` change, no save shape.
+     Arena, daily, weekly, practice and gauntlet are untouched by construction: `MapScene` is
+     expedition-only.
+  9. **Filed with it**: `POLISH-LOCKOUT-COURSE` under `## Human gates`.
 - [x] **FEAT-MAPUI-COURSE-PLOT** (done, 3b9d049) (new 2026-08-03, proposed by the planner): the
   chart plots a course to the room you focus. Value: George can focus any charted room and see
   the real route his ship can fly to it, drawn on the map and counted in hops, or be told which
@@ -12477,6 +12520,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-LOCKOUT-COURSE** (new 2026-08-03, from FEAT-LOCKOUT-COURSE). The panel's new trip
+  clause was validated as graph math against the test fixture, never read on a screen. Questions,
+  all feel: (a) does `VAULT 13 HOPS` read as useful information or as a discouraging number,
+  where `VAULT 6 SECTORS OUT` read as close? (b) the row can now say
+  `2 DOORS · 1 SITE · VAULT 13 HOPS · NEEDS BLINK DRIVE` on a 12 px line in a 340 px panel that
+  word-wraps: does it wrap, and if it does is the trip clause better on its own second line?
+  (c) one named requirement then `+N` is the cut here against two on the detail bar: right, or
+  should the two surfaces agree? (d) this is the second surface naming the same shut door, which
+  is exactly what question (d) of `POLISH-MAP-COURSE` asks about redundancy: with both shipped,
+  is the pair redundant or reinforcing? (e) does a source that sank to the bottom for having no
+  charted route want a word saying so, rather than only its position? Do not retune any of it
+  blind.
 - [ ] **POLISH-MAP-COURSE** (new 2026-08-03, from FEAT-MAPUI-COURSE-PLOT). The course was
   validated as graph math and as panel geometry, never seen on a screen. Questions, all feel:
   (a) does a white polyline read as a route, or does it fight the white focus cursor and the

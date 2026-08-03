@@ -223,10 +223,16 @@ the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph b
   `applyEarnedQuestKeys` rewrite only `TileKind.GateClosed` mouth tiles and never `edge.kind`
   (section 3.5's replay rule), so `edge.kind` plus `edge.requiredId` plus the two ownership
   predicates is the one test the lock ring, the readout's door line and the course all share.
+- **The panel measures with the same plotter (`FEAT-LOCKOUT-COURSE`, `fd55c37`).** The LOCKED OUT
+  panel's `vault` / `questBoard` / `wardenArena` sources carry a `LockoutTravel` projected from
+  `plotSectorCourse`, not a Chebyshev distance, so the panel's trip, the chart's plotted line and
+  the readout's door line are one answer. It is also what picks WHICH vault and WHICH board a row
+  names: flyable over gated over unroutable, then fewer hops. `LockoutRow.nearestDistance` stays
+  Chebyshev on purpose: it is a sort tiebreak, never rendered.
 
 The in-run half (a next-hop bearing on the radar disc) is deliberately not built and is
-`FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdict is
-`POLISH-MAP-COURSE`.
+`FEAT-COURSE-RADAR-BEARING`, held on `BALANCE-MARK-RADAR-RANK`. The browser verdicts are
+`POLISH-MAP-COURSE` for the chart and `POLISH-LOCKOUT-COURSE` for the panel.
 
 ### 4.2 Still open, for playtest (not blockers)
 
