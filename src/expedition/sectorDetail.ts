@@ -10,6 +10,7 @@
 
 import { EDGE_DIRECTIONS, EdgeKind, PoiKind, edgeIdFor } from '../world/worldTypes';
 import type { EdgeDef, EdgeDirection, SectorDef, WorldMap } from '../world/worldTypes';
+import type { RegionVault } from '../world/secretCapstones';
 import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 import { gateGlyphFor } from './gateGlyphs';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from './poiGlyphs';
@@ -32,6 +33,11 @@ export interface SectorDetailInputs {
   edgeFlagsOf: (edgeId: string) => number;
   poiFlagsOf: (poiId: string) => number;
   secretFlagsOf: (secretId: string) => number;
+  /** Every region vault this world holds, keyed by the vault cache's own secret id, as
+   *  buildRegionVaults derives them. Required rather than optional, on the bloomedSectorKeys
+   *  precedent: a call site that forgets it is a compile error rather than a chart that
+   *  silently stops pricing a vault the ship was refused at. */
+  regionVaults: ReadonlyMap<string, RegionVault>;
   holdsAbility: (abilityId: string) => boolean;
   holdsQuestKey: (keyId: string) => boolean;
   /** Sectors an active objective points at. The chart draws the same pin, so naming it here
@@ -107,6 +113,13 @@ function describePlace(sector: SectorDef): string {
   return `${biome} · ${jumps}`;
 }
 
+/** "the Crystal Caves" reads inside a sentence; the fallback stands alone, which is why it
+ *  is not "the ..." too. Same fallback SecretCacheManager's SEALED VAULT toast takes. */
+function regionLabel(biomeId: string): string {
+  const stage = getStageById(biomeId);
+  return stage ? `the ${stage.name}` : 'this region';
+}
+
 function describeDoors(sector: SectorDef, inputs: SectorDetailInputs): string[] {
   const lines: string[] = [];
   for (const direction of EDGE_DIRECTIONS) {
@@ -171,6 +184,11 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     const glyph = poiGlyphFor(slot.kind);
     if (glyph.shape === 'none') continue;
     if (slot.kind === PoiKind.Secret) {
+      const vaultLine = describeRegionVault(slot.id, inputs);
+      if (vaultLine !== null) {
+        lines.push(vaultLine);
+        continue;
+      }
       // The leak guard, same as SectorMapRenderer.drawPoiIcons: an unfound secret's position
       // is the entire point of the room, so only a FOUND one is ever named.
       if ((inputs.secretFlagsOf(slot.id) & SecretFlags.FOUND) !== 0) lines.push(glyph.label);
@@ -236,6 +254,30 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     lines.push(`A lead points here${leadSealSuffix(sector, inputs)}`);
   }
   return lines;
+}
+
+/**
+ * Null unless this slot is a region vault the readout is allowed to name. The gate is
+ * SectorMapRenderer.holdsUnopenedVault's, for the same reason: VAULT_SEEN is written only by
+ * the walk-in refusal, so it is itself proof the ship stood in the room and the readout says
+ * only what the room said first. A CLAIMED vault needs no gate, because a spent cache leaks
+ * nothing.
+ */
+function describeRegionVault(secretId: string, inputs: SectorDetailInputs): string | null {
+  const vault = inputs.regionVaults.get(secretId);
+  if (!vault) return null;
+  const flags = inputs.secretFlagsOf(secretId);
+  if ((flags & SecretFlags.FOUND) !== 0) return 'Region vault · claimed';
+  if ((flags & SecretFlags.VAULT_SEEN) === 0) return null;
+  let remaining = 0;
+  for (const prerequisiteId of vault.prerequisiteSecretIds) {
+    if ((inputs.secretFlagsOf(prerequisiteId) & SecretFlags.FOUND) === 0) remaining++;
+  }
+  if (remaining === 0) return 'Region vault · open to you';
+  const region = regionLabel(vault.biomeId);
+  return remaining === 1
+    ? `Region vault · 1 cache left in ${region}`
+    : `Region vault · ${remaining} caches left in ${region}`;
 }
 
 /** What still stands between the ship and the cache a lead names. Only a HINTED secret is

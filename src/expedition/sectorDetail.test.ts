@@ -5,6 +5,7 @@ import {
 } from '../world/worldTypes';
 import type { EdgeDef, GridBandDef, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
 import { secretShellRingIndices } from '../world/sectorInterior';
+import type { RegionVault } from '../world/secretCapstones';
 import { PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 
 function makeWorld(
@@ -32,6 +33,7 @@ const BASE = {
   edgeFlagsOf: () => 1,          // EdgeFlags.KNOWN
   poiFlagsOf: () => PoiFlags.SEEN,
   secretFlagsOf: () => 0,
+  regionVaults: new Map<string, RegionVault>(),
   holdsAbility: () => false,
   holdsQuestKey: () => false,
   objectiveSectorKeys: new Set<string>(),
@@ -176,5 +178,33 @@ describe('buildSectorDetail', () => {
     })!.rewards).toEqual([]);
     expect(buildSectorDetail({ ...BASE, map: makeBandedWorld(1) })!.rewards)
       .toEqual(['Corridor grid · blocking a shortcut']);
+  });
+
+  test('a region vault names its price only once the ship has been refused at it', () => {
+    const slot: PoiSlot = { id: 'poi:0,0:0', kind: PoiKind.Secret, tileX: 4, tileY: 4 };
+    const map = makeWorld({}, [slot]);
+    const regionVaults = new Map<string, RegionVault>([['poi:0,0:0', {
+      secretId: 'poi:0,0:0',
+      biomeId: 'stage_crystal_caves',
+      prerequisiteSecretIds: ['poi:1,0:0', 'poi:2,0:0'],
+    }]]);
+    const unseen = { ...BASE, map, regionVaults };
+    expect(buildSectorDetail(unseen)!.rewards).toEqual([]);
+
+    const seen = { ...unseen,
+      secretFlagsOf: (id: string) => id === 'poi:0,0:0' ? SecretFlags.VAULT_SEEN : 0 };
+    expect(buildSectorDetail(seen)!.rewards)
+      .toEqual(['Region vault · 2 caches left in the Crystal Caves']);
+    expect(buildSectorDetail({ ...seen,
+      secretFlagsOf: (id: string) => id === 'poi:0,0:0'
+        ? SecretFlags.VAULT_SEEN
+        : id === 'poi:1,0:0' ? SecretFlags.FOUND : 0,
+    })!.rewards).toEqual(['Region vault · 1 cache left in the Crystal Caves']);
+    expect(buildSectorDetail({ ...seen,
+      secretFlagsOf: (id: string) => id === 'poi:0,0:0'
+        ? SecretFlags.VAULT_SEEN : SecretFlags.FOUND,
+    })!.rewards).toEqual(['Region vault · open to you']);
+    expect(buildSectorDetail({ ...seen, secretFlagsOf: () => SecretFlags.FOUND })!.rewards)
+      .toEqual(['Region vault · claimed']);
   });
 });

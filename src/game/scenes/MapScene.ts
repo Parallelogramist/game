@@ -50,6 +50,8 @@ import {
 } from '../../visual/mapProjection';
 import type { GridBounds, GridCell, MapCursorDirection,
   MapViewTransform } from '../../visual/mapProjection';
+import { buildRegionVaults } from '../../world/secretCapstones';
+import type { RegionVault } from '../../world/secretCapstones';
 import { buildSectorSupply } from '../../world/sectorTags';
 import { sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { EdgeKind, PoiKind } from '../../world/worldTypes';
@@ -231,6 +233,9 @@ export class MapScene extends Phaser.Scene {
   /** The union the chart's destination lane draws. Built once in init() rather than per redraw:
    *  neither source set can change while the chart is open. */
   private stirredSectorKeys: ReadonlySet<string> = new Set();
+  /** Built once in init() rather than per refreshDetail: buildRegionVaults walks every sector
+   *  and rolls a puzzle per Secret slot, while the cursor moves on every mouse pixel. */
+  private regionVaults: ReadonlyMap<string, RegionVault> = new Map();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private revealPlan: MapRevealPlan | null = null;
   private revealElapsedMs = 0;
@@ -284,6 +289,7 @@ export class MapScene extends Phaser.Scene {
     this.bloomedSectorKeys = new Set(data.bloomedSectors ?? []);
     this.shiftedSectorKeys = new Set(data.shiftedSectors ?? []);
     this.stirredSectorKeys = new Set([...this.bloomedSectorKeys, ...this.shiftedSectorKeys]);
+    this.regionVaults = buildRegionVaults(this.mapData);
     this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
     this.sortieAvailable = data.sortieAvailable === true;
     this.sortieAnchorSectorKey = data.sortieAnchorSectorKey;
@@ -969,6 +975,7 @@ export class MapScene extends Phaser.Scene {
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
       secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
+      regionVaults: this.regionVaults,
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
       objectiveSectorKeys: this.objectiveSectorKeys,
