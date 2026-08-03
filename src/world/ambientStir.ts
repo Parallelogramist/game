@@ -197,12 +197,11 @@ function stampShift(sector: SectorDef, worldSeed: number, ordinal: number): bool
   const blocked = protectedTileIndices(sector);
   const rng = mulberry32(hashStringToSeed(
     `ambientShift:${worldSeed}:${ordinal}:${sector.key}`));
-  let changed = false;
-  changed = stampRuns(sector, floodSeed, blocked, rng, BREACH_RUNS_PER_SECTOR,
-    TileKind.Solid, TileKind.Open) || changed;
-  changed = stampRuns(sector, floodSeed, blocked, rng, COLLAPSE_RUNS_PER_SECTOR,
-    TileKind.Open, TileKind.Solid) || changed;
-  return changed;
+  const opened = stampRuns(sector, floodSeed, blocked, rng, BREACH_RUNS_PER_SECTOR,
+    TileKind.Solid, TileKind.Open);
+  const collapsed = stampRuns(sector, floodSeed, blocked, rng, COLLAPSE_RUNS_PER_SECTOR,
+    TileKind.Open, TileKind.Solid);
+  return opened.length > 0 || collapsed.length > 0;
 }
 
 function stampRuns(
@@ -213,9 +212,9 @@ function stampRuns(
   runs: number,
   fromKind: number,
   toKind: number,
-): boolean {
+): number[][] {
   const delta = toKind === TileKind.Open ? SHIFT_RUN_LENGTH : -SHIFT_RUN_LENGTH;
-  let changed = false;
+  const written: number[][] = [];
   for (let run = 0; run < runs; run++) {
     // Recomputed per run, never hoisted: a failed attempt is fully reverted, so the tiles this
     // measures are the tiles the next attempt writes over.
@@ -227,11 +226,11 @@ function stampRuns(
       const indices = shiftRunIndices(sector.tiles, tileX, tileY, vertical, fromKind, blocked);
       if (!indices) continue;
       for (const index of indices) sector.tiles[index] = toKind;
-      if (shiftHoldsUp(sector, floodSeed, reachedBefore, delta)) { changed = true; break; }
+      if (shiftHoldsUp(sector, floodSeed, reachedBefore, delta)) { written.push(indices); break; }
       for (const index of indices) sector.tiles[index] = fromKind;
     }
   }
-  return changed;
+  return written;
 }
 
 /**
@@ -287,4 +286,48 @@ function shiftHoldsUp(
     if (reachedBefore[index] === 1 && reachedAfter[index] !== 1) return false;
   }
   return true;
+}
+
+/** Runs one live shift writes: the ambient pass's pair halved, so a room that keeps rearranging
+ *  under the player moves at a readable rate rather than a whole ambient pass at a time. */
+export const LIVE_SHIFT_BREACH_RUNS = 1;
+export const LIVE_SHIFT_COLLAPSE_RUNS = 1;
+
+export interface LiveShiftRuns {
+  /** Tile indices of the run of rock that opened into floor, if one held up. */
+  opened: number[][];
+  /** Tile indices of the run of floor that took rubble, if one held up. */
+  collapsed: number[][];
+}
+
+/**
+ * Moves one room's walls WHILE the ship is standing in it, and returns the tiles that actually
+ * moved, or null if nothing legal was found. Same pair of passes, same single-kind rule and same
+ * exactness proof the once-per-expedition shift runs, in the same order (seam first, so a pinch
+ * that was the room's only route can legally take rubble once an alternate exists), which is why
+ * a live shift can never reach a shape the ambient pass would have refused.
+ *
+ * `protectedIndices` is the caller's live-entity clearance, unioned with the POI-and-doorway
+ * protection this module already applies. It is the caller's because tile safety is world math
+ * and knowing where the ship is is not.
+ */
+export function applyLiveWallShift(
+  sector: SectorDef, rng: () => number, protectedIndices: ReadonlySet<number>,
+): LiveShiftRuns | null {
+  let floodSeed: TileCoord | undefined;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = sector.entryTiles[direction];
+    if (entry) { floodSeed = entry; break; }
+  }
+  if (!floodSeed) return null;
+
+  const blocked = protectedTileIndices(sector);
+  for (const index of protectedIndices) blocked.add(index);
+
+  const opened = stampRuns(sector, floodSeed, blocked, rng, LIVE_SHIFT_BREACH_RUNS,
+    TileKind.Solid, TileKind.Open);
+  const collapsed = stampRuns(sector, floodSeed, blocked, rng, LIVE_SHIFT_COLLAPSE_RUNS,
+    TileKind.Open, TileKind.Solid);
+  if (opened.length === 0 && collapsed.length === 0) return null;
+  return { opened, collapsed };
 }

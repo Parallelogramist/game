@@ -17,6 +17,10 @@ export const BASE_AMBIENT_DARKNESS = 0.35;
  *  any speed and never stops, so the table is not allowed to author one. */
 export const MIN_STAGE_DRIFT_FACTOR = 0.2;
 
+/** Below this a region would rearrange itself faster than a player can read the room, so the
+ *  table is not allowed to author it. 0 or absent means the region's walls never move. */
+export const MIN_STAGE_WALL_SHIFT_SECONDS = 5;
+
 export interface StageDefinition {
   id: string;
   name: string;
@@ -42,6 +46,10 @@ export interface StageDefinition {
    *  coasts further after the stick is released; top speed itself never moves. Absent means the
    *  region handles exactly as every stage always did. */
   driftFactor?: number;
+  /** Seconds the ship must spend in one room of this region before its walls move again: one
+   *  seam of rock opens and one run of rubble drops. Absent or 0 means the region is as static
+   *  as every stage always was. Arena runs have no world map, so nothing moves there. */
+  wallShiftSeconds?: number;
 
   // Optional unlock gate. Missing = always available.
   // Format: 'hidden:<conditionId>' | 'worldLevel:<n>'
@@ -66,7 +74,7 @@ export const STAGES: readonly StageDefinition[] = [
   {
     id: 'stage_inferno',
     name: 'Inferno',
-    description: 'Burning red cosmos. +15% enemy damage, +25% gold.',
+    description: 'Burning red cosmos where the rock keeps moving. +15% enemy damage, +25% gold.',
     gridLineColor: 0xaa3300,
     gridPulseColor: 0xdd5511,
     gridWarpHighlightColor: 0xffaa44,
@@ -76,6 +84,7 @@ export const STAGES: readonly StageDefinition[] = [
     enemyDamageMultiplier: 1.15,
     xpMultiplier: 1.0,
     goldMultiplier: 1.25,
+    wallShiftSeconds: 15,
     unlockRequirement: 'worldLevel:2',
   },
   {
@@ -178,4 +187,14 @@ export function resolveStageDriftFactor(stage: StageDefinition): number {
   const authored = stage.driftFactor ?? 1;
   if (!Number.isFinite(authored)) return 1;
   return Math.min(1, Math.max(MIN_STAGE_DRIFT_FACTOR, authored));
+}
+
+/** How long the ship must stand in one room of this region before its walls move again, or 0 for
+ *  a region whose walls never move. Clamped so an authoring slip can make a region restless but
+ *  never a strobe, and a non-finite value switches the mechanic off rather than making the
+ *  interval comparison meaningless for the rest of the run. */
+export function resolveStageWallShiftSeconds(stage: StageDefinition): number {
+  const authored = stage.wallShiftSeconds ?? 0;
+  if (!Number.isFinite(authored) || authored <= 0) return 0;
+  return Math.max(MIN_STAGE_WALL_SHIFT_SECONDS, authored);
 }

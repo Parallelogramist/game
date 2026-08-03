@@ -63,7 +63,7 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, parseSectorKey, rectCenter, rectHeight, rectWidth, sectorCenterWorld, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
+import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, parseSectorKey, rectCenter, rectHeight, rectWidth, sectorCenterWorld, sectorKey, sectorOfWorldPoint, sectorOriginWorld } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
 import { buildSectorSupply, sectorTagsOf } from '../../world/sectorTags';
 import { SPINE_BIOME_ID } from '../../world/generateWorld';
@@ -72,7 +72,7 @@ import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import {
   clearSecurityGrid, findGridBreach, securityGridNearWorld,
 } from '../../world/securityGrids';
-import { EdgeKind, TILE_SIZE, TileKind, WORLDGEN_VERSION } from '../../world/worldTypes';
+import { EdgeKind, SECTOR_TILE_COLS, TILE_SIZE, TileKind, WORLDGEN_VERSION, isTileInBounds, tileIndex } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import { wardenBossIdForWorld } from '../../expedition/wardenIdentity';
@@ -263,7 +263,8 @@ import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager'
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
-import { getStageById, getDefaultStage, resolveStageAmbientDarkness, resolveStageDriftFactor, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
+import { getStageById, getDefaultStage, resolveStageAmbientDarkness, resolveStageDriftFactor, resolveStageWallShiftSeconds, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
+import { applyLiveWallShift } from '../../world/ambientStir';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
@@ -284,6 +285,16 @@ import { PauseMenuManager } from '../managers/PauseMenuManager';
 import type { DamageSourceTally } from '../managers/buildStats';
 import { RUN_TIMELINE_EVENT_CAP, type RunTimelineEvent, type RunTimelineEventKind } from '../managers/runTimeline';
 import { ACCENT_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
+
+/** Chebyshev tiles around the ship that a live wall shift may never write. Two tiles is a clear
+ *  ship-length on every side, so a region rearranging around the player never materialises rock
+ *  on the hull, which reads as a bug rather than as the world moving. */
+const LIVE_WALL_SHIFT_HULL_CLEARANCE_TILES = 2;
+
+/** Live shifts one room may take in one run. The reachability proof keeps every route open, but
+ *  nothing keeps a camped room legible: without this a player who stands still long enough
+ *  rewrites the whole room. */
+const LIVE_WALL_SHIFT_MAX_EVENTS_PER_SECTOR = 4;
 
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
@@ -1097,6 +1108,15 @@ export class GameScene extends Phaser.Scene {
   /** The active region's drift factor, resolved by applyStageVisuals and multiplied into the
    *  player's acceleration every frame. 1 in every region that does not author one. */
   private activeStageDriftFactor: number = 1;
+  /** The active region's live wall-shift interval in seconds, resolved by applyStageVisuals.
+   *  0 in every region that does not author one, which switches the whole mechanic off. */
+  private activeStageWallShiftSeconds: number = 0;
+  /** Seconds in the current room since the last shift. Reset on every sector entry, so a room
+   *  the ship only crosses never moves and only a room it stands in does. */
+  private regionWallShiftTimer: number = 0;
+  /** Live shifts each room has already taken this run, capped per room. Never persisted: the
+   *  writes live on the run's WorldMap and are regenerated fresh next expedition. */
+  private readonly wallShiftsBySector = new Map<string, number>();
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
   // Bound once: updateHazardSpawner takes it every frame and an inline arrow would allocate.
@@ -1167,6 +1187,8 @@ export class GameScene extends Phaser.Scene {
         recordFieldAnchor(map.seed, map.worldGenVersion, payload.sectorKey);
       }
     }
+    // A room the ship only crosses never moves: the interval starts again at every arrival.
+    this.regionWallShiftTimer = 0;
     const regionChanged = sector ? this.applySectorStage(sector) : false;
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);
@@ -1679,6 +1701,11 @@ export class GameScene extends Phaser.Scene {
 
     // Listen for resize events (orientation change, Safari address bar collapse)
     this.scale.on('resize', this.handleResize, this);
+
+    // Above the restore branch on purpose: Phaser reuses the scene instance across a restart, so
+    // a restored run would otherwise inherit the previous run's spent wall-shift budget.
+    this.regionWallShiftTimer = 0;
+    this.wallShiftsBySector.clear();
 
     if (saveState) {
       this.restoreGameState(saveState);
@@ -7724,6 +7751,7 @@ export class GameScene extends Phaser.Scene {
     if (this.recallChannelRemaining > 0) this.updateExpeditionRecall(deltaSeconds);
     this.worldMode.update(deltaSeconds);
     this.applyEnemyLeash();
+    this.updateRegionWallShift(deltaSeconds);
     this.updateCloseCallWatch();
 
     // Deferred to update() rather than fired in create(): the run-modifier banner
@@ -13214,6 +13242,7 @@ export class GameScene extends Phaser.Scene {
     const stage = getStageById(stageId) ?? getDefaultStage();
     this.activeStageId = stage.id;
     this.activeStageDriftFactor = resolveStageDriftFactor(stage);
+    this.activeStageWallShiftSeconds = resolveStageWallShiftSeconds(stage);
     for (const overlayName of ['stageAmbientOverlay', 'stageDarknessOverlay']) {
       const previousOverlay = this.children.getByName(overlayName);
       if (previousOverlay) previousOverlay.destroy();
@@ -13282,6 +13311,66 @@ export class GameScene extends Phaser.Scene {
     setDirectorStage(stage.id);
     this.applyStageVisuals(stage.id);
     return true;
+  }
+
+  /**
+   * README section 6's third named sector-scale mechanic: a region that rearranges itself while
+   * the ship is inside it. The write is the ambient shift's own pair of runs under its own
+   * exactness proof, so a live shift cannot seal a route, strand a POI or close a doorway; the
+   * two invalidations after it are the same pair every mid-run tile writer in this scene runs
+   * (a broken wall, an ability door, a quest door, a breached grid). Math.random rather than a
+   * seeded stream on purpose: nothing here is persisted or replayed, so no save has to agree
+   * with it, unlike every generator in ambientStir.
+   */
+  private updateRegionWallShift(deltaSeconds: number): void {
+    if (this.activeStageWallShiftSeconds <= 0 || this.playerId === -1) return;
+    const map = this.worldMode.worldMap();
+    if (!map || this.worldMode.isSectorLocked()) return;
+
+    this.regionWallShiftTimer += deltaSeconds;
+    if (this.regionWallShiftTimer < this.activeStageWallShiftSeconds) return;
+    this.regionWallShiftTimer = 0;
+
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+    const coord = sectorOfWorldPoint(playerX, playerY);
+    const key = sectorKey(coord);
+    const sector = map.sectors.get(key);
+    // The same three rooms pickStirredSectorKeys refuses: the hangar is the one room a recall
+    // guarantees is safe, the arena's floor is scripted by its own seal, and a hidden room's
+    // first entry is already its own event.
+    if (!sector || sector.isStart || sector.isBossArena || sector.hidden === true) return;
+    const spent = this.wallShiftsBySector.get(key) ?? 0;
+    if (spent >= LIVE_WALL_SHIFT_MAX_EVENTS_PER_SECTOR) return;
+
+    const origin = sectorOriginWorld(coord);
+    const shipTileX = Math.floor((playerX - origin.x) / TILE_SIZE);
+    const shipTileY = Math.floor((playerY - origin.y) / TILE_SIZE);
+    const hullClearance = new Set<number>();
+    for (let y = shipTileY - LIVE_WALL_SHIFT_HULL_CLEARANCE_TILES;
+      y <= shipTileY + LIVE_WALL_SHIFT_HULL_CLEARANCE_TILES; y++) {
+      for (let x = shipTileX - LIVE_WALL_SHIFT_HULL_CLEARANCE_TILES;
+        x <= shipTileX + LIVE_WALL_SHIFT_HULL_CLEARANCE_TILES; x++) {
+        if (isTileInBounds(x, y)) hullClearance.add(tileIndex(x, y));
+      }
+    }
+
+    const runs = applyLiveWallShift(sector, Math.random, hullClearance);
+    if (!runs) return;
+    this.wallShiftsBySector.set(key, spent + 1);
+
+    this.worldMode.notifyGeometryChanged();
+    this.minimapFeed.invalidateUnderlay();
+    for (const run of [...runs.opened, ...runs.collapsed]) {
+      const centre = run[Math.floor(run.length / 2)];
+      this.effectsManager.playDeathBurst(
+        origin.x + (centre % SECTOR_TILE_COLS) * TILE_SIZE + TILE_SIZE / 2,
+        origin.y + Math.floor(centre / SECTOR_TILE_COLS) * TILE_SIZE + TILE_SIZE / 2,
+        WORLD_GEOMETRY_COLORS.solid.stroke,
+      );
+    }
+    this.cameras.main.shake(160, 0.005);
+    this.soundManager.playComboThreshold();
   }
 
   /**

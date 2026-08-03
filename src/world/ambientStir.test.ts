@@ -6,9 +6,10 @@ import {
 } from './worldTypes';
 import type { SectorDef, TileCoord, WorldGenInputs, WorldMap } from './worldTypes';
 import {
-  BLOOMED_SECTORS_PER_EXPEDITION, applyAmbientBloom, applyAmbientShift,
+  BLOOMED_SECTORS_PER_EXPEDITION, applyAmbientBloom, applyAmbientShift, applyLiveWallShift,
   resolveBloomedSectorKeys, resolveShiftedSectorKeys,
 } from './ambientStir';
+import { hashStringToSeed, mulberry32 } from '../utils/dailySeed';
 
 const INPUTS: WorldGenInputs = {
   abilityGateOrder: ['blink_drive', 'breach_charges', 'magno_tether',
@@ -223,6 +224,48 @@ describe('ambientStir', () => {
         expect(sector.isStart).toBe(false);
         expect(sector.isBossArena).toBe(false);
         expect(sector.hidden === true).toBe(false);
+      }
+    }
+  });
+
+  it('never writes a tile the caller protected, in any room of any seed', () => {
+    for (const seed of SEEDS) {
+      const map = build(seed);
+      for (const sector of map.sectors.values()) {
+        if (sector.isStart || sector.isBossArena || sector.hidden === true) continue;
+        // A 5x5 hull box in the middle of the room, the shape GameScene builds around the ship.
+        const guarded = new Set<number>();
+        for (let y = 7; y <= 11; y++) {
+          for (let x = 14; x <= 18; x++) guarded.add(tileIndex(x, y));
+        }
+        const before = Uint8Array.from(sector.tiles);
+        const rng = mulberry32(hashStringToSeed(`liveShift:${seed}:${sector.key}`));
+        applyLiveWallShift(sector, rng, guarded);
+        for (const index of guarded) expect(sector.tiles[index]).toBe(before[index]);
+      }
+    }
+  });
+
+  it('never costs a doorway or a reachable POI slot when a room moves under the ship', () => {
+    for (const seed of SEEDS) {
+      const map = build(seed);
+      for (const sector of map.sectors.values()) {
+        if (sector.isStart || sector.isBossArena || sector.hidden === true) continue;
+        const reachedBefore = reachableFromEntry(sector);
+        const rng = mulberry32(hashStringToSeed(`liveShiftReach:${seed}:${sector.key}`));
+        // Ten shifts is well past the four GameScene allows one room, so the invariant is
+        // proved to survive repetition rather than only a single write.
+        for (let round = 0; round < 10; round++) applyLiveWallShift(sector, rng, new Set());
+        const reachedAfter = reachableFromEntry(sector);
+        for (const direction of EDGE_DIRECTIONS) {
+          const entry = sector.entryTiles[direction];
+          if (!entry) continue;
+          expect(reachedAfter[tileIndex(entry.tileX, entry.tileY)]).toBe(1);
+        }
+        for (const slot of sector.poiSlots) {
+          const index = tileIndex(slot.tileX, slot.tileY);
+          if (reachedBefore[index] === 1) expect(reachedAfter[index]).toBe(1);
+        }
       }
     }
   });

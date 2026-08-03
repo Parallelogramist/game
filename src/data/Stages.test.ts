@@ -5,8 +5,10 @@ import {
   getDefaultStage,
   BASE_AMBIENT_DARKNESS,
   MIN_STAGE_DRIFT_FACTOR,
+  MIN_STAGE_WALL_SHIFT_SECONDS,
   resolveStageAmbientDarkness,
   resolveStageDriftFactor,
+  resolveStageWallShiftSeconds,
 } from './Stages';
 import { HIDDEN_UNLOCKS } from '../meta/HiddenUnlocks';
 
@@ -159,5 +161,15 @@ describe('stage helpers', () => {
     expect(defaultStage.xpMultiplier).toBe(1.0);
     expect(defaultStage.goldMultiplier).toBe(1.0);
     expect(defaultStage.ambientOverlayAlpha).toBe(0);
+  });
+
+  test('the wall-shift interval is off unless authored, and never faster than the floor', () => {
+    expect(resolveStageWallShiftSeconds({ ...STAGES[0] })).toBe(0);
+    expect(resolveStageWallShiftSeconds({ ...STAGES[0], wallShiftSeconds: 0 })).toBe(0);
+    expect(resolveStageWallShiftSeconds({ ...STAGES[0], wallShiftSeconds: -4 })).toBe(0);
+    expect(resolveStageWallShiftSeconds({ ...STAGES[0], wallShiftSeconds: NaN })).toBe(0);
+    expect(resolveStageWallShiftSeconds({ ...STAGES[0], wallShiftSeconds: 1 }))
+      .toBe(MIN_STAGE_WALL_SHIFT_SECONDS);
+    expect(resolveStageWallShiftSeconds({ ...STAGES[0], wallShiftSeconds: 15 })).toBe(15);
   });
 });
