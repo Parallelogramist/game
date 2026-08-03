@@ -294,7 +294,7 @@ The in-run half (a next-hop bearing on the radar disc) is deliberately not built
 
 ### 4.4 The cell's corner budget is settled, and the fourth corner is the destination lane (2026-08-03)
 
-**Shipped as `FEAT-SORTIE-CHART-TELL` + `FEAT-SORTIE-PLAN-DEFAULT-TELL` (`2e7488c`).** Six filed
+**Shipped as `FEAT-SORTIE-CHART-TELL` + `FEAT-SORTIE-PLAN-DEFAULT-TELL` (`2e7488c`), then extended by `FEAT-STIR-CHART-CELL` (`7f39fb1`).** Six filed
 items were queued behind one decision nobody had made: where a new per-sector mark goes and what
 it costs. It is made here so no later chunk re-derives it.
 
@@ -305,11 +305,16 @@ it costs. It is made here so no later chunk re-derives it.
   destination lane.** The cell interior is not available: POI glyphs sit at their real tile
   positions and can land anywhere inside it.
 - **The lane holds at most ONE badge per cell**, and its occupants are ordered: the sortie landing
-  room first (an action one press away), then a room this expedition's ambient stir changed
-  (`FEAT-STIR-CHART-CELL`), then a room holding an unopened security-grid band
-  (`FEAT-GRID-BAND-CHART-CELL`), then a found region vault (`FEAT-VAULT-CHART-TELL`). Actionable
-  beats informational, and a fact the focused-sector readout already carries loses to one it does
-  not.
+  room first (an action one press away), then a room this expedition's ambient stir changed, then a
+  room holding an unopened security-grid band (`FEAT-GRID-BAND-CHART-CELL`), then a found region
+  vault (`FEAT-VAULT-CHART-TELL`). Actionable beats informational, and a fact the focused-sector
+  readout already carries loses to one it does not. **Occupants 1 and 2 are built**
+  (`FEAT-STIR-CHART-CELL`, `7f39fb1`), so the next lane item is occupant 3. The stir badge is a
+  doubled ripple in the hazard orange the ground it names is painted in, and it is the occupant
+  that carries a gate the sortie badge does not: it draws only on a `VISITED` cell, because a
+  stir is an interior fact and `sectorDetail`'s own bloom and shift rows take the same gate for the
+  same reason. One badge covers both a bloom and a shift: the lane allows one mark per cell, so a
+  room that took both is not two.
 - **The real budget is the legend, not the cell.** Each occupant costs one legend row, and the
   panel is already 23 rows / 504 px against roughly 460 px between its clamp and the detail bar on
   a 720-high canvas: the sortie row is the last one that fits. **That budget was spent and then

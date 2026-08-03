@@ -2973,8 +2973,8 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   second question on the same surface. Value: the vault is a destination on the map, not a
   toast that scrolled past. Deps: **the chart-crowding call is settled**
   (`references/map/README.md` section 4.4, `2e7488c`): the bottom-right corner is the destination
-  lane and this item is occupant 4 of it, behind the sortie badge (shipped),
-  `FEAT-STIR-CHART-CELL` and `FEAT-GRID-BAND-CHART-CELL`.
+  lane and this item is occupant 4 of it, behind the sortie badge and the stir ripple (both
+  shipped, `7f39fb1`) and `FEAT-GRID-BAND-CHART-CELL`.
   **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
   a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
   Do not re-derive the placement.
@@ -8734,7 +8734,7 @@ exploring pays is the end of Phase 5.
   1's `toBeGreaterThanOrEqual(4)` held across all five seeds with no lowering. Files
   `POLISH-WORLD-AMBIENT-SHIFT` and extends `FEAT-STIR-CHART-CELL` to cover both marks.
 
-- [ ] **FEAT-STIR-CHART-CELL** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): a bloomed room is
+- [x] **FEAT-STIR-CHART-CELL** (done, 7f39fb1) (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): a bloomed room is
   named in the focused-sector readout but carries no mark on the chart cell, so finding which
   charted room changed still means focusing cells one at a time. Cut for exactly the reason
   `FEAT-GRID-BAND-CHART-CELL` was: the cell already carries a cleared notch, a hint badge, an
@@ -8749,6 +8749,29 @@ exploring pays is the end of Phase 5.
   A shifted room's readout row shipped with `FEAT-STIR-COLLAPSE` (`2462679`) and lands in the same
   readout with the same chart-crowding question, so this one item now covers both marks and no twin
   item is filed for the shift.
+  **What shipped.** The chart's bottom-right destination lane now carries a second occupant: a
+  doubled ripple on every VISITED room this expedition's ambient stir bloomed or shifted, plus the
+  `CHANGED THIS RUN` legend row that keeps the panel a complete list of what the renderer draws.
+  1. **The gap it closed, symptom first.** `applyAmbientBloom` and `applyAmbientShift` change three
+     rooms each per expedition and the only surface that named one was the focused-sector readout
+     (`sectorDetail.ts`, `Bloomed ground · fresh hazard strips` / `Shifted walls · the room changed
+     shape`), which describes exactly one room at a time. Finding which of a charted world's rooms
+     changed therefore meant arrowing the cursor over cells one by one.
+  2. **One badge, both marks.** README section 4.4 gives the lane one badge per cell, so
+     `MapScene` unions `bloomedSectorKeys` and `shiftedSectorKeys` into `stirredSectorKeys` once in
+     `init()` and the renderer takes a single set. A room that both bloomed and shifted is one
+     mark. That is why no twin item was filed for the shift.
+  3. **The sortie badge still wins the lane.** The new draw is an `else if` on the existing sortie
+     branch, and both share one size and one pair of offsets, so no existing badge moved.
+  4. **It carries a gate the sortie badge does not.** The ripple draws only where
+     `SectorFlags.VISITED` is set, the same gate `sectorDetail` puts on both readout rows and for
+     the reason stated there: a stir is an interior fact, and marking it on a room charted only as
+     an outline would describe an interior the chart refuses to draw.
+  5. **Hazard orange, shared on purpose.** `WORLD_GEOMETRY_COLORS.hazard.stroke` is the colour the
+     world paints the `HazardFloor` a bloom grows, so the chart names the change in the colour the
+     room will show it in. `GUARDED_RING` shares that orange and cannot be confused with it: the
+     ring is a circle around a POI glyph in the cell interior, the ripple is a corner badge.
+  6. **Not seen in a browser yet.** Filed as `POLISH-MAP-STIR-BADGE` under `## Human gates`.
 
 - [ ] **BALANCE-STIR-BLOOM-SPREAD** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): three rooms
   per expedition and four extra 3x1 runs per room are measured against the generator (a sector is
@@ -10705,7 +10728,8 @@ exploring pays is the end of Phase 5.
   chart has not budgeted. Value: a shortcut you have not opened yet is a place, not a count.
   Deps: **the chart-crowding call is settled** (`references/map/README.md` section 4.4,
   `2e7488c`): the bottom-right corner is the destination lane and this item is occupant 3 of it,
-  behind the shipped sortie badge and `FEAT-STIR-CHART-CELL`.
+  behind the shipped sortie badge and the shipped stir ripple (`7f39fb1`). Both occupants ahead
+  of it are built, so this is the next lane item.
   **Dep cleared (`2c776d9`):** `FEAT-MAPUI-LEGEND-TOGGLE` shipped the column reflow and the fold, so
   a lane row costs nothing scarce. See `references/map/README.md` section 4.5.
   Do not re-derive the placement.
@@ -13155,6 +13179,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-STIR-BADGE** (filed by FEAT-STIR-CHART-CELL, 7f39fb1). The stir ripple has
+  never been seen in a browser. Open the chart a few rooms into an expedition that has stirred
+  rooms you have already visited. (a) does a doubled ripple read as "this room changed", or does it
+  read as a second crack glyph? (b) hazard orange is also the guarded-vault ring's orange and both
+  can sit in one cell: do they collide, or does corner-versus-interior separate them? (c) at zoom
+  0.5 the badge is 3 px in a cell that may also carry a lead badge, a pin, a mark and POI glyphs:
+  is it legible, or does the lane need a zoom floor (the same question (b) of
+  POLISH-SORTIE-CHART-BADGE asks)? (d) three bloomed plus three shifted rooms per expedition means
+  up to six ripples on one chart, minus the unvisited ones: does that read as the world breathing
+  or as noise? (e) the badge is hidden on any room holding the sortie landing badge, which is
+  correct by the one-badge rule but silently drops a fact: does that ever matter in play?
+  (f) `CHANGED THIS RUN` is the legend label: does "run" or "expedition" match what the rest of the
+  UI calls it? Do not retune any of it blind.
 
 - [ ] **POLISH-MAP-LEGEND-FOLD** (filed by FEAT-MAPUI-LEGEND-TOGGLE, 2c776d9). The folded legend and
   the two-column legend have never been seen in a browser. Open the chart in a run and again from
