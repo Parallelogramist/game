@@ -247,6 +247,15 @@ the ship can fly to it: `src/expedition/sectorRoute.ts` walks the sector graph b
   `BootLaunchData` field because Phaser retains a scene's last `settings.data` and
   `flyExpeditionWorld` ends in `scene.restart()`, so a retained field would auto-start a run on a
   later world change. The browser verdict is `POLISH-MAP-SURVEY` question (g).
+- **And the tile says what is left to survey (`FEAT-SURVEY-TILE-BADGE`, `0742427`).** The
+  SURVEY tile wears the live world's charted percent. It is read, never computed: the deck is built
+  in `BootScene.create()` and `summariseCurrentExpedition` is one 33 ms `generateWorld`, so
+  `ExpeditionSeasonState.liveProgress` caches the number, stamped with `(seed, worldGenVersion)`.
+  Two producers write it and no others may: `bindCurrentExpeditionWorld` (which every between-runs
+  path reaches a bound world through) and `GameScene.buildExpeditionDebrief` at run end. Any stamp
+  mismatch reads as no snapshot and the badge is simply absent, which is why a traded or
+  returned-to world shows nothing until its first run end rather than showing the last world's
+  percent.
 - **And the panel names the fight, not just the flight (`CHORE-LOCKOUT-VAULT-GUARD-TELL`,
   `13d9466`).** A LOCKED OUT row's vault clause reads `GUARDED VAULT 3 HOPS` or
   `UNSEALED VAULT 3 HOPS`, and a guarded vault sinks below a fightless source at an equal opening

@@ -2950,16 +2950,45 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
      practice and gauntlet are untouched by construction: `MapScene` is expedition-only.
   9. **Filed with it**: `POLISH-MAP-SURVEY` under `## Human gates`, plus
      `FEAT-SURVEY-TILE-BADGE` and `FEAT-SURVEY-LAUNCH-FROM-CHART` under `## Proposed (auto)`.
-- [ ] **FEAT-SURVEY-TILE-BADGE** (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY): the SURVEY tile
-  carries no badge, where CHART carries `W<n>` and OBJECTIVES carries its active count. The obvious
-  badge is the world's completion percent, and it is deliberately absent: reading it needs
-  `summariseCurrentExpedition()`, whose own doc comment forbids calling it from a scene's `create()`
-  because it is one 33 ms `generateWorld`, and the deck is built in `create()`. Making it cheap
-  means banking the percent onto the season store at run end, which is the same "bank the derived
-  number rather than regenerate for it" question `FEAT-RETURN-SECRETS-LEFT-SORT` is already asking
-  for its own sort. Value: the tile says whether the world is worth surveying before it is opened.
-  Deps: pairs with `FEAT-RETURN-SECRETS-LEFT-SORT`; build them together or the store field is
-  designed twice.
+- [x] **FEAT-SURVEY-TILE-BADGE** (done, 0742427) (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY):
+  the SURVEY tile carries the live world's charted percent. Value: George can see, before opening
+  anything, how much of the world he is currently flying has been charted, so the one silent
+  expedition tile in the GAME MODES deck now answers "is this world worth opening".
+  **What shipped.** A stamped snapshot on the season state, written by the two paths that already
+  hold the world open, read for free by the deck.
+  1. **The gap it closed, symptom first.** The badge was not omitted for taste: the percent needs
+     `summariseCurrentExpedition()`, whose doc comment forbids calling it from a scene's `create()`
+     because it is one 33 ms `generateWorld`, and the deck is built in `create()`. This removed the
+     mechanical reason rather than paying the 33 ms.
+  2. **`LiveWorldProgress` on `ExpeditionSeasonState`**, `{ seed, worldGenVersion }` plus the
+     `ExpeditionProgressRecord` triple (`completionPercent`, `sectorsCharted`, `secretsFound`) that
+     `bankSeasonAndSwitch` and `switchExpeditionWorld` already took inline, now extracted and shared
+     so one shape is designed once. **No `knowableSectors` / `knowableSecrets`**: denominators are
+     per-seed generator facts and belong to `previewExpeditionWorld`, and a field with no consumer
+     is surface growth.
+  3. **Two producers, no more.** `bindCurrentExpeditionWorld` is the single menu-side write, and it
+     covers all three between-runs paths because CHART, OBJECTIVES and SURVEY all reach a bound
+     world through it (`summariseCurrentExpedition` calls it internally, so it gets no write of its
+     own). `GameScene.buildExpeditionDebrief` is the run-end write, because a run is the only thing
+     that moves these numbers and the menu is not open while one is flying.
+  4. **The stamp is the whole safety story.** `getLiveWorldProgress` returns null unless the
+     snapshot's `seed` matches `currentSeed` AND its `worldGenVersion` matches `WORLDGEN_VERSION`,
+     `bankSeasonAndSwitch` clears it on every world change, and `withLiveWorldProgress` refuses a
+     write whose seed is not the live one. A wrong percent under a world's tile is the one failure
+     this cache can cause, so three pure cases in `ExpeditionSeasonStore.test.ts` pin exactly that.
+  5. **No version bump and no migration.** `SEASON_STATE_VERSION` stays 1 and the field is optional
+     in every stored payload, so an existing profile loads unchanged with `liveProgress: null` and
+     nothing is discarded; the badge simply appears at that profile's next run end or next CHART
+     press. No new storage key (`survivor-expedition-seasons` was already registered), no
+     `GameSaveState` field, no `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` /
+     `WORLD_PROFILE_VERSION` / `WORLD_ARCHIVE_VERSION` move.
+  6. **A returned-to world shows no badge until its first run end, deliberately.** `BankedSeason`
+     carries no `worldGenVersion`, so seeding the snapshot from a banked row would mean inventing a
+     stamp or trusting an unstamped one. Do not "fix" this without giving the banked row a stamp.
+  7. **The pairing caveat is discharged, not deferred.** The item asked to be built with
+     `FEAT-RETURN-SECRETS-LEFT-SORT` "or the store field is designed twice". The mechanism (bank the
+     derived number, stamp it, read it free) is now settled and shared; that item extends it rather
+     than inventing a second one, and its own blocker is unchanged.
 - [x] **FEAT-SURVEY-LAUNCH-FROM-CHART** (done, e53a7e0) (new 2026-08-02, from FEAT-MAPUI-MENU-SURVEY): the survey
   is a read-only screen, so a player who decides on it where to go still closes it, backs out of the
   submenu and presses SKIRMISH. A LAUNCH footer button would close the loop. Held back deliberately:
@@ -3319,6 +3348,15 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   the ordering half would pay 20 `generateWorld` calls per press unless the slot count is banked
   onto `BankedSeason` instead. Value: the button surfaces the world with the most left to find.
   Deps: `POLISH-RETURN-SORT-ORDERS` (a).
+  **The banking mechanism is settled, 2026-08-03 by `FEAT-SURVEY-TILE-BADGE` (0742427), do not
+  re-derive it:** `ExpeditionSeasonState.liveProgress` is a `(seed, worldGenVersion)`-stamped
+  snapshot written by the paths that already hold a world open and read for free anywhere else, and
+  `ExpeditionProgressRecord` is the shared triple. What this item still needs is the SLOT COUNT of
+  each BANKED world, which is a per-seed generator fact rather than a live-world number: the honest
+  extension is a `secretSlots` field on `BankedSeason`, written at bank time from the live world's
+  `knowableSecrets`. That would also stop the RETURN dialog paying one 34 ms `previewExpeditionWorld`
+  per row for the denominator it already prints. Blocked half unchanged: whether the sort should be
+  re-ranked at all is `POLISH-RETURN-SORT-ORDERS` (a), an operator answer.
 - [x] **FEAT-QUEST-BRIEFING** (done, 80464ce) (new 2026-08-02): the objectives you carry are
   readable between runs. Value: George can read every active expedition objective, its current
   step, its progress and which of its rooms are about to restart, from the main menu before he
