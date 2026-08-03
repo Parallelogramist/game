@@ -200,6 +200,17 @@ again inside one life. Three consequences the implementing chunks must honor:
   from". Same channel, same break rules, same one-use consumption, and no `MapScene` change: the
   footer already reads SORTIE when the ship stands at the hangar with an anchor available. The
   playtest half is `POLISH-SORTIE-CARRYOVER`.
+  **The destination became a choice at `2ff8352`** as `FEAT-SORTIE-CHOOSE-DESTINATION`: standing
+  at the hangar with a sortie in hand, the footer button reads `SORTIE 3,2` for whichever room the
+  chart is focused on, and the jump lands there instead of at the anchor. The anchor stays the
+  PERMIT: `beginExpeditionJump` refuses a sortie on a null anchor before it reads any destination,
+  so one recall still buys exactly one return and the channel, the break rules and the boss-lock
+  refusal are untouched. A room is offered only when `plotSectorCourse` returns `plotted`, which is
+  what keeps the ability-gate ordering intact, and the check runs in BOTH `MapScene` (so the button
+  is honest) and `GameScene` (so the public method is safe without trusting its caller): do not
+  collapse them. The boss arena is refused for the same reason the field anchor refuses to record
+  it. The browse-mode half is `FEAT-SORTIE-BROWSE-DESTINATION` and the playtest verdict is
+  `POLISH-SORTIE-CHOOSE-DESTINATION`.
 
 The stranding guarantee doc 04 relies on is unchanged: recall is always *available*
 outside a lock, so physical stranding is impossible and a soft-lock reduces to a

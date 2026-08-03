@@ -2911,6 +2911,55 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-SORTIE-CHOOSE-DESTINATION** (done, 2ff8352) (new 2026-08-03, proposed by the planner
+  from the `FEAT-EXPEDITION-RECALL` / `FEAT-EXPEDITION-SORTIE` / `FEAT-EXPEDITION-FIELD-ANCHOR`
+  trio): the return leg goes where you point it. Value: George can start an expedition at any
+  charted room he can legally reach, chosen on the chart, instead of only at the hangar or at the
+  one room the last run died in.
+  1. **What shipped**: `GameScene.resolveSortieDestination`, an optional `destinationSectorKey` on
+     `beginExpeditionJump` / `beginExpeditionSortie`, and `MapScene.sortieDestinationKey` +
+     `refreshSortieLabel`, so standing at the hangar with a sortie in hand the footer button reads
+     `SORTIE 3,2` for any focused room the chart can plot a course to, and the jump lands there.
+  2. **The gap it closed.** Three shipped features built a return leg whose destination the player
+     could never choose: a fresh expedition is handed one jump to `fieldAnchorSectorKey` and starts
+     at the hangar, so where to insert was decided by where the last run happened to die.
+  3. **The permit is the anchor, the destination is only the address.** `beginExpeditionJump`
+     refuses a sortie on `sortieAnchor === null` before it reads any destination, so one recall
+     still buys exactly one return. No change to the 3 s channel, the break rules, the boss-lock
+     refusal or the spend-on-arrival.
+  4. **The legality oracle is `plotSectorCourse`, reused unchanged.** A destination is offered only
+     when the course plots, so a room behind a door this profile cannot open reads `blocked` and
+     the jump cannot skip an ability gate. **Checked in both scenes on purpose**: MapScene's check
+     makes the button honest, GameScene's re-plot makes the public method safe without trusting its
+     caller, because the gate ordering is a solvability invariant (README sections 1.5 and 3.6).
+     Do not collapse them.
+  5. **The boss arena is excluded**, the same room `GameScene:1186` already refuses to record as a
+     field anchor: arriving spawns the Warden and the seal then blocks recall, so a one-press path
+     into it from the hangar is the trap that rule exists to prevent.
+  6. **The landing point is the sector centre snapped by `freeSpotNear`**, the
+     `seedSortieAnchorFromChart` rule: a stored point can be inside rock an ambient stir or a live
+     wall shift dropped on it, while a room's key cannot move.
+  7. **It crowds nothing.** No chart-cell mark, no legend row, no detail-bar row, no footer hint
+     change, no new key and no new gamepad button: the existing button relabels as the existing
+     cursor moves, and `R` / `X` fire the same method. The arrival toast now names the room it
+     landed in, which is true of the anchor jump as well.
+  8. **No storage key and no version constant moved** (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+     `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` all stay put), no `GameSaveState` field changed,
+     and arena is untouched by construction: `MapScene` never opens in an arena run
+     (`openExpeditionMap` returns on a null world map).
+  9. **No new test, deliberately**: every line is Phaser-coupled scene state, which this repo
+     verifies by play, and `plotSectorCourse` already ships its own tests unmodified.
+  10. **Filed with it**: `POLISH-SORTIE-CHOOSE-DESTINATION` under `## Human gates` and
+      `FEAT-SORTIE-BROWSE-DESTINATION` below.
+- [ ] **FEAT-SORTIE-BROWSE-DESTINATION** (new 2026-08-03, from FEAT-SORTIE-CHOOSE-DESTINATION): the
+  insertion point can only be chosen once the run is already underway, because the between-runs
+  survey shows `LAUNCH` where a run shows `SORTIE` and `MapScene.recall()` returns early on
+  `this.browsing`. So the player opens the chart from the menu, plans, launches, then opens the
+  chart again at the hangar to actually pick. Cut for a mechanical reason rather than a preference:
+  browse mode has no live `GameScene` to start a channel on, and `src/expedition/pendingLaunch.ts`
+  is a one-shot boolean that `BootScene` consumes, so carrying a destination through it means
+  giving that flag a payload and teaching a fresh run to spend its seeded sortie on arrival. Value:
+  the plan you make between runs is the run you get. Deps: none.
 - [x] **FEAT-BIOME-REGION-SHIFT** (done, 3bae4c7) (new 2026-08-03, proposed by the planner, from
   `references/map/README.md` section 6, "Biome mechanics, not just tints"): the seventh slice, and
   the last of the three sector-scale mechanics that bullet names by hand. An Inferno room
@@ -12889,6 +12938,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-SORTIE-CHOOSE-DESTINATION** (new 2026-08-03, from FEAT-SORTIE-CHOOSE-DESTINATION):
+  fly a fresh expedition, open the map at the hangar with a `SORTIE READY` toast behind you, and
+  move the cursor. (a) Does the button relabelling itself from `SORTIE` to `SORTIE 3,2` read as an
+  affordance, or does it need a word in the footer hint line (which is word-wrapped inside a 44 px
+  footer, so a wrap would clip)? (b) Is `SORTIE 3,2` the right label, or should it name the room
+  the way the detail bar's headline does? (c) Is choosing the insertion point too strong at run
+  start, i.e. does it delete the early game by dropping a level-1 build straight into a depth-7
+  room, or is the danger of arriving under-levelled its own cost? (d) The boss arena is refused
+  on purpose (see the item's point 5): does being unable to point at it read as a rule or as a
+  bug? (e) Does the arrival toast naming the sector help, or is it noise on the anchor jump where
+  the old wording was already true?
 - [ ] **POLISH-BIOME-REGION-SHIFT-LIVE** (new 2026-08-03, from FEAT-BIOME-REGION-SHIFT). An
   Inferno room now rearranges itself under the ship and none of it has been flown. Questions, all
   feel: (a) does 15 s between shifts read as a restless region or as noise, given a room is one
