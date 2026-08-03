@@ -116,6 +116,8 @@ import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expediti
 import { PoiFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { plotSectorCourse } from '../../expedition/sectorRoute';
+import { consumePlannedSortie } from '../../expedition/pendingLaunch';
+import type { PlannedSortie } from '../../expedition/pendingLaunch';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -1327,7 +1329,12 @@ export class GameScene extends Phaser.Scene {
     // A fresh expedition inherits one jump back to where the last one ended. Never on a
     // restore: that run's own anchor is already in the save, spent or unspent, and re-seeding
     // here would refund a jump the player has taken every time the page reloads.
-    if (!this.shouldRestore) this.seedSortieAnchorFromChart(map);
+    // The survey's plan is drained on BOTH paths and only used on the fresh one: pressing LAUNCH
+    // and then cancelling the save-loss confirmation must not leave a pick armed for some later
+    // run. An arena run never reaches here (no map), which is why a daily challenge taken between
+    // planning and launching does not eat the plan.
+    const plannedSortie = consumePlannedSortie();
+    if (!this.shouldRestore) this.seedSortieAnchorFromChart(map, plannedSortie);
     const completionPercent = getDiscoveryManager().getCompletionPercent();
     this.mapCompletionMilestoneShown = highestCompletionMilestone(completionPercent);
     // A profile that charted before this shipped reads correct on its first bind instead of
@@ -1338,24 +1345,62 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The one SORTIE a fresh expedition starts with: the chart's field anchor, the last room a
-   * previous run reached in this world. The sector CENTRE rather than a remembered point,
-   * because a stored point can be inside rock that an ambient stir dropped on it while the
-   * room's key cannot move; the arrival snaps through the same freeSpotNear a recall does.
+   * Where the between-runs survey pointed this run's seeded sortie, or null when it pointed
+   * nowhere legal. Re-checked here rather than trusted from MapScene for the reason
+   * resolveSortieDestination records: the ability-gate ordering is a solvability invariant
+   * (README sections 1.5 and 3.6), and this input arrives through a module-level global.
+   *
+   * Plotted from map.startKey and not from the player, because a fresh expedition always starts
+   * at the hangar and the survey measured its own course from there too, so both ends judge the
+   * identical trip. The boss arena is refused for the reason the field anchor refuses to record
+   * it: arriving spawns the Warden and the seal then blocks recall.
    */
-  private seedSortieAnchorFromChart(map: WorldMap): void {
+  private resolvePlannedSortieKey(map: WorldMap, plan: PlannedSortie | null): string | null {
+    if (plan === null) return null;
+    if (plan.worldSeed !== map.seed || plan.worldGenVersion !== map.worldGenVersion) return null;
+    if (plan.sectorKey === map.bossArenaKey) return null;
+    if (!map.sectors.has(plan.sectorKey)) return null;
+    const discovery = getDiscoveryManager();
+    const course = plotSectorCourse({
+      map,
+      fromSectorKey: map.startKey,
+      toSectorKey: plan.sectorKey,
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      holdsAbility: (abilityId) => this.ownedTraversalAbilityIds.has(abilityId),
+      holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+    });
+    return course.kind === 'plotted' ? plan.sectorKey : null;
+  }
+
+  /**
+   * The one SORTIE a fresh expedition starts with: the room the survey picked, or the chart's
+   * field anchor, the last room a previous run reached in this world. The anchor is the PERMIT
+   * either way — no anchor, no sortie, whatever was planned — so picking a destination between
+   * runs can never buy a jump the profile had not already earned.
+   *
+   * The sector CENTRE rather than a remembered point, because a stored point can be inside rock
+   * that an ambient stir dropped on it while the room's key cannot move; the arrival snaps
+   * through the same freeSpotNear a recall does.
+   */
+  private seedSortieAnchorFromChart(map: WorldMap, plan: PlannedSortie | null): void {
     const anchorKey = getFieldAnchor(map.seed, map.worldGenVersion);
     if (anchorKey === null) return;
-    const sector = map.sectors.get(anchorKey);
-    const coord = parseSectorKey(anchorKey);
+    const plannedKey = this.resolvePlannedSortieKey(map, plan);
+    const destinationKey = plannedKey ?? anchorKey;
+    const sector = map.sectors.get(destinationKey);
+    const coord = parseSectorKey(destinationKey);
     if (!sector || !coord) return;
     const centre = sectorCenterWorld(coord);
     this.sortieAnchor = { x: centre.x, y: centre.y };
     this.toastManager?.showToast({
       tier: 'notable',
-      title: 'SORTIE READY',
-      description: `The chart holds SECTOR ${anchorKey}, DEPTH ${sector.depth}.`
-        + ' Open the map to fly straight back.',
+      title: plannedKey === null ? 'SORTIE READY' : 'SORTIE PLOTTED',
+      description: plannedKey === null
+        ? `The chart holds SECTOR ${destinationKey}, DEPTH ${sector.depth}.`
+          + ' Open the map to fly straight back.'
+        : `You picked SECTOR ${destinationKey}, DEPTH ${sector.depth}.`
+          + ' Open the map and SORTIE to fly straight there.',
       icon: 'rocket',
       color: ACCENT_COLORS.primary,
       duration: 3600,

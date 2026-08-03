@@ -24,7 +24,7 @@ import { MAX_SECTOR_NOTE_LENGTH, SECTOR_MARKS, SECTOR_MARK_CYCLE,
 import type { SectorMarkKind } from '../../expedition/sectorMarks';
 import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
-import { setPendingExpeditionLaunch } from '../../expedition/pendingLaunch';
+import { setPendingExpeditionLaunch, setPlannedSortie } from '../../expedition/pendingLaunch';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { describeSectorCourse, plotSectorCourse } from '../../expedition/sectorRoute';
 import type { SectorCourse } from '../../expedition/sectorRoute';
@@ -86,7 +86,9 @@ export interface MapSceneData {
    *  out of a sealed fight would strand the lock. */
   recallAvailable: boolean;
   /** True when a recall left an anchor this run. Passed in for the same reason recallAvailable is:
-   *  only GameScene knows, and reading it here would be a second source of truth. */
+   *  only GameScene knows, and reading it here would be a second source of truth. In browse mode
+   *  there is no run and BootScene answers it from the world profile's field anchor, which is the
+   *  same fact one screen earlier: this profile has a sortie in hand for this world. */
   sortieAvailable: boolean;
 }
 
@@ -807,6 +809,7 @@ export class MapScene extends Phaser.Scene {
       this.launchButton?.setHoverState(true));
     this.launchButton.card.hitZone.on('pointerout', () =>
       this.launchButton?.setHoverState(false));
+    this.refreshSortieLabel();
   }
 
   /** The touch and mouse opener for the note field, left of the action button. Disabled rather than hidden
@@ -850,10 +853,18 @@ export class MapScene extends Phaser.Scene {
   /** Hands the launch to BootScene rather than starting the run here: BootScene owns the
    *  save-loss confirmation, the clear-save and the sweep into the funnel that every other
    *  launch in the game goes through, and a second entry point into that flow is exactly what
-   *  this feature was held back on. */
+   *  this feature was held back on.
+   *  The focused room rides along as the fresh run's sortie destination, and a launch with nothing
+   *  legal focused deliberately writes null rather than leaving an older pick armed. */
   private launch(): void {
     if (this.closed) return;
     if (!this.browsing) return;
+    const destination = this.sortieDestinationKey();
+    setPlannedSortie(destination === null ? null : {
+      worldSeed: this.mapData.seed,
+      worldGenVersion: this.mapData.worldGenVersion,
+      sectorKey: destination,
+    });
     setPendingExpeditionLaunch();
     this.close({ launching: true });
   }
@@ -922,9 +933,16 @@ export class MapScene extends Phaser.Scene {
    * jumping past it would skip an ability gate, `here` is the hangar the ship is already in, and
    * `none` is a room the chart cannot connect. The boss arena is refused for the reason the field
    * anchor refuses to record it, so the ship is never one press from a sealed fight.
+   * Browse mode reaches the same three refusals for free: the survey's course is plotted from the
+   * hangar, so the hangar itself answers `here` and an unreachable room answers `none` or
+   * `blocked`.
    */
   private sortieDestinationKey(): string | null {
-    if (this.recallState !== 'sortie') return null;
+    // Two permits for one rule, because the two modes learn the same fact differently: in a run
+    // the footer only reads SORTIE once an anchor exists, and between runs BootScene has already
+    // asked the profile the same question. Neither mode may pick a destination without one.
+    const permitted = this.browsing ? this.sortieAvailable : this.recallState === 'sortie';
+    if (!permitted) return null;
     if (this.focusedCell === null) return null;
     if (this.course.kind !== 'plotted') return null;
     const key = `${this.focusedCell.gridX},${this.focusedCell.gridY}`;
@@ -932,8 +950,13 @@ export class MapScene extends Phaser.Scene {
   }
 
   private refreshSortieLabel(): void {
-    if (this.recallButton === null || this.recallState !== 'sortie') return;
     const destination = this.sortieDestinationKey();
+    if (this.browsing) {
+      this.launchButton?.setLabel(
+        destination === null ? 'LAUNCH' : `LAUNCH · ${destination}`);
+      return;
+    }
+    if (this.recallButton === null || this.recallState !== 'sortie') return;
     this.recallButton.setLabel(destination === null ? 'SORTIE' : `SORTIE ${destination}`);
   }
 

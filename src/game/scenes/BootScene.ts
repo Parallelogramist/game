@@ -85,7 +85,7 @@ import {
   getWorldBoundStepProgress,
 } from '../../meta/ExpeditionQuestManager';
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
-import { isWorldConquered } from '../../expedition/WorldProfileStore';
+import { getFieldAnchor, isWorldConquered } from '../../expedition/WorldProfileStore';
 import { parseSectorKey, sectorCenterWorld } from '../../world/worldSpace';
 import type { MapSceneData } from './MapScene';
 import {
@@ -746,7 +746,10 @@ export class BootScene extends Phaser.Scene {
         bloomedSectors: [],
         shiftedSectors: [],
         recallAvailable: false,
-        sortieAvailable: false,
+        // The one thing between runs that a fresh run really will hold: seedSortieAnchorFromChart
+        // reads this same anchor at bind, so the chart offers a destination exactly when the run
+        // will honour one.
+        sortieAvailable: getFieldAnchor(map.seed, map.worldGenVersion) !== null,
       };
       transitionToScene(this, 'MapScene', payload);
     };

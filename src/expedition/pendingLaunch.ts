@@ -15,3 +15,26 @@ export function consumePendingExpeditionLaunch(): boolean {
   pendingExpeditionLaunch = false;
   return pending;
 }
+
+/** Where the between-runs survey pointed the fresh run's one seeded SORTIE. Stamped with the
+ *  world it was planned in, because a player can chart a NEW world between pressing LAUNCH and
+ *  the run binding, and a key like "3,2" exists in that world too. */
+export interface PlannedSortie {
+  worldSeed: number;
+  worldGenVersion: number;
+  sectorKey: string;
+}
+
+// A second value rather than a payload on the flag above: BootScene consumes the flag to start
+// the run and GameScene consumes this to aim the jump, and one value cannot be consumed twice.
+let plannedSortie: PlannedSortie | null = null;
+
+export function setPlannedSortie(plan: PlannedSortie | null): void {
+  plannedSortie = plan;
+}
+
+export function consumePlannedSortie(): PlannedSortie | null {
+  const plan = plannedSortie;
+  plannedSortie = null;
+  return plan;
+}
