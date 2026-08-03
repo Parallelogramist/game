@@ -2911,6 +2911,21 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [ ] **FEAT-PRACTICE-BOSS-ARENA-START** (new 2026-08-03, from
+  FEAT-PRACTICE-EXPEDITION-DESTINATION): `listWorldRegions` refuses the boss arena as an entry
+  point, which is right for a real run (arriving spawns the Warden and the seal then blocks
+  recall) and is arguably wrong for the sandbox, where a sealed room is what a Warden playtest
+  wants and exiting is a page reload rather than a stranding. `POLISH-WARDEN-IDENTITY` is open
+  and still costs the whole flight out. Cut deliberately: it needs its own refusal-rule clause
+  rather than a shared one, so the real-run guarantee cannot be loosened by accident. Value:
+  the boss fight a playtest asks about is one press away.
+- [ ] **CHORE-PRACTICE-REGION-ENTRY-DEPTH** (new 2026-08-03, from
+  FEAT-PRACTICE-EXPEDITION-DESTINATION): a region is entered at its SHALLOWEST room, so a
+  mechanic that only fires deep inside it (a death bloom on an elite, a wall shift clock that
+  needs 15 s in one room) still costs a short flight from the region's mouth. Offering the
+  region's deepest non-boss room instead, or both ends, is a one-line change to the entry rule
+  and a labelling question the picker's own playtest should answer first. Deps: question (e)
+  of `POLISH-PRACTICE-EXPEDITION`.
 - [x] **FEAT-PRACTICE-EXPEDITION** (done, 8f19bed) (new 2026-08-03, proposed by the planner):
   the sandbox covers the mode the game actually ships. Value: George can pick any weapon at
   any level on any ship and fly a real expedition of his own world with the practice dock,
@@ -2956,14 +2971,57 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   6. **Cut deliberately:** a destination picker, filed as
      `FEAT-PRACTICE-EXPEDITION-DESTINATION`. The playtest half is
      `POLISH-PRACTICE-EXPEDITION`.
-- [ ] **FEAT-PRACTICE-EXPEDITION-DESTINATION** (new 2026-08-03, from FEAT-PRACTICE-EXPEDITION):
-  a practice expedition starts at the hangar, so reaching the deep region a `POLISH-*` item
-  asks about still costs the flight out. Cut deliberately, not forgotten: starting the run
-  inside a chosen region wants either a start-sector override on `ExpeditionModeAdapter` or a
-  `setPlannedSortie` call, and `seedSortieAnchorFromChart` re-validates a planned sortie
-  against the ability-gate ordering because solvability is an invariant
-  (`references/map/README.md` sections 1.5 and 3.6), so this is a design question rather than
-  a widget. Value: the region a playtest asks about is one press away.
+- [x] **FEAT-PRACTICE-EXPEDITION-DESTINATION** (done, 427f916) (new 2026-08-03, from
+  FEAT-PRACTICE-EXPEDITION): the sandbox drops into the region a playtest is about. Value:
+  George can start a practice expedition inside the Ion Field, the Crystal Caves, the Verdant
+  Rot or the Inferno with any weapon at any level on any ship, instead of paying the flight
+  out from the hangar through ability gates before eleven open playtest questions can even be
+  looked at.
+  1. **What shipped**: the pure `src/world/worldRegions.ts` (`listWorldRegions(map)`: every
+     region shallowest-first, each with the room to enter it at), a `selectedRegionIndex` on
+     `PracticeScene` whose MODE button now cycles
+     `SKIRMISH -> EXPEDITION -> <each deeper region> -> SKIRMISH`, and one
+     `practiceStartSectorKey` field on the `scene.start('GameScene', ...)` payload that
+     `GameScene.resolvePracticeStartPoint` spends at the single fresh-player placement site.
+  2. **Both routes the entry named were rejected, so do not re-derive them.** A
+     `setPlannedSortie` call is gated twice on things a deep-region playtest does not have:
+     `seedSortieAnchorFromChart` returns unless `getFieldAnchor` is non-null (the anchor is
+     the PERMIT), and `resolvePlannedSortieKey` refuses any destination `plotSectorCourse`
+     cannot plot under the abilities and quest keys the profile actually holds, which is
+     exactly the region a playtest cannot reach. Overriding
+     `ExpeditionModeAdapter.playerStartPoint()` was rejected because `beginExpeditionJump`
+     reads it as **RECALL's destination**, so a recall would have returned the ship to the
+     Inferno rather than to the hangar.
+  3. **The solvability invariant is untouched, not worked around.** README sections 1.5 and
+     3.6 exist so a *profile* cannot be progression-blocked; a practice session writes nothing
+     (`SecureStorage` early-returns on `isPracticeSession()`) and every exit reloads the page,
+     so no start point it uses can reach a profile. Recall to the hangar is unchanged and
+     still always available.
+  4. **Two exclusions, both correctness.** `listWorldRegions` never offers the boss arena as
+     an entry point, for the reason the field anchor and a planned sortie refuse it (arriving
+     spawns the Warden and the seal then blocks recall), and never offers a hidden sector,
+     because it is off the chart until a breakable wall is broken and entering one hands over
+     what it conceals. Ordering is depth then `biomeId`, so it cannot swap on Map insertion
+     order.
+  5. **Why the region's mechanics apply on spawn rather than at the first border crossing:**
+     the placement site runs after `bindExpeditionDiscovery` has registered
+     `sectorEnteredHandler` and before `setupCamera`, whose own `enterSector` emits the first
+     `expedition:sector-entered` from wherever the ship actually is; `applySectorStage` then
+     differs from the launch stage (`stage_deep_void`) and applies the region's hazard bias,
+     pack bias, darkness, drift, wall shift and death bloom.
+  6. **Unchanged on purpose:** no new control row, so
+     `computePracticeControlLayout` and both practice layout constants are untouched and the
+     weapon grid, the evolve row and START are all unmoved; `EXPEDITION` is region index 0,
+     whose entry sector IS `map.startKey`, so it sends the exact payload that shipped at
+     `8f19bed`; SKIRMISH is still the opening state; and `startRematchPractice` still passes
+     no `runMode`.
+  7. **The region list is cached keyed on the world seed**, because one `generateWorld` is
+     33 ms and `expeditionWorld.ts` forbids it in a scene's `create()`, so it is built on the
+     first MODE press; a Phaser scene instance outlives `scene.start`, so an unkeyed cache
+     would have offered the previous world's regions after CHART A NEW WORLD.
+  8. **The playtest half is question (e) of the existing `POLISH-PRACTICE-EXPEDITION`**,
+     rewritten rather than filed as a new row: this item exists to make that queue cheaper to
+     drain, so adding to it would defeat the point.
 - [x] **FEAT-HUD-CONTROLS-LINE** (done, 740cd1b) (new 2026-08-03, proposed by the planner):
   the HUD names every verb the run has, for the device in the player's hands. Value: George
   and every visitor to game.parallelogramist.com can read dash, the ultimate, the world chart
@@ -13565,10 +13623,14 @@ Never agent work. The fleet must not do any of these.
   line, the map button, the sector banner and the region signature line), and if so which
   should move? (d) does a practice expedition of the REAL world feel safe to fly, or does it
   want a visible "nothing is saved" tell on the HUD rather than only PRACTICE's existing one?
-  (e) is starting at the hangar with a max-level weapon enough to reach a deep region in
-  reasonable time, or is `FEAT-PRACTICE-EXPEDITION-DESTINATION` needed before this actually
-  drains the playtest queue? Retuning any of the five before a browser verdict is exactly the
-  blind retune the convention forbids.
+  (e) `FEAT-PRACTICE-EXPEDITION-DESTINATION` shipped at 427f916, so the MODE button now cycles
+  `SKIRMISH` then `EXPEDITION` then one entry per deeper region: does a bare region name
+  (`ION FIELD`, `CRYSTAL CAVES`) read as "start an expedition there", or does it read as a
+  stage picker unrelated to the mode toggle beside it? (f) dropping into a region skips the
+  flight but also skips the ability gates on the way, so the ship arrives without whatever a
+  real approach would have taught: is that the right sandbox, or should the pick be limited to
+  regions the profile can actually reach? Retuning any of the six before a browser verdict is
+  exactly the blind retune the convention forbids.
 - [ ] **POLISH-HUD-CONTROLS-LINE** (filed by FEAT-HUD-CONTROLS-LINE, 740cd1b). The bottom-left
   controls line now names five verbs and swaps to gamepad labels, and none of it has been
   seen in a browser. Questions: (a) at 1280 wide, does
