@@ -15,7 +15,7 @@ import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
   drawLeadBadge, drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
-  drawSectorNoteDot, drawSortieBadge, drawStirBadge, drawVaultGuardRing,
+  drawGridBandBadge, drawSectorNoteDot, drawSortieBadge, drawStirBadge, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { getSectorMarks, getSectorNotes, setSectorMark,
   setSectorNote } from '../../expedition/WorldProfileStore';
@@ -723,6 +723,10 @@ export class MapScene extends Phaser.Scene {
     rows.push({
       label: 'Changed this run',
       draw: (graphics, x, y) => drawStirBadge(graphics, x, y, LEGEND_GLYPH_SIZE),
+    });
+    rows.push({
+      label: 'Sealed shortcut',
+      draw: (graphics, x, y) => drawGridBandBadge(graphics, x, y, LEGEND_GLYPH_SIZE),
     });
     for (const kind of SECTOR_MARK_CYCLE) {
       rows.push({

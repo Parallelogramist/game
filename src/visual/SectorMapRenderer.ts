@@ -5,6 +5,7 @@ import { EDGE_DIRECTIONS, EdgeKind, PoiKind, TILE_SIZE, directionDelta,
 import type { EdgeDef, SectorDef, WorldMap } from '../world/worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorOfWorldPoint } from '../world/worldSpace';
 import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from '../expedition/DiscoveryTypes';
+import { countIntactGridBands } from '../world/securityGrids';
 import { gateGlyphFor } from '../expedition/gateGlyphs';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../expedition/poiGlyphs';
 import type { PoiGlyph } from '../expedition/poiGlyphs';
@@ -59,6 +60,11 @@ const GUARDED_RING = WORLD_GEOMETRY_COLORS.hazard.stroke;
  *  in. Shared with GUARDED_RING and unconfusable with it: that is a ring around a POI glyph in the
  *  cell interior, this is a badge in the cell's own bottom-right corner. */
 const STIR_BADGE = WORLD_GEOMETRY_COLORS.hazard.stroke;
+/** A room still holding a lit corridor security-grid band. The magenta the world paints the fence
+ *  tile itself in, so the chart names the shortcut in the colour the ship will meet it in. Close in
+ *  hue to OBJECTIVE_PIN and separated the same way STIR_BADGE is separated from GUARDED_RING: the
+ *  pin sits on the cell's top edge, this is a badge in its bottom-right corner. */
+const GRID_BAND_BADGE = WORLD_GEOMETRY_COLORS.securityGrid.stroke;
 
 const BIOME_TINTS = new Map<string, number>(STAGES.map(stage => [stage.id, stage.gridPulseColor]));
 
@@ -387,6 +393,21 @@ export function drawStirBadge(
 }
 
 /**
+ * A room still holding a lit corridor grid band: a phase-cloak shortcut you have not opened.
+ * Occupant 3 of the destination lane (README section 4.4), so it draws only in a cell neither the
+ * sortie badge nor the stir ripple took. Three lit bars rather than any existing shape: no gate
+ * glyph, POI glyph or lane badge on this chart is vertical bars, so a fence cannot be misread.
+ */
+export function drawGridBandBadge(
+  graphics: Phaser.GameObjects.Graphics, centreX: number, centreY: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1, size * 0.28), GRID_BAND_BADGE, 1);
+  for (const barX of [centreX - size * 0.6, centreX, centreX + size * 0.6]) {
+    graphics.lineBetween(barX, centreY - size, barX, centreY + size);
+  }
+}
+
+/**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
  * be satisfied by anything, so it always reads sealed.
@@ -571,9 +592,10 @@ export class SectorMapRenderer {
       }
 
       // Occupant order is README section 4.4's: the sortie wins the lane, because an action one
-      // press away beats a fact. The stir badge takes the VISITED gate sectorDetail's own bloom and
-      // shift rows take: a stir is an interior fact, and marking it on a room charted only as an
-      // outline would describe an interior the chart refuses to draw.
+      // press away beats a fact. The stir badge and the band badge take the VISITED gate
+      // sectorDetail's own bloom, shift and corridor-grid rows take: both are interior facts, and
+      // marking one on a room charted only as an outline would describe an interior the chart
+      // refuses to draw.
       const laneBadge = Math.max(3, 4.5 * input.view.scale);
       const laneX = cell.x + cell.width - laneBadge - 3;
       const laneY = cell.y + cell.height - laneBadge - 3;
@@ -582,6 +604,8 @@ export class SectorMapRenderer {
       } else if (input.stirredSectorKeys.has(sector.key)
         && (flags & SectorFlags.VISITED) !== 0) {
         drawStirBadge(graphics, laneX, laneY, laneBadge);
+      } else if ((flags & SectorFlags.VISITED) !== 0 && countIntactGridBands(sector) > 0) {
+        drawGridBandBadge(graphics, laneX, laneY, laneBadge);
       }
 
       this.drawPoiIcons(sector, input);
