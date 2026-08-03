@@ -23,6 +23,7 @@ import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, BODY_COLORS, ACCENT_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
+import type { RunModeKind } from '../world/WorldModeAdapter';
 
 /** All 21 weapons — the default projectile plus every unlockable. */
 const PRACTICE_WEAPON_IDS: string[] = ['projectile', ...UNLOCKABLE_WEAPONS.map((w) => w.id)];
@@ -68,6 +69,10 @@ export class PracticeScene extends Phaser.Scene {
   private selectedLevel: number = 1;
   private evolvedEnabled: boolean = false;
   private selectedShipIndex: number = 0;
+  /** The sandbox may fly the player's REAL world because a practice session writes nothing
+   *  (SecureStorage blocks it) and exitPracticeSession reloads the page, so the in-memory
+   *  discovery/quest singletons it mutates never reach the next real run. */
+  private selectedRunMode: RunModeKind = 'arena';
   private relayoutOnly: boolean = false;
 
   constructor() {
@@ -446,9 +451,9 @@ export class PracticeScene extends Phaser.Scene {
     const evolveAvailable = this.isEvolveAvailable();
     const evolveButton = createMenuButton({
       scene: this,
-      x: centerX,
+      x: centerX - 88,
       y: evolveY,
-      width: 220,
+      width: 168,
       height: 36,
       label: `EVOLVED: ${this.evolvedEnabled ? 'ON' : 'OFF'}`,
       variant: this.evolvedEnabled ? 'magenta' : 'neutral',
@@ -462,6 +467,23 @@ export class PracticeScene extends Phaser.Scene {
     evolveButton.setEnabled(evolveAvailable);
     addButtonInteraction(this, evolveButton.container);
     this.controlButtons.push(evolveButton);
+
+    const modeButton = createMenuButton({
+      scene: this,
+      x: centerX + 88,
+      y: evolveY,
+      width: 168,
+      height: 36,
+      label: this.selectedRunMode === 'expedition' ? 'EXPEDITION' : 'SKIRMISH',
+      variant: this.selectedRunMode === 'expedition' ? 'magenta' : 'neutral',
+      fontSize: scaledInt(fontScale, 13),
+      onActivate: () => {
+        this.selectedRunMode = this.selectedRunMode === 'expedition' ? 'arena' : 'expedition';
+        this.renderControls();
+      },
+    });
+    addButtonInteraction(this, modeButton.container);
+    this.controlButtons.push(modeButton);
 
     // START.
     const startButton = createMenuButton({
@@ -489,6 +511,10 @@ export class PracticeScene extends Phaser.Scene {
     fadeOut(this, 200, () => {
       this.scene.start('GameScene', {
         startingWeapon: this.selectedWeaponId,
+        // Explicit on both branches, never omitted: resolveRunMode reads runMode BEFORE it
+        // reads practiceMode, and omitting it is what silently forced every practice run
+        // onto the arena after expedition became the default.
+        runMode: this.selectedRunMode,
         practiceMode: true,
         practiceWeaponLevel: this.selectedLevel,
         practiceEvolved: this.evolvedEnabled,
